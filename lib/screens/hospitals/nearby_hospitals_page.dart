@@ -90,7 +90,7 @@ class _NearbyHospitalsPageState extends State<NearbyHospitalsPage> {
     }
   }
 
-  void _searchHospitalsForCurrentSelectedLocation() async {
+  void _searchHospitalsForCurrentSelectedLocation({bool forceRefresh = false}) async {
     final selLoc = _locationService.selectedLocation;
     if (selLoc == null) {
       _useMyLocation();
@@ -108,6 +108,7 @@ class _NearbyHospitalsPageState extends State<NearbyHospitalsPage> {
     try {
       final HospitalSearchResult result = await _hospitalRepository.searchHospitalsForLocation(
         selLoc,
+        forceRefresh: forceRefresh,
         onProgress: (status) {
           if (mounted) {
             setState(() {
@@ -116,7 +117,7 @@ class _NearbyHospitalsPageState extends State<NearbyHospitalsPage> {
           }
         },
       ).timeout(
-        const Duration(seconds: 25),
+        const Duration(seconds: 30),
         onTimeout: () => HospitalSearchResult(
           hospitals: [],
           maxRadiusMeters: 50000,
@@ -331,7 +332,7 @@ class _NearbyHospitalsPageState extends State<NearbyHospitalsPage> {
                 ),
               ),
               IconButton(
-                onPressed: _searchHospitalsForCurrentSelectedLocation,
+                onPressed: () => _searchHospitalsForCurrentSelectedLocation(forceRefresh: true),
                 icon: const Icon(Icons.refresh_rounded, color: AppTheme.primaryTeal),
                 tooltip: 'Refresh Search',
               ),

@@ -34,10 +34,12 @@ class HospitalRepository {
   Future<HospitalSearchResult> searchHospitalsForLocation(
     SelectedLocation location, {
     Function(String status)? onProgress,
+    bool forceRefresh = false,
   }) async {
     return await _hospitalService.searchHospitalsForLocation(
       location,
       onProgress: onProgress,
+      forceRefresh: forceRefresh,
     );
   }
 }

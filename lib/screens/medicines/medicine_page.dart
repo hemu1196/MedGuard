@@ -301,6 +301,7 @@ class _MedicinePageState extends State<MedicinePage> {
         subtitle: 'Schedule dosages & predict refill needs',
       ),
       floatingActionButton: FloatingActionButton.extended(
+        heroTag: 'medicine_page_fab',
         onPressed: () => _openAddEditDialog(),
         icon: const Icon(Icons.add),
         label: const Text('Add Medicine'),

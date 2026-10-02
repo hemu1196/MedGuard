@@ -20,20 +20,32 @@ class EmergencyContactRepository {
   }
 
   /// Exposes a real-time Firestore stream for emergency contacts.
-  Stream<List<EmergencyContact>> watchEmergencyContacts(String userId) {
-    if (_firestore == null || userId.isEmpty) {
-      return Stream.value([]);
+  Stream<List<EmergencyContact>> watchEmergencyContacts(String userId) async* {
+    if (userId.isEmpty) return;
+
+    // Initial emit from local cache for instant UI feedback
+    final localContacts = await getEmergencyContacts(userId: userId);
+    yield localContacts;
+
+    if (_firestore == null) return;
+
+    try {
+      yield* _firestore!
+          .collection('users')
+          .doc(userId)
+          .collection('emergency_contacts')
+          .snapshots()
+          .map((snapshot) {
+        return snapshot.docs
+            .map((doc) => EmergencyContact.fromMap(doc.data()))
+            .toList();
+      }).handleError((error) {
+        debugPrint('[EMERGENCY CONTACT REPO] Stream error (permission-denied / network): $error');
+        return localContacts;
+      });
+    } catch (e) {
+      debugPrint('[EMERGENCY CONTACT REPO] Firestore watch failed: $e');
     }
-    return _firestore!
-        .collection('users')
-        .doc(userId)
-        .collection('emergency_contacts')
-        .snapshots()
-        .map((snapshot) {
-      return snapshot.docs
-          .map((doc) => EmergencyContact.fromMap(doc.data()))
-          .toList();
-    });
   }
 
   Future<List<EmergencyContact>> getEmergencyContacts({required String userId}) async {

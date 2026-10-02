@@ -3,6 +3,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/user_profile.dart';
+import 'storage_repository.dart';
 
 class ProfileRepository {
   static const String _profileStoragePrefix = 'user_profile_';
@@ -93,11 +94,26 @@ class ProfileRepository {
     required String userId,
   }) async {
     debugPrint('[PROFILE] Saving profile for userId: $userId (Name: ${profile.name})');
+    UserProfile profileToSave = profile;
+
+    // 0. Upload profile image to Firebase Storage if it's a local file path
+    if (profile.profileImagePath != null &&
+        profile.profileImagePath!.isNotEmpty &&
+        !profile.profileImagePath!.startsWith('http')) {
+      final downloadUrl = await StorageRepository().uploadProfileImage(
+        userId: userId,
+        filePath: profile.profileImagePath!,
+      );
+      if (downloadUrl != null) {
+        profileToSave = profile.copyWith(profileImagePath: downloadUrl);
+      }
+    }
+
     // 1. Always save locally first
     final prefs = await SharedPreferences.getInstance();
     final localSuccess = await prefs.setString(
       '$_profileStoragePrefix$userId',
-      profile.toJson(),
+      profileToSave.toJson(),
     );
 
     // 2. Sync to Cloud Firestore asynchronously with a safety timeout
@@ -109,7 +125,7 @@ class ProfileRepository {
             .doc(userId)
             .collection('profile')
             .doc('main')
-            .set(profile.toMap(), SetOptions(merge: true))
+            .set(profileToSave.toMap(), SetOptions(merge: true))
             .timeout(const Duration(seconds: 4));
         debugPrint('[PROFILE] Cloud Firestore sync completed successfully.');
       } catch (e) {

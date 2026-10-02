@@ -44,4 +44,35 @@ class StorageRepository {
     // Fallback: return the local filePath so health record creation is never blocked
     return filePath;
   }
+
+  /// Uploads profile image to Firebase Storage
+  /// Path pattern: users/{userId}/profile/profile_image.jpg
+  Future<String?> uploadProfileImage({
+    required String userId,
+    required String filePath,
+  }) async {
+    try {
+      if (filePath.startsWith('http') || filePath.startsWith('data:')) {
+        return filePath;
+      }
+      final ref = _storage
+          .ref()
+          .child('users')
+          .child(userId)
+          .child('profile')
+          .child('profile_image.jpg');
+
+      if (!kIsWeb) {
+        final file = File(filePath);
+        if (await file.exists()) {
+          final uploadTask = await ref.putFile(file);
+          final downloadUrl = await uploadTask.ref.getDownloadURL();
+          return downloadUrl;
+        }
+      }
+    } catch (e) {
+      debugPrint('Firebase Storage profile image upload failed/bypassed: $e');
+    }
+    return filePath;
+  }
 }

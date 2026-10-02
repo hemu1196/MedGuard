@@ -51,6 +51,46 @@ class HealthRecord {
     this.status = 'active',
   });
 
+  HealthRecord copyWith({
+    String? id,
+    String? userId,
+    HealthRecordType? recordType,
+    String? title,
+    String? description,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+    DateTime? documentDate,
+    String? providerName,
+    String? hospitalName,
+    String? doctorName,
+    List<String>? tags,
+    String? fileUrl,
+    String? thumbnailUrl,
+    Map<String, dynamic>? extractedData,
+    Map<String, dynamic>? metadata,
+    String? status,
+  }) {
+    return HealthRecord(
+      id: id ?? this.id,
+      userId: userId ?? this.userId,
+      recordType: recordType ?? this.recordType,
+      title: title ?? this.title,
+      description: description ?? this.description,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      documentDate: documentDate ?? this.documentDate,
+      providerName: providerName ?? this.providerName,
+      hospitalName: hospitalName ?? this.hospitalName,
+      doctorName: doctorName ?? this.doctorName,
+      tags: tags ?? this.tags,
+      fileUrl: fileUrl ?? this.fileUrl,
+      thumbnailUrl: thumbnailUrl ?? this.thumbnailUrl,
+      extractedData: extractedData ?? this.extractedData,
+      metadata: metadata ?? this.metadata,
+      status: status ?? this.status,
+    );
+  }
+
   String get typeDisplayName {
     switch (recordType) {
       case HealthRecordType.prescription:

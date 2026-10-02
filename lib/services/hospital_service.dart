@@ -68,15 +68,20 @@ class HospitalService {
 
   /// Progressively searches nearby real hospitals from user's coordinates or selected location.
   /// Radii steps: 5 km, 10 km, 25 km, 50 km.
-  /// Stops when at least 5 hospitals are found or 50 km max radius is reached.
+  /// Stops as soon as at least 5 hospitals are found or 50 km max radius is reached.
   Future<HospitalSearchResult> fetchNearbyHospitalsProgressive({
     double? latitude,
     double? longitude,
     SelectedLocation? location,
     Function(String status)? onProgress,
   }) async {
-    final double lat = location?.latitude ?? latitude ?? 17.3850;
-    final double lng = location?.longitude ?? longitude ?? 78.4867;
+    final double lat = location?.latitude ?? latitude ?? 0.0;
+    final double lng = location?.longitude ?? longitude ?? 0.0;
+
+    if (lat == 0.0 && lng == 0.0) {
+      throw ValidationException('Invalid GPS coordinates provided for hospital search.');
+    }
+
     final SelectedLocation activeLoc = location ??
         SelectedLocation(
           latitude: lat,
@@ -89,80 +94,111 @@ class HospitalService {
     final List<int> progressiveRadii = [5000, 10000, 25000, 50000];
     int currentRadius = 5000;
 
+    final List<String> overpassEndpoints = [
+      'https://overpass-api.de/api/interpreter',
+      'https://overpass.kumi.systems/api/interpreter',
+      'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
+    ];
+
     for (final radius in progressiveRadii) {
       currentRadius = radius;
       final radiusKm = radius ~/ 1000;
-      onProgress?.call('Searching within $radiusKm km...');
+      onProgress?.call('Searching hospitals within $radiusKm km...');
 
-      try {
-        final overpassUrl = Uri.parse(
-          'https://overpass-api.de/api/interpreter?data=[out:json][timeout:10];(node(around:$radius,$lat,$lng)[amenity~"hospital|clinic"];way(around:$radius,$lat,$lng)[amenity~"hospital|clinic"];);out%20center%2030;',
-        );
+      final overpassQuery =
+          '[out:json][timeout:8];(node(around:$radius,$lat,$lng)[amenity~"hospital|clinic|doctors"];way(around:$radius,$lat,$lng)[amenity~"hospital|clinic|doctors"];relation(around:$radius,$lat,$lng)[amenity~"hospital|clinic|doctors"];);out center 40;';
 
-        final response = await http.get(overpassUrl).timeout(const Duration(seconds: 8));
+      bool radiusSuccess = false;
+      for (final endpoint in overpassEndpoints) {
+        if (radiusSuccess) break;
+        try {
+          final response = await http.post(
+            Uri.parse(endpoint),
+            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+            body: 'data=${Uri.encodeComponent(overpassQuery)}',
+          ).timeout(const Duration(seconds: 6));
 
-        if (response.statusCode == 200) {
-          final data = json.decode(response.body);
-          final List elements = data['elements'] ?? [];
+          if (response.statusCode == 200) {
+            final data = json.decode(response.body);
+            final List elements = data['elements'] ?? [];
 
-          for (var i = 0; i < elements.length; i++) {
-            final item = elements[i];
-            final tags = item['tags'] ?? {};
+            for (var i = 0; i < elements.length; i++) {
+              final item = elements[i];
+              final tags = item['tags'] ?? {};
 
-            final itemLat = (item['lat'] as num?)?.toDouble() ??
-                (item['center']?['lat'] as num?)?.toDouble() ??
-                lat;
-            final itemLon = (item['lon'] as num?)?.toDouble() ??
-                (item['center']?['lon'] as num?)?.toDouble() ??
-                lng;
+              final double? itemLat = (item['lat'] as num?)?.toDouble() ??
+                  (item['center']?['lat'] as num?)?.toDouble();
+              final double? itemLon = (item['lon'] as num?)?.toDouble() ??
+                  (item['center']?['lon'] as num?)?.toDouble();
 
-            final String rawName = tags['name'] ?? tags['operator'] ?? tags['name:en'] ?? 'Hospital / Medical Center';
-            final String name = rawName.trim();
-            final String street = tags['addr:street'] ?? tags['addr:full'] ?? tags['addr:suburb'] ?? tags['addr:city'] ?? 'Healthcare Facility';
-            final String rawPhone = tags['phone'] ?? tags['contact:phone'] ?? tags['mobile'] ?? '';
-            final String phone = rawPhone.trim();
+              if (itemLat == null || itemLon == null || itemLat == 0.0 || itemLon == 0.0) {
+                continue;
+              }
 
-            final double distanceMeters = Geolocator.distanceBetween(
-              lat,
-              lng,
-              itemLat,
-              itemLon,
-            );
-            final double distanceKm = distanceMeters / 1000.0;
+              final String rawName = tags['name'] ??
+                  tags['operator'] ??
+                  tags['name:en'] ??
+                  tags['official_name'] ??
+                  'Hospital / Emergency Center';
+              final String name = rawName.trim();
+              final String street = tags['addr:street'] ??
+                  tags['addr:full'] ??
+                  tags['addr:suburb'] ??
+                  tags['addr:city'] ??
+                  tags['healthcare'] ??
+                  'Medical Facility';
+              final String rawPhone = tags['phone'] ??
+                  tags['contact:phone'] ??
+                  tags['mobile'] ??
+                  tags['emergency:phone'] ??
+                  '';
+              final String phone = rawPhone.trim();
 
-            final String uniqueId = item['id'] != null
-                ? 'osm_${item['id']}'
-                : '${name}_${itemLat.toStringAsFixed(3)}_${itemLon.toStringAsFixed(3)}';
-
-            if (!deduplicatedMap.containsKey(uniqueId)) {
-              deduplicatedMap[uniqueId] = Hospital(
-                id: uniqueId,
-                name: name,
-                address: street,
-                distanceKm: double.parse(distanceKm.toStringAsFixed(1)),
-                phone: phone,
-                hasEmergencyServices: tags['emergency'] == 'yes' || tags['amenity'] == 'hospital',
-                latitude: itemLat,
-                longitude: itemLon,
-                isDemoData: false,
+              final double distanceMeters = Geolocator.distanceBetween(
+                lat,
+                lng,
+                itemLat,
+                itemLon,
               );
+              final double distanceKm = distanceMeters / 1000.0;
+
+              final String osmKey = item['type'] != null && item['id'] != null
+                  ? 'osm_${item['type']}_${item['id']}'
+                  : 'hospital_${name}_${itemLat.toStringAsFixed(3)}_${itemLon.toStringAsFixed(3)}';
+
+              if (!deduplicatedMap.containsKey(osmKey)) {
+                deduplicatedMap[osmKey] = Hospital(
+                  id: osmKey,
+                  name: name,
+                  address: street,
+                  distanceKm: double.parse(distanceKm.toStringAsFixed(1)),
+                  phone: phone,
+                  hasEmergencyServices:
+                      tags['emergency'] == 'yes' || tags['amenity'] == 'hospital',
+                  latitude: itemLat,
+                  longitude: itemLon,
+                  isDemoData: false,
+                );
+              }
             }
+            radiusSuccess = true;
           }
+        } catch (e) {
+          debugPrint('[HOSPITAL SERVICE] Overpass endpoint error ($endpoint at ${radius}m): $e');
         }
-      } catch (e) {
-        debugPrint('[HOSPITAL SERVICE] Progressive search note at ${radius}m: $e');
       }
 
       final sortedList = deduplicatedMap.values.toList()
         ..sort((a, b) => a.distanceKm.compareTo(b.distanceKm));
 
+      // EARLY EXIT: If 5 or more valid hospitals found, stop progressive expanding
       if (sortedList.length >= 5 || radius == 50000) {
         return HospitalSearchResult(
           hospitals: sortedList,
           maxRadiusMeters: currentRadius,
           statusMessage: sortedList.isNotEmpty
               ? 'Found ${sortedList.length} hospitals within ${currentRadius ~/ 1000} km.'
-              : 'No hospitals found within 50 km.',
+              : 'No hospitals found within 50 km radius.',
           location: activeLoc,
           searchSource: activeLoc.isGps ? 'gps' : 'city',
         );

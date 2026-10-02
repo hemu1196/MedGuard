@@ -19,6 +19,7 @@ class _WaterIntakePageState extends State<WaterIntakePage> {
 
   DailyWaterIntake? _intake;
   bool _isLoading = true;
+  bool _isAddingWater = false;
 
   @override
   void initState() {
@@ -39,11 +40,14 @@ class _WaterIntakePageState extends State<WaterIntakePage> {
   }
 
   void _addWater(int amountMl) async {
+    if (_isAddingWater) return;
+    _isAddingWater = true;
     final userId = await _authRepository.getCurrentUserId();
     final updated = await _waterRepository.addWater(amountMl, userId: userId);
     if (mounted) {
       setState(() {
         _intake = updated;
+        _isAddingWater = false;
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(

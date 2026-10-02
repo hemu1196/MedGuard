@@ -34,8 +34,9 @@ class AuthRepository {
     if (_firebaseAuth != null) {
       try {
         final user = _firebaseAuth!.currentUser;
-        if (user != null) return true;
+        if (user != null && user.uid.isNotEmpty) return true;
       } catch (_) {}
+      return false;
     }
     final prefs = await SharedPreferences.getInstance();
     return prefs.getBool(_sessionKey) ?? false;
@@ -55,7 +56,7 @@ class AuthRepository {
     if (localId != null && localId.isNotEmpty) {
       return localId;
     }
-    throw AuthenticationException('No authenticated user session found.');
+    throw AuthenticationException('No authenticated user session found. Please sign in again.');
   }
 
   /// Real Firebase Email/Password Sign-In

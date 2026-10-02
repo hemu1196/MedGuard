@@ -61,13 +61,11 @@ class LocationService {
       return _selectedLocation!;
     }
 
-    _selectedLocation ??= SelectedLocation(
-      latitude: 17.3850,
-      longitude: 78.4867,
-      cityName: 'Default Area',
-      source: LocationSource.currentGps,
-    );
-    return _selectedLocation!;
+    if (_selectedLocation != null && _selectedLocation!.latitude != 0.0) {
+      return _selectedLocation!;
+    }
+
+    throw AppException('Location service is disabled or permission was denied. Please enable GPS.');
   }
 
   Future<LocationData?> requestLocation() async {

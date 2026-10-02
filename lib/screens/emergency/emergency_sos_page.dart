@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:url_launcher/url_launcher.dart';
 import '../../app/routes.dart';
@@ -446,7 +447,9 @@ class _EmergencySosPageState extends State<EmergencySosPage> {
     );
   }
 
-  void _triggerVoiceSos() {
+  void _triggerVoiceSos() async {
+    await Permission.microphone.request();
+    if (!mounted) return;
     final speech = stt.SpeechToText();
     String detectedText = 'Listening for keywords: "HELP ME", "SOS", or "EMERGENCY"...';
 

@@ -154,6 +154,7 @@ class _HealthVaultPageState extends State<HealthVaultPage> {
     DateTime documentDate = recordToEdit?.documentDate ?? DateTime.now();
     String? attachedFilePath = recordToEdit?.fileUrl;
     String? dialogErrorText;
+    bool isSaving = false;
 
     final picker = ImagePicker();
 
@@ -431,55 +432,80 @@ class _HealthVaultPageState extends State<HealthVaultPage> {
                 child: const Text('Cancel'),
               ),
               ElevatedButton(
-                onPressed: () async {
-                  final title = titleController.text.trim();
-                  if (title.isEmpty) {
-                    setDialogState(() {
-                      dialogErrorText = 'Please enter a Record Title.';
-                    });
-                    return;
-                  }
+                onPressed: isSaving
+                    ? null
+                    : () async {
+                        final title = titleController.text.trim();
+                        if (title.isEmpty) {
+                          setDialogState(() {
+                            dialogErrorText = 'Please enter a Record Title.';
+                          });
+                          return;
+                        }
 
-                  final userId =
-                      _currentUserId ?? await _authRepository.getCurrentUserId();
+                        setDialogState(() {
+                          isSaving = true;
+                          dialogErrorText = null;
+                        });
 
-                  final record = HealthRecord(
-                    id: recordToEdit?.id ??
-                        'rec_${DateTime.now().millisecondsSinceEpoch}',
-                    userId: userId,
-                    recordType: selectedType,
-                    title: title,
-                    description: notesController.text.trim(),
-                    createdAt: recordToEdit?.createdAt ?? DateTime.now(),
-                    updatedAt: DateTime.now(),
-                    documentDate: documentDate,
-                    doctorName: doctorController.text.trim(),
-                    hospitalName: hospitalController.text.trim(),
-                    fileUrl: attachedFilePath,
-                  );
+                        try {
+                          final userId =
+                              _currentUserId ?? await _authRepository.getCurrentUserId();
 
-                  await _vaultRepository.saveRecord(record);
+                          final record = HealthRecord(
+                            id: recordToEdit?.id ??
+                                'rec_${DateTime.now().millisecondsSinceEpoch}',
+                            userId: userId,
+                            recordType: selectedType,
+                            title: title,
+                            description: notesController.text.trim(),
+                            createdAt: recordToEdit?.createdAt ?? DateTime.now(),
+                            updatedAt: DateTime.now(),
+                            documentDate: documentDate,
+                            doctorName: doctorController.text.trim(),
+                            hospitalName: hospitalController.text.trim(),
+                            fileUrl: attachedFilePath,
+                          );
 
-                  if (mounted && dialogContext.mounted) {
-                    Navigator.of(dialogContext).pop();
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          isEditing
-                              ? 'Health record updated successfully.'
-                              : 'Health record added successfully.',
-                        ),
-                        duration: const Duration(seconds: 2),
-                      ),
-                    );
-                    setState(() {});
-                  }
-                },
+                          await _vaultRepository.saveRecord(record);
+
+                          if (mounted && dialogContext.mounted) {
+                            Navigator.of(dialogContext).pop();
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  isEditing
+                                      ? 'Health record updated successfully.'
+                                      : 'Health record added successfully.',
+                                ),
+                                duration: const Duration(seconds: 2),
+                              ),
+                            );
+                            setState(() {});
+                          }
+                        } catch (e) {
+                          if (dialogContext.mounted) {
+                            setDialogState(() {
+                              isSaving = false;
+                              dialogErrorText = 'Upload/save failed. Please try again.';
+                            });
+                          }
+                        }
+                      },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppTheme.primaryTeal,
                   foregroundColor: Colors.white,
                 ),
-                child: Text(isEditing ? 'Save Changes' : 'Save Record'),
+                child: isSaving
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          color: Colors.white,
+                          strokeWidth: 2,
+                        ),
+                      )
+                    : Text(isEditing ? 'Save Changes' : 'Save Record'),
               ),
             ],
           );
@@ -698,6 +724,7 @@ class _HealthVaultPageState extends State<HealthVaultPage> {
         subtitle: 'Personal medical records & documents',
       ),
       floatingActionButton: FloatingActionButton.extended(
+        heroTag: 'health_vault_page_fab',
         onPressed: () => _openAddEditRecordModal(),
         icon: const Icon(Icons.add),
         label: const Text('Add Record'),

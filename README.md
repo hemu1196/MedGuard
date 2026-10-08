@@ -1,4 +1,4 @@
-# med_ai
+# MEDGUARD
 
 A new Flutter project.
 

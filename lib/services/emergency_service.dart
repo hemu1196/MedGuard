@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../core/api/api_client.dart';
 import '../models/emergency_contact.dart';
 import '../models/user_profile.dart';
 import '../repositories/emergency_contact_repository.dart';
@@ -32,23 +33,18 @@ class EmergencyService {
   final EmergencyContactRepository _contactRepository = EmergencyContactRepository();
   final ProfileService _profileService = ProfileService();
   final LocationService _locationService = LocationService();
+  final ApiClient _apiClient = ApiClient();
 
   static const String _sosLogsKey = 'medguard_emergency_sos_logs';
 
-  /// Fetches all configured emergency contacts for the given user ID.
   Future<List<EmergencyContact>> getAllEmergencyContacts({required String userId}) async {
     return await _contactRepository.getEmergencyContacts(userId: userId);
   }
 
-  /// Triggers Emergency SOS Location sharing with actual user emergency contacts.
-  /// 1. Retrieves user emergency contacts from EmergencyContactRepository.
-  /// 2. Fetches dynamic GPS location via LocationService.
-  /// 3. Builds Google Maps location link: https://www.google.com/maps/search/?api=1&query=LAT,LNG
-  /// 4. Opens native SMS composer with recipient and prefilled message payload.
-  /// 5. Logs the SOS event locally.
   Future<EmergencySosResult> triggerSos({
     required String userId,
     LocationData? locationOverride,
+    String triggerType = 'manual',
   }) async {
     final contacts = await getAllEmergencyContacts(userId: userId);
 
@@ -60,7 +56,6 @@ class EmergencyService {
       );
     }
 
-    // Fetch dynamic device GPS location
     LocationData? location = locationOverride;
     if (location == null) {
       try {
@@ -74,7 +69,21 @@ class EmergencyService {
     final cleanPhone = primaryContact.phone.replaceAll(RegExp(r'[^\d+]'), '');
     final fullPhone = primaryContact.displayPhone;
     final UserProfile? profile = await _profileService.getProfile();
-    final userName = (profile != null && profile.name.isNotEmpty) ? profile.name : 'MedGuard User';
+    final userName = (profile != null && profile.name.isNotEmpty) ? profile.name : 'MEDGUARD User';
+
+    // 1. Log SOS Event on MongoDB Atlas via ApiClient
+    if (location != null) {
+      try {
+        await _apiClient.post('/emergency/sos/trigger', body: {
+          'triggerType': triggerType,
+          'latitude': location.latitude,
+          'longitude': location.longitude,
+          'address': location.address ?? '',
+        });
+      } catch (apiErr) {
+        debugPrint('[EMERGENCY SERVICE] Backend SOS log error: $apiErr');
+      }
+    }
 
     String locationString;
     if (location != null) {
@@ -88,10 +97,10 @@ EMERGENCY ALERT
 
 Hi ${primaryContact.name},
 
-This is an emergency alert from $userName via MedGuard AI.
-I may need immediate assistance.
+This is an emergency alert from $userName via MEDGUARD.
+I need immediate medical assistance!
 
-My current location:
+My live location:
 $locationString
 
 Please check my location and contact me immediately.'''.trim();
@@ -110,7 +119,6 @@ Please check my location and contact me immediately.'''.trim();
       debugPrint('[EMERGENCY SERVICE] Could not launch SMS URI ($smsUri): $e');
     }
 
-    // Log the SOS event
     await logSosEvent(
       userId: userId,
       contactName: primaryContact.name,
@@ -131,7 +139,6 @@ Please check my location and contact me immediately.'''.trim();
     );
   }
 
-  /// Logs SOS trigger event locally
   Future<void> logSosEvent({
     required String userId,
     required String contactName,
@@ -163,18 +170,15 @@ Please check my location and contact me immediately.'''.trim();
 
       await prefs.setStringList(_sosLogsKey, existingLogs);
     } catch (e) {
-      debugPrint('[EMERGENCY SERVICE] Failed to log SOS event: $e');
+      debugPrint('[EMERGENCY SERVICE] Failed to log SOS event locally: $e');
     }
   }
 
-  /// Retrieves recorded SOS event logs
   Future<List<Map<String, dynamic>>> getSosLogs() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final rawLogs = prefs.getStringList(_sosLogsKey) ?? [];
-      return rawLogs
-          .map((item) => json.decode(item) as Map<String, dynamic>)
-          .toList();
+      return rawLogs.map((item) => json.decode(item) as Map<String, dynamic>).toList();
     } catch (e) {
       return [];
     }

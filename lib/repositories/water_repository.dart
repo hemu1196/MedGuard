@@ -1,27 +1,11 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../core/api/api_client.dart';
 import '../core/database/database_helper.dart';
 import '../models/water_intake.dart';
 
 class WaterRepository {
-  bool get _isFirebaseAvailable {
-    try {
-      return Firebase.apps.isNotEmpty;
-    } catch (_) {
-      return false;
-    }
-  }
-
-  FirebaseFirestore? get _firestore {
-    if (!_isFirebaseAvailable) return null;
-    try {
-      return FirebaseFirestore.instance;
-    } catch (_) {
-      return null;
-    }
-  }
+  final ApiClient _apiClient = ApiClient();
 
   Future<int> getTargetMl(String userId) async {
     try {
@@ -42,6 +26,37 @@ class WaterRepository {
   }
 
   Future<DailyWaterIntake> getTodayWaterIntake({required String userId}) async {
+    // 1. Attempt API fetch
+    try {
+      final res = await _apiClient.get('/wellness/water');
+      if (res['success'] == true && res['waterIntake'] != null) {
+        final record = res['waterIntake'];
+        final targetMl = (record['targetMl'] as num?)?.toInt() ?? 2000;
+        final consumedMl = (record['consumedMl'] as num?)?.toInt() ?? 0;
+        final logsList = (record['logs'] as List? ?? []).map((l) {
+          final amt = (l['amountMl'] as num).toInt();
+          return WaterIntake(
+            id: DateTime.now().millisecondsSinceEpoch.toString(),
+            userId: userId,
+            amountMl: amt,
+            timestamp: DateTime.tryParse(l['timestamp'] ?? '') ?? DateTime.now(),
+          );
+        }).toList();
+
+        await _setTargetMl(userId, targetMl);
+
+        return DailyWaterIntake(
+          userId: userId,
+          currentMl: consumedMl,
+          targetMl: targetMl,
+          logs: logsList,
+        );
+      }
+    } catch (e) {
+      debugPrint('[WATER REPO] API fetch note: $e');
+    }
+
+    // 2. Local database fallback
     final logs = await getTodayLogs(userId);
     final targetMl = await getTargetMl(userId);
     final currentMl = logs.fold<int>(0, (acc, item) => acc + item.amountMl);
@@ -66,41 +81,15 @@ class WaterRepository {
       debugPrint('[WATER REPO] Reset water error: $e');
     }
 
-    if (_firestore != null) {
-      try {
-        final now = DateTime.now();
-        final startOfDay = DateTime(now.year, now.month, now.day);
-        final endOfDay = DateTime(now.year, now.month, now.day, 23, 59, 59, 999);
-        final snapshot = await _firestore!
-            .collection('users')
-            .doc(userId)
-            .collection('water_intake')
-            .where('timestamp', isGreaterThanOrEqualTo: startOfDay.toIso8601String())
-            .where('timestamp', isLessThanOrEqualTo: endOfDay.toIso8601String())
-            .get();
-
-        for (var doc in snapshot.docs) {
-          await doc.reference.delete();
-        }
-      } catch (e) {
-        debugPrint('[WATER REPO] Reset Firestore water logs error: $e');
-      }
-    }
-
     return await getTodayWaterIntake(userId: userId);
   }
 
   Future<DailyWaterIntake> updateTarget(int targetMl, {required String userId}) async {
     await _setTargetMl(userId, targetMl);
-    if (_firestore != null) {
-      try {
-        await _firestore!.collection('users').doc(userId).set(
-          {'waterTargetMl': targetMl},
-          SetOptions(merge: true),
-        );
-      } catch (e) {
-        debugPrint('[WATER REPO] Sync target to firestore error: $e');
-      }
+    try {
+      await _apiClient.post('/wellness/water', body: {'targetMl': targetMl});
+    } catch (e) {
+      debugPrint('[WATER REPO] Sync target error: $e');
     }
     return await getTodayWaterIntake(userId: userId);
   }
@@ -124,21 +113,16 @@ class WaterRepository {
       timestamp: now,
     );
 
-    // 1. Local SQLite / Web storage
+    // Local SQLite / Web storage
     await DatabaseHelper.instance.insertWaterIntake(log);
 
-    // 2. Sync to Cloud Firestore if Firebase is available
-    if (_firestore != null) {
-      try {
-        await _firestore!
-            .collection('users')
-            .doc(userId)
-            .collection('water_intake')
-            .doc(log.id)
-            .set(log.toMap(), SetOptions(merge: true));
-      } catch (e) {
-        debugPrint('[WATER REPO] Cloud sync error: $e');
-      }
+    // Sync to MongoDB Atlas API
+    try {
+      await _apiClient.post('/wellness/water', body: {
+        'amountMl': amountMl,
+      });
+    } catch (e) {
+      debugPrint('[WATER REPO] API log error: $e');
     }
 
     return log;

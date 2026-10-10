@@ -1,126 +1,84 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../core/api/api_client.dart';
 import '../models/appointment.dart';
 
 class AppointmentRepository {
   static const String _storageKey = 'user_doctor_appointments_list';
+  final ApiClient _apiClient = ApiClient();
 
-  FirebaseFirestore? get _firestore {
+  Stream<List<Appointment>> watchAppointments(String userId) async* {
+    final localList = await getAppointments(userId: userId);
+    yield localList;
+
     try {
-      if (Firebase.apps.isNotEmpty) {
-        return FirebaseFirestore.instance;
+      final remoteList = await getAppointmentsFromApi();
+      if (remoteList.isNotEmpty) {
+        yield remoteList;
       }
-    } catch (_) {}
-    return null;
+    } catch (e) {
+      debugPrint('[APPOINTMENT REPO] watchAppointments API error: $e');
+    }
   }
 
-  /// Exposes a real-time stream for user appointments
-  Stream<List<Appointment>> watchAppointments(String userId) {
-    if (_firestore == null || userId.isEmpty) {
-      return Stream.value([]);
+  Future<List<Appointment>> getAppointmentsFromApi() async {
+    try {
+      final res = await _apiClient.get('/appointments');
+      if (res['success'] == true && res['appointments'] != null) {
+        final list = (res['appointments'] as List)
+            .map((a) => Appointment.fromMap(Map<String, dynamic>.from(a)))
+            .toList();
+        await _saveToLocalCache(list);
+        return list;
+      }
+    } catch (e) {
+      debugPrint('[APPOINTMENT REPO] getAppointmentsFromApi error: $e');
     }
-    return _firestore!
-        .collection('users')
-        .doc(userId)
-        .collection('appointments')
-        .snapshots()
-        .map((snapshot) {
-      return snapshot.docs
-          .map((doc) => Appointment.fromMap(doc.data()))
-          .toList();
-    });
+    return [];
   }
 
   Future<List<Appointment>> getAppointments({required String userId}) async {
-    if (userId.isEmpty) return [];
-
-    if (_firestore != null) {
-      try {
-        final snapshot = await _firestore!
-            .collection('users')
-            .doc(userId)
-            .collection('appointments')
-            .get()
-            .timeout(const Duration(seconds: 4));
-
-        if (snapshot.docs.isNotEmpty) {
-          final appointments = snapshot.docs
-              .map((doc) => Appointment.fromMap(doc.data()))
-              .toList();
-
-          final prefs = await SharedPreferences.getInstance();
-          final rawList = appointments.map((a) => a.toJson()).toList();
-          await prefs.setStringList('${_storageKey}_$userId', rawList);
-
-          return appointments;
-        }
-      } catch (e) {
-        debugPrint('[APPOINTMENT REPO] Firestore fetch note: $e');
-      }
+    final remoteList = await getAppointmentsFromApi();
+    if (remoteList.isNotEmpty) {
+      return remoteList;
     }
 
     final prefs = await SharedPreferences.getInstance();
     final key = '${_storageKey}_$userId';
     final rawList = prefs.getStringList(key) ?? prefs.getStringList(_storageKey) ?? [];
     final all = rawList.map((str) => Appointment.fromJson(str)).toList();
-    return all.where((a) => a.userId == userId || a.userId.isEmpty).toList();
+    return all.where((a) => a.userId == userId || a.userId.isEmpty || userId.isEmpty).toList();
   }
 
   Future<bool> saveAppointment(String userId, Appointment appointment) async {
-    final updatedAppt = Appointment(
-      id: appointment.id,
-      userId: userId,
-      doctorName: appointment.doctorName,
-      specialization: appointment.specialization,
-      hospitalOrClinic: appointment.hospitalOrClinic,
-      appointmentDate: appointment.appointmentDate,
-      phoneNumber: appointment.phoneNumber,
-      address: appointment.address,
-      notes: appointment.notes,
-      reminderEnabled: appointment.reminderEnabled,
-      reminderTimeMinutesBefore: appointment.reminderTimeMinutesBefore,
-      selectedRemindersMinutes: appointment.selectedRemindersMinutes,
-      status: appointment.status,
-      createdAt: appointment.createdAt,
-      updatedAt: DateTime.now(),
-    );
-
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final key = '${_storageKey}_$userId';
-      final rawList = prefs.getStringList(key) ?? [];
-      final all = rawList.map((str) => Appointment.fromJson(str)).toList();
+      final body = {
+        'doctorName': appointment.doctorName,
+        'specialty': appointment.specialization,
+        'hospitalName': appointment.hospitalOrClinic,
+        'appointmentDate': appointment.appointmentDate.toIso8601String(),
+        'appointmentTime': '${appointment.appointmentDate.hour}:${String.fromCharCodes([appointment.appointmentDate.minute])}',
+        'reason': appointment.notes,
+        'notes': appointment.notes,
+      };
 
-      final index = all.indexWhere((a) => a.id == updatedAppt.id);
-      if (index >= 0) {
-        all[index] = updatedAppt;
+      Map<String, dynamic> res;
+      if (appointment.id.length == 24) {
+        res = await _apiClient.put('/appointments/${appointment.id}', body: body);
       } else {
-        all.add(updatedAppt);
+        res = await _apiClient.post('/appointments', body: body);
       }
 
-      final updatedRaw = all.map((a) => a.toJson()).toList();
-      await prefs.setStringList(key, updatedRaw);
+      if (res['success'] == true && res['appointment'] != null) {
+        final savedAppt = Appointment.fromMap(Map<String, dynamic>.from(res['appointment']));
+        await _updateSingleLocalAppt(userId, savedAppt);
+        return true;
+      }
     } catch (e) {
-      debugPrint('[APPOINTMENT REPO] Local save error: $e');
+      debugPrint('[APPOINTMENT REPO] saveAppointment API error: $e');
     }
 
-    if (_firestore != null && userId.isNotEmpty) {
-      try {
-        await _firestore!
-            .collection('users')
-            .doc(userId)
-            .collection('appointments')
-            .doc(updatedAppt.id)
-            .set(updatedAppt.toMap(), SetOptions(merge: true))
-            .timeout(const Duration(seconds: 4));
-      } catch (e) {
-        debugPrint('[APPOINTMENT REPO] Cloud save note: $e');
-      }
-    }
-
-    return true;
+    return await _updateSingleLocalAppt(userId, appointment);
   }
 
   Future<bool> updateStatus(
@@ -128,6 +86,14 @@ class AppointmentRepository {
     String id,
     String status,
   ) async {
+    try {
+      if (id.length == 24) {
+        await _apiClient.put('/appointments/$id', body: {'status': status.toLowerCase()});
+      }
+    } catch (e) {
+      debugPrint('[APPOINTMENT REPO] updateStatus API error: $e');
+    }
+
     final appointments = await getAppointments(userId: userId);
     final index = appointments.indexWhere((a) => a.id == id);
     if (index >= 0) {
@@ -146,6 +112,7 @@ class AppointmentRepository {
         reminderTimeMinutesBefore: old.reminderTimeMinutesBefore,
         selectedRemindersMinutes: old.selectedRemindersMinutes,
         status: status,
+        pdfPath: old.pdfPath,
         createdAt: old.createdAt,
         updatedAt: DateTime.now(),
       );
@@ -159,33 +126,55 @@ class AppointmentRepository {
     String id,
   ) async {
     try {
+      if (id.length == 24) {
+        await _apiClient.delete('/appointments/$id');
+      }
+    } catch (e) {
+      debugPrint('[APPOINTMENT REPO] deleteAppointment API error: $e');
+    }
+
+    try {
       final prefs = await SharedPreferences.getInstance();
       final key = '${_storageKey}_$userId';
       final rawList = prefs.getStringList(key) ?? [];
       final all = rawList.map((str) => Appointment.fromJson(str)).toList();
-
       all.removeWhere((a) => a.id == id);
-
       final updatedRaw = all.map((a) => a.toJson()).toList();
       await prefs.setStringList(key, updatedRaw);
     } catch (e) {
       debugPrint('[APPOINTMENT REPO] Local delete error: $e');
     }
 
-    if (_firestore != null && userId.isNotEmpty) {
-      try {
-        await _firestore!
-            .collection('users')
-            .doc(userId)
-            .collection('appointments')
-            .doc(id)
-            .delete()
-            .timeout(const Duration(seconds: 4));
-      } catch (e) {
-        debugPrint('[APPOINTMENT REPO] Cloud delete note: $e');
-      }
-    }
-
     return true;
+  }
+
+  Future<bool> _updateSingleLocalAppt(String userId, Appointment appt) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final key = '${_storageKey}_$userId';
+      final rawList = prefs.getStringList(key) ?? [];
+      final all = rawList.map((str) => Appointment.fromJson(str)).toList();
+
+      final index = all.indexWhere((a) => a.id == appt.id);
+      if (index >= 0) {
+        all[index] = appt;
+      } else {
+        all.add(appt);
+      }
+
+      final updatedRaw = all.map((a) => a.toJson()).toList();
+      await prefs.setStringList(key, updatedRaw);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> _saveToLocalCache(List<Appointment> appts) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final updatedRaw = appts.map((a) => a.toJson()).toList();
+      await prefs.setStringList(_storageKey, updatedRaw);
+    } catch (_) {}
   }
 }

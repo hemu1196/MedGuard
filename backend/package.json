@@ -1,0 +1,33 @@
+{
+  "name": "medguard-backend",
+  "version": "1.0.0",
+  "description": "MEDGUARD Smart Emergency Assistance & Health Management System Backend",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node index.js",
+    "test:db": "node scripts/testDatabase.js",
+    "test:write": "node scripts/verifyWriteRead.js"
+  },
+  "keywords": [
+    "medguard",
+    "health",
+    "emergency",
+    "express",
+    "mongodb"
+  ],
+  "author": "MEDGUARD Team",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "bcryptjs": "^3.0.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^5.0.1",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.9.3",
+    "multer": "^1.4.5-lts.1",
+    "pdfkit": "^0.16.0",
+    "uuid": "^11.0.5"
+  }
+}

@@ -1,120 +1,57 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../core/api/api_client.dart';
 import '../models/health_record.dart';
-import 'storage_repository.dart';
 
 class HealthRecordRepository {
   static const String _vaultStorageKey = 'user_health_vault_records';
+  final ApiClient _apiClient = ApiClient();
 
-  FirebaseFirestore? get _firestore {
-    try {
-      if (Firebase.apps.isNotEmpty) {
-        return FirebaseFirestore.instance;
-      }
-    } catch (_) {}
-    return null;
-  }
-
-  FirebaseAuth? get _auth {
-    try {
-      if (Firebase.apps.isNotEmpty) {
-        return FirebaseAuth.instance;
-      }
-    } catch (_) {}
-    return null;
-  }
-
-  /// Exposes a real-time Firestore stream for a user's health records collection.
   Stream<List<HealthRecord>> watchHealthRecords(String userId) async* {
-    // Initial emit from local cache for instant UI response
     final localList = await getRecords(userId: userId);
     yield localList;
 
-    final currentUser = _auth?.currentUser;
-    if (_firestore == null || currentUser == null || currentUser.uid != userId) {
-      debugPrint('[HEALTH VAULT REPO] User not authenticated with Firebase Auth or UID mismatch. Using local cache.');
-      return;
-    }
-
     try {
-      yield* _firestore!
-          .collection('users')
-          .doc(userId)
-          .collection('health_records')
-          .snapshots()
-          .map((snapshot) {
-        final records = snapshot.docs
-            .map((doc) => HealthRecord.fromMap(doc.data()))
-            .toList();
-        records.sort((a, b) => b.documentDate.compareTo(a.documentDate));
-
-        // Sync local cache
-        _syncLocalCache(userId, records);
-
-        return records;
-      }).handleError((error) {
-        debugPrint('[HEALTH VAULT REPO] Stream error (permission-denied / network): $error');
-        return localList;
-      });
+      final remoteList = await getRecordsFromApi();
+      if (remoteList.isNotEmpty) {
+        yield remoteList;
+      }
     } catch (e) {
-      debugPrint('[HEALTH VAULT REPO] Firestore watch failed: $e');
-    }
-  }
-
-  Future<void> _syncLocalCache(String userId, List<HealthRecord> firestoreRecords) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final rawList = prefs.getStringList(_vaultStorageKey) ?? [];
-      final localRecords = rawList
-          .map((str) => HealthRecord.fromJson(str))
-          .where((r) => r.userId != userId)
-          .toList();
-      localRecords.addAll(firestoreRecords);
-
-      final updatedRawList = localRecords.map((r) => r.toJson()).toList();
-      await prefs.setStringList(_vaultStorageKey, updatedRawList);
-    } catch (e) {
-      debugPrint('[HEALTH VAULT REPO] Failed to sync local cache: $e');
+      debugPrint('[HEALTH VAULT REPO] watchHealthRecords API error: $e');
     }
   }
 
   Stream<List<HealthRecord>> getRecordsStream({required String userId}) =>
       watchHealthRecords(userId);
 
-  Future<List<HealthRecord>> getRecords({required String userId}) async {
-    final currentUser = _auth?.currentUser;
-    if (_firestore != null && currentUser != null && currentUser.uid == userId) {
-      try {
-        final snapshot = await _firestore!
-            .collection('users')
-            .doc(userId)
-            .collection('health_records')
-            .get();
-
-        if (snapshot.docs.isNotEmpty) {
-          final firestoreRecords = snapshot.docs
-              .map((doc) => HealthRecord.fromMap(doc.data()))
-              .toList();
-          firestoreRecords.sort((a, b) => b.documentDate.compareTo(a.documentDate));
-
-          await _syncLocalCache(userId, firestoreRecords);
-          return firestoreRecords;
-        }
-      } catch (e) {
-        debugPrint('[HEALTH VAULT REPO] getRecords Firestore error (offline fallback): $e');
+  Future<List<HealthRecord>> getRecordsFromApi() async {
+    try {
+      final res = await _apiClient.get('/health-records');
+      if (res['success'] == true && res['records'] != null) {
+        final list = (res['records'] as List)
+            .map((r) => HealthRecord.fromMap(Map<String, dynamic>.from(r)))
+            .toList();
+        await _saveToLocalCache(list);
+        return list;
       }
+    } catch (e) {
+      debugPrint('[HEALTH VAULT REPO] getRecordsFromApi failed: $e');
+    }
+    return [];
+  }
+
+  Future<List<HealthRecord>> getRecords({required String userId}) async {
+    final remoteList = await getRecordsFromApi();
+    if (remoteList.isNotEmpty) {
+      return remoteList;
     }
 
-    // 2. Local SharedPreferences fallback
     final prefs = await SharedPreferences.getInstance();
     final rawList = prefs.getStringList(_vaultStorageKey) ?? [];
     final allRecords = rawList
         .map((str) => HealthRecord.fromJson(str))
         .toList();
-    final userRecords = allRecords.where((r) => r.userId == userId).toList();
+    final userRecords = allRecords.where((r) => r.userId == userId || userId.isEmpty).toList();
     userRecords.sort((a, b) => b.documentDate.compareTo(a.documentDate));
     return userRecords;
   }
@@ -139,88 +76,58 @@ class HealthRecordRepository {
     }
   }
 
-  Future<bool> saveRecord(HealthRecord record) async {
-    HealthRecord recordToSave = record;
+  Future<bool> saveRecord(HealthRecord record, {Uint8List? fileBytes, String? fileName}) async {
+    try {
+      if (record.fileUrl != null && record.fileUrl!.isNotEmpty) {
+        final categoryMap = {
+          HealthRecordType.prescription: 'prescription',
+          HealthRecordType.labReport: 'lab',
+          HealthRecordType.imaging: 'scan',
+        };
+        final category = categoryMap[record.recordType] ?? 'other';
 
-    // 0. Upload attachment to Firebase Storage if it's a local file path
-    if (record.fileUrl != null &&
-        record.fileUrl!.isNotEmpty &&
-        !record.fileUrl!.startsWith('http')) {
-      final downloadUrl = await StorageRepository().uploadHealthRecordAttachment(
-        userId: record.userId,
-        recordId: record.id,
-        filePath: record.fileUrl!,
-        fileName: 'attachment_${DateTime.now().millisecondsSinceEpoch}.jpg',
-      );
-      if (downloadUrl != null) {
-        recordToSave = record.copyWith(fileUrl: downloadUrl);
+        final res = await _apiClient.uploadFile(
+          '/health-records/upload',
+          filePath: record.fileUrl!,
+          fileFieldName: 'file',
+          bytes: fileBytes,
+          filename: fileName ?? record.title,
+          fields: {
+            'title': record.title,
+            'category': category,
+            'notes': record.description,
+            'tags': record.tags.join(','),
+          },
+        );
+
+        if (res['success'] == true && res['record'] != null) {
+          final savedRecord = HealthRecord.fromMap(Map<String, dynamic>.from(res['record']));
+          await _updateSingleLocalRecord(savedRecord);
+          return true;
+        }
       }
+    } catch (e) {
+      debugPrint('[HEALTH VAULT REPO] saveRecord API error: $e');
     }
 
-    // 1. Local update first
-    final prefs = await SharedPreferences.getInstance();
-    final rawList = prefs.getStringList(_vaultStorageKey) ?? [];
-    final allRecords = rawList
-        .map((str) => HealthRecord.fromJson(str))
-        .toList();
-
-    final index = allRecords.indexWhere((r) => r.id == recordToSave.id);
-    if (index >= 0) {
-      allRecords[index] = recordToSave;
-    } else {
-      allRecords.add(recordToSave);
-    }
-
-    final updatedRawList = allRecords.map((r) => r.toJson()).toList();
-    final localSuccess = await prefs.setStringList(_vaultStorageKey, updatedRawList);
-
-    // 2. Sync to Cloud Firestore if initialized and authenticated
-    final currentUser = _auth?.currentUser;
-    if (_firestore != null && currentUser != null && currentUser.uid == recordToSave.userId) {
-      try {
-        await _firestore!
-            .collection('users')
-            .doc(recordToSave.userId)
-            .collection('health_records')
-            .doc(recordToSave.id)
-            .set(recordToSave.toMap(), SetOptions(merge: true));
-      } catch (_) {
-        // Offline fallback: saved locally
-      }
-    }
-
-    return localSuccess;
+    return await _updateSingleLocalRecord(record);
   }
 
   Future<bool> deleteRecord(String id, {required String userId}) async {
-    // 1. Local delete
-    final prefs = await SharedPreferences.getInstance();
-    final rawList = prefs.getStringList(_vaultStorageKey) ?? [];
-    final allRecords = rawList
-        .map((str) => HealthRecord.fromJson(str))
-        .toList();
-
-    allRecords.removeWhere((r) => r.id == id && r.userId == userId);
-
-    final updatedRawList = allRecords.map((r) => r.toJson()).toList();
-    final localSuccess = await prefs.setStringList(_vaultStorageKey, updatedRawList);
-
-    // 2. Firestore delete if initialized and authenticated
-    final currentUser = _auth?.currentUser;
-    if (_firestore != null && currentUser != null && currentUser.uid == userId) {
-      try {
-        await _firestore!
-            .collection('users')
-            .doc(userId)
-            .collection('health_records')
-            .doc(id)
-            .delete();
-      } catch (_) {
-        // Offline fallback
+    try {
+      if (id.length == 24) {
+        await _apiClient.delete('/health-records/$id');
       }
+    } catch (e) {
+      debugPrint('[HEALTH VAULT REPO] deleteRecord API error: $e');
     }
 
-    return localSuccess;
+    final prefs = await SharedPreferences.getInstance();
+    final rawList = prefs.getStringList(_vaultStorageKey) ?? [];
+    final allRecords = rawList.map((str) => HealthRecord.fromJson(str)).toList();
+    allRecords.removeWhere((r) => r.id == id);
+    final updatedRawList = allRecords.map((r) => r.toJson()).toList();
+    return await prefs.setStringList(_vaultStorageKey, updatedRawList);
   }
 
   Future<List<HealthRecord>> searchRecords(
@@ -238,5 +145,29 @@ class HealthRecordRepository {
           r.typeDisplayName.toLowerCase().contains(q) ||
           r.tags.any((t) => t.toLowerCase().contains(q));
     }).toList();
+  }
+
+  Future<bool> _updateSingleLocalRecord(HealthRecord record) async {
+    final prefs = await SharedPreferences.getInstance();
+    final rawList = prefs.getStringList(_vaultStorageKey) ?? [];
+    final allRecords = rawList.map((str) => HealthRecord.fromJson(str)).toList();
+
+    final index = allRecords.indexWhere((r) => r.id == record.id);
+    if (index >= 0) {
+      allRecords[index] = record;
+    } else {
+      allRecords.add(record);
+    }
+
+    final updatedRawList = allRecords.map((r) => r.toJson()).toList();
+    return await prefs.setStringList(_vaultStorageKey, updatedRawList);
+  }
+
+  Future<void> _saveToLocalCache(List<HealthRecord> records) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final updatedRawList = records.map((r) => r.toJson()).toList();
+      await prefs.setStringList(_vaultStorageKey, updatedRawList);
+    } catch (_) {}
   }
 }

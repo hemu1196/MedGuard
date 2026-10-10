@@ -137,24 +137,39 @@ class HealthRecord {
   }
 
   factory HealthRecord.fromMap(Map<String, dynamic> map) {
+    HealthRecordType parseCategory(String? cat) {
+      if (cat == null) return HealthRecordType.other;
+      switch (cat.toLowerCase()) {
+        case 'lab':
+        case 'labreport':
+          return HealthRecordType.labReport;
+        case 'prescription':
+          return HealthRecordType.prescription;
+        case 'scan':
+        case 'imaging':
+          return HealthRecordType.imaging;
+        default:
+          return HealthRecordType.values.firstWhere(
+            (e) => e.name == cat,
+            orElse: () => HealthRecordType.other,
+          );
+      }
+    }
+
     return HealthRecord(
-      id: map['id'] ?? '',
-      userId: map['userId'] ?? 'demo_user',
-      recordType: HealthRecordType.values.firstWhere(
-        (e) => e.name == map['recordType'],
-        orElse: () => HealthRecordType.other,
-      ),
-      title: map['title'] ?? '',
-      description: map['description'] ?? '',
+      id: (map['_id'] ?? map['id'] ?? '').toString(),
+      userId: (map['userId'] ?? 'demo_user').toString(),
+      recordType: parseCategory(map['category'] ?? map['recordType']),
+      title: map['title'] ?? map['fileName'] ?? '',
+      description: map['notes'] ?? map['description'] ?? '',
       createdAt: DateTime.tryParse(map['createdAt'] ?? '') ?? DateTime.now(),
       updatedAt: DateTime.tryParse(map['updatedAt'] ?? '') ?? DateTime.now(),
-      documentDate:
-          DateTime.tryParse(map['documentDate'] ?? '') ?? DateTime.now(),
+      documentDate: DateTime.tryParse(map['documentDate'] ?? map['createdAt'] ?? '') ?? DateTime.now(),
       providerName: map['providerName'] ?? '',
       hospitalName: map['hospitalName'] ?? '',
       doctorName: map['doctorName'] ?? '',
       tags: List<String>.from(map['tags'] ?? []),
-      fileUrl: map['fileUrl'],
+      fileUrl: map['fileUrl'] ?? map['filePath'],
       thumbnailUrl: map['thumbnailUrl'],
       extractedData: Map<String, dynamic>.from(map['extractedData'] ?? {}),
       metadata: Map<String, dynamic>.from(map['metadata'] ?? {}),
@@ -164,6 +179,5 @@ class HealthRecord {
 
   String toJson() => json.encode(toMap());
 
-  factory HealthRecord.fromJson(String source) =>
-      HealthRecord.fromMap(json.decode(source));
+  factory HealthRecord.fromJson(String source) => HealthRecord.fromMap(json.decode(source));
 }

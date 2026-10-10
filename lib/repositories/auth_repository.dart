@@ -2,11 +2,13 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../core/api/api_client.dart';
 import '../core/errors/app_exception.dart';
 
 class AuthRepository {
   static const String _sessionKey = 'auth_user_session';
   static const String _userIdKey = 'auth_user_id';
+  final ApiClient _apiClient = ApiClient();
 
   bool get _isFirebaseAvailable {
     try {
@@ -31,18 +33,25 @@ class AuthRepository {
       _firebaseAuth?.authStateChanges() ?? const Stream.empty();
 
   Future<bool> isAuthenticated() async {
+    final token = await _apiClient.getToken();
+    if (token != null && token.isNotEmpty) return true;
+
     if (_firebaseAuth != null) {
       try {
         final user = _firebaseAuth!.currentUser;
         if (user != null && user.uid.isNotEmpty) return true;
       } catch (_) {}
-      return false;
     }
     final prefs = await SharedPreferences.getInstance();
     return prefs.getBool(_sessionKey) ?? false;
   }
 
   Future<String> getCurrentUserId() async {
+    final userMap = await _apiClient.getStoredUser();
+    if (userMap != null && userMap.containsKey('_id')) {
+      return userMap['_id'].toString();
+    }
+
     if (_firebaseAuth != null) {
       try {
         final user = _firebaseAuth!.currentUser;
@@ -59,45 +68,82 @@ class AuthRepository {
     throw AuthenticationException('No authenticated user session found. Please sign in again.');
   }
 
-  /// Real Firebase Email/Password Sign-In
-  Future<UserCredential> signIn(String email, String password) async {
+  /// Sign In with MongoDB Node.js Backend & Firebase Sync
+  Future<dynamic> signIn(String email, String password) async {
     final cleanEmail = email.trim();
     if (cleanEmail.isEmpty || password.isEmpty) {
       throw AuthenticationException('Email and password are required.');
     }
 
-    if (_firebaseAuth == null) {
-      // Fallback session storage for offline or test mode
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool(_sessionKey, true);
-      await prefs.setString(_userIdKey, 'offline_user_1');
-      throw AuthenticationException('Firebase service is not initialized.');
-    }
-
     try {
-      final credential = await _firebaseAuth!.signInWithEmailAndPassword(
-        email: cleanEmail,
-        password: password,
-      );
-      if (credential.user != null) {
+      // 1. Authenticate with MongoDB Backend API
+      final res = await _apiClient.post('/auth/login', body: {
+        'email': cleanEmail,
+        'password': password,
+      });
+
+      if (res['success'] == true && res['token'] != null) {
+        final token = res['token'].toString();
+        final userMap = Map<String, dynamic>.from(res['user']);
+        await _apiClient.saveAuthSession(token, userMap);
+
         final prefs = await SharedPreferences.getInstance();
         await prefs.setBool(_sessionKey, true);
-        await prefs.setString(_userIdKey, credential.user!.uid);
-        return credential;
+        await prefs.setString(_userIdKey, userMap['_id'].toString());
+
+        // 2. Optional Firebase Sync
+        if (_firebaseAuth != null) {
+          try {
+            await _firebaseAuth!.signInWithEmailAndPassword(email: cleanEmail, password: password);
+          } catch (fbErr) {
+            debugPrint('[AUTH WARNING] Firebase secondary sign-in skipped: $fbErr');
+          }
+        }
+
+        return userMap;
       } else {
-        throw AuthenticationException('Sign in failed: User account not found.');
+        throw AuthenticationException(res['message'] ?? 'Invalid credentials.');
       }
-    } on FirebaseAuthException catch (e) {
-      debugPrint('[AUTH ERROR] FirebaseAuthException: ${e.code} - ${e.message}');
-      throw parseAuthException(e);
     } catch (e) {
-      debugPrint('[AUTH ERROR] Unexpected sign-in error: $e');
-      throw AuthenticationException('Authentication failed: ${e.toString()}');
+      debugPrint('[AUTH ERROR] MongoDB Login Exception: $e');
+
+      // Fallback to Firebase if MongoDB backend is unreachable
+      if (_firebaseAuth != null) {
+        try {
+          final credential = await _firebaseAuth!.signInWithEmailAndPassword(
+            email: cleanEmail,
+            password: password,
+          );
+          if (credential.user != null) {
+            // Sync user to MongoDB Atlas
+            try {
+              final syncRes = await _apiClient.post('/auth/firebase-migrate', body: {
+                'firebaseUid': credential.user!.uid,
+                'email': cleanEmail,
+                'fullName': credential.user!.displayName ?? cleanEmail.split('@')[0],
+              });
+              if (syncRes['success'] == true && syncRes['token'] != null) {
+                await _apiClient.saveAuthSession(syncRes['token'], Map<String, dynamic>.from(syncRes['user']));
+              }
+            } catch (_) {}
+
+            final prefs = await SharedPreferences.getInstance();
+            await prefs.setBool(_sessionKey, true);
+            await prefs.setString(_userIdKey, credential.user!.uid);
+            return credential;
+          }
+        } on FirebaseAuthException catch (fbEx) {
+          throw parseAuthException(fbEx);
+        }
+      }
+
+      if (e is AppException) rethrow;
+      throw AuthenticationException(e.toString().replaceAll('Exception: ', ''));
     }
   }
 
-  /// Real Firebase Email/Password Registration
-  Future<UserCredential> signUp({
+  /// Sign Up with MongoDB Node.js Backend & Firebase Sync
+  Future<dynamic> signUp({
     required String name,
     required String email,
     required String password,
@@ -108,37 +154,76 @@ class AuthRepository {
       throw AuthenticationException('All fields (Name, Email, Password) are required.');
     }
 
-    if (_firebaseAuth == null) {
-      throw AuthenticationException('Firebase service is not initialized.');
-    }
-
     try {
-      final credential = await _firebaseAuth!.createUserWithEmailAndPassword(
-        email: cleanEmail,
-        password: password,
-      );
-      if (credential.user != null) {
-        try {
-          await credential.user!.updateDisplayName(cleanName);
-        } catch (e) {
-          debugPrint('[AUTH] updateDisplayName failed/bypassed: $e');
-        }
+      // 1. Register with MongoDB Backend API
+      final res = await _apiClient.post('/auth/register', body: {
+        'fullName': cleanName,
+        'email': cleanEmail,
+        'password': password,
+      });
+
+      if (res['success'] == true && res['token'] != null) {
+        final token = res['token'].toString();
+        final userMap = Map<String, dynamic>.from(res['user']);
+        await _apiClient.saveAuthSession(token, userMap);
+
         final prefs = await SharedPreferences.getInstance();
         await prefs.setBool(_sessionKey, true);
-        await prefs.setString(_userIdKey, credential.user!.uid);
-        return credential;
+        await prefs.setString(_userIdKey, userMap['_id'].toString());
+
+        // 2. Optional Firebase Sync
+        if (_firebaseAuth != null) {
+          try {
+            final cred = await _firebaseAuth!.createUserWithEmailAndPassword(email: cleanEmail, password: password);
+            await cred.user?.updateDisplayName(cleanName);
+          } catch (fbErr) {
+            debugPrint('[AUTH WARNING] Firebase secondary sign-up skipped: $fbErr');
+          }
+        }
+
+        return userMap;
       } else {
-        throw AuthenticationException('Registration failed. Please try again.');
+        throw AuthenticationException(res['message'] ?? 'Failed to register account.');
       }
-    } on FirebaseAuthException catch (e) {
-      throw parseAuthException(e);
     } catch (e) {
+      debugPrint('[AUTH ERROR] MongoDB Register Exception: $e');
+
+      // Fallback to Firebase if MongoDB backend is unreachable
+      if (_firebaseAuth != null) {
+        try {
+          final credential = await _firebaseAuth!.createUserWithEmailAndPassword(
+            email: cleanEmail,
+            password: password,
+          );
+          if (credential.user != null) {
+            try {
+              await credential.user!.updateDisplayName(cleanName);
+            } catch (_) {}
+
+            final syncRes = await _apiClient.post('/auth/firebase-migrate', body: {
+              'firebaseUid': credential.user!.uid,
+              'email': cleanEmail,
+              'fullName': cleanName,
+            });
+            if (syncRes['success'] == true && syncRes['token'] != null) {
+              await _apiClient.saveAuthSession(syncRes['token'], Map<String, dynamic>.from(syncRes['user']));
+            }
+
+            final prefs = await SharedPreferences.getInstance();
+            await prefs.setBool(_sessionKey, true);
+            await prefs.setString(_userIdKey, credential.user!.uid);
+            return credential;
+          }
+        } on FirebaseAuthException catch (fbEx) {
+          throw parseAuthException(fbEx);
+        }
+      }
+
       if (e is AppException) rethrow;
-      throw AuthenticationException('Unable to create your account. Please try again.');
+      throw AuthenticationException(e.toString().replaceAll('Exception: ', ''));
     }
   }
 
-  /// Sends password reset email
   Future<void> sendPasswordResetEmail(String email) async {
     final cleanEmail = email.trim();
     if (cleanEmail.isEmpty) {
@@ -153,8 +238,12 @@ class AuthRepository {
     }
   }
 
-  /// Sign out
   Future<void> signOut() async {
+    try {
+      await _apiClient.post('/auth/logout');
+    } catch (_) {}
+    await _apiClient.clearAuthSession();
+
     if (_firebaseAuth != null) {
       try {
         await _firebaseAuth!.signOut();
@@ -167,22 +256,12 @@ class AuthRepository {
 
   Future<void> logout() => signOut();
 
-  /// Legacy helper method mapping to signIn for backwards compatibility
   Future<bool> login(String username, String password) async {
     await signIn(username, password);
     return true;
   }
 
-  /// Converts FirebaseAuthException into user-friendly AppException messages
   AppException parseAuthException(FirebaseAuthException e) {
-    final code = e.code.toLowerCase();
-
-    if (code.contains('api-key-not-valid') || code.contains('invalid-api-key')) {
-      return AuthenticationException(
-        'Firebase configuration is invalid. Please verify the Firebase API key.',
-      );
-    }
-
     switch (e.code) {
       case 'user-not-found':
         return AuthenticationException('No registered account found with this email address.');
@@ -190,19 +269,15 @@ class AuthRepository {
       case 'invalid-credential':
         return AuthenticationException('Incorrect email or password.');
       case 'email-already-in-use':
-        return AuthenticationException('An account already exists with this email. Please sign in instead.');
+        return AuthenticationException('An account already exists with this email.');
       case 'invalid-email':
         return AuthenticationException('Please enter a valid email address.');
       case 'weak-password':
         return AuthenticationException('Your password is too weak. Please choose a stronger password.');
-      case 'operation-not-allowed':
-        return AuthenticationException('Email/password registration is not enabled.');
       case 'network-request-failed':
-        return NetworkException('Unable to connect. Check your internet connection and try again.');
-      case 'too-many-requests':
-        return AuthenticationException('Too many attempts. Please wait and try again.');
+        return NetworkException('Unable to connect. Check your internet connection.');
       default:
-        return AuthenticationException(e.message ?? 'Unable to create your account. Please try again.');
+        return AuthenticationException(e.message ?? 'Authentication failed.');
     }
   }
 }

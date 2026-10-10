@@ -17,6 +17,7 @@ class LocationData {
     this.cityName,
   });
 
+  String? get address => cityName;
   String get mapsUrl => 'https://maps.google.com/?q=$latitude,$longitude';
 }
 

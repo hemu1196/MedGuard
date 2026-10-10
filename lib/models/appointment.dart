@@ -14,6 +14,7 @@ class Appointment {
   final int reminderTimeMinutesBefore; // 0, 30, 60, 180, 1440
   final List<int> selectedRemindersMinutes; // e.g. [1440, 60, 30, 0]
   final String status; // Upcoming, Completed, Cancelled
+  final String? pdfPath;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -31,6 +32,7 @@ class Appointment {
     this.reminderTimeMinutesBefore = 60,
     List<int>? selectedRemindersMinutes,
     this.status = 'Upcoming',
+    this.pdfPath,
     DateTime? createdAt,
     DateTime? updatedAt,
   })  : selectedRemindersMinutes = selectedRemindersMinutes ?? [reminderTimeMinutesBefore],
@@ -71,6 +73,7 @@ class Appointment {
       'reminderTimeMinutesBefore': reminderTimeMinutesBefore,
       'selectedRemindersMinutes': selectedRemindersMinutes,
       'status': status,
+      'pdfPath': pdfPath,
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt.toIso8601String(),
     };
@@ -92,13 +95,12 @@ class Appointment {
     }
 
     return Appointment(
-      id: map['id'] ?? '',
-      userId: map['userId'] ?? '',
+      id: (map['_id'] ?? map['id'] ?? '').toString(),
+      userId: (map['userId'] ?? '').toString(),
       doctorName: map['doctorName'] ?? '',
-      specialization: map['specialization'] ?? '',
-      hospitalOrClinic: map['hospitalOrClinic'] ?? '',
-      appointmentDate:
-          DateTime.tryParse(map['appointmentDate'] ?? '') ?? DateTime.now(),
+      specialization: map['specialization'] ?? map['specialty'] ?? '',
+      hospitalOrClinic: map['hospitalOrClinic'] ?? map['hospitalName'] ?? '',
+      appointmentDate: DateTime.tryParse(map['appointmentDate'] ?? '') ?? DateTime.now(),
       phoneNumber: map['phoneNumber'] ?? '',
       address: map['address'] ?? '',
       notes: map['notes'] ?? '',
@@ -106,6 +108,7 @@ class Appointment {
       reminderTimeMinutesBefore: singleReminder,
       selectedRemindersMinutes: remindersList,
       status: map['status'] ?? 'Upcoming',
+      pdfPath: map['pdfPath'],
       createdAt: DateTime.tryParse(map['createdAt'] ?? '') ?? DateTime.now(),
       updatedAt: DateTime.tryParse(map['updatedAt'] ?? '') ?? DateTime.now(),
     );
@@ -113,6 +116,5 @@ class Appointment {
 
   String toJson() => json.encode(toMap());
 
-  factory Appointment.fromJson(String source) =>
-      Appointment.fromMap(json.decode(source));
+  factory Appointment.fromJson(String source) => Appointment.fromMap(json.decode(source));
 }

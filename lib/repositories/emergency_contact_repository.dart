@@ -1,7 +1,6 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../core/api/api_client.dart';
 import '../models/emergency_contact.dart';
 import '../models/user_profile.dart';
 import '../services/profile_service.dart';
@@ -9,80 +8,49 @@ import '../services/profile_service.dart';
 class EmergencyContactRepository {
   static const String _contactsKey = 'user_emergency_contacts';
   final ProfileService _profileService = ProfileService();
+  final ApiClient _apiClient = ApiClient();
 
-  FirebaseFirestore? get _firestore {
-    try {
-      if (Firebase.apps.isNotEmpty) {
-        return FirebaseFirestore.instance;
-      }
-    } catch (_) {}
-    return null;
-  }
-
-  /// Exposes a real-time Firestore stream for emergency contacts.
   Stream<List<EmergencyContact>> watchEmergencyContacts(String userId) async* {
-    if (userId.isEmpty) return;
-
-    // Initial emit from local cache for instant UI feedback
     final localContacts = await getEmergencyContacts(userId: userId);
     yield localContacts;
 
-    if (_firestore == null) return;
-
     try {
-      yield* _firestore!
-          .collection('users')
-          .doc(userId)
-          .collection('emergency_contacts')
-          .snapshots()
-          .map((snapshot) {
-        return snapshot.docs
-            .map((doc) => EmergencyContact.fromMap(doc.data()))
-            .toList();
-      }).handleError((error) {
-        debugPrint('[EMERGENCY CONTACT REPO] Stream error (permission-denied / network): $error');
-        return localContacts;
-      });
+      final remoteList = await getContactsFromApi();
+      if (remoteList.isNotEmpty) {
+        yield remoteList;
+      }
     } catch (e) {
-      debugPrint('[EMERGENCY CONTACT REPO] Firestore watch failed: $e');
+      debugPrint('[EMERGENCY CONTACT REPO] watchEmergencyContacts API error: $e');
     }
   }
 
-  Future<List<EmergencyContact>> getEmergencyContacts({required String userId}) async {
-    if (userId.isEmpty) return [];
-
-    List<EmergencyContact> contacts = [];
-
-    if (_firestore != null) {
-      try {
-        final snapshot = await _firestore!
-            .collection('users')
-            .doc(userId)
-            .collection('emergency_contacts')
-            .get()
-            .timeout(const Duration(seconds: 4));
-
-        if (snapshot.docs.isNotEmpty) {
-          contacts = snapshot.docs
-              .map((doc) => EmergencyContact.fromMap(doc.data()))
-              .toList();
-
-          final prefs = await SharedPreferences.getInstance();
-          final rawList = contacts.map((c) => c.toJson()).toList();
-          await prefs.setStringList('${_contactsKey}_$userId', rawList);
-        }
-      } catch (e) {
-        debugPrint('[EMERGENCY CONTACT REPO] Firestore fetch note: $e');
+  Future<List<EmergencyContact>> getContactsFromApi() async {
+    try {
+      final res = await _apiClient.get('/emergency/contacts');
+      if (res['success'] == true && res['contacts'] != null) {
+        final list = (res['contacts'] as List)
+            .map((c) => EmergencyContact.fromMap(Map<String, dynamic>.from(c)))
+            .toList();
+        await _saveToLocalCache(list);
+        return list;
       }
+    } catch (e) {
+      debugPrint('[EMERGENCY CONTACT REPO] getContactsFromApi error: $e');
+    }
+    return [];
+  }
+
+  Future<List<EmergencyContact>> getEmergencyContacts({required String userId}) async {
+    final remoteList = await getContactsFromApi();
+    if (remoteList.isNotEmpty) {
+      return remoteList;
     }
 
-    if (contacts.isEmpty) {
-      final prefs = await SharedPreferences.getInstance();
-      final rawList = prefs.getStringList('${_contactsKey}_$userId') ?? prefs.getStringList(_contactsKey) ?? [];
-      contacts = rawList.map((str) => EmergencyContact.fromJson(str)).toList();
-    }
+    final prefs = await SharedPreferences.getInstance();
+    final key = '${_contactsKey}_$userId';
+    final rawList = prefs.getStringList(key) ?? prefs.getStringList(_contactsKey) ?? [];
+    List<EmergencyContact> contacts = rawList.map((str) => EmergencyContact.fromJson(str)).toList();
 
-    // Auto-sync from Profile if repository is empty but profile has emergency contact
     if (contacts.isEmpty) {
       try {
         final UserProfile? profile = await _profileService.getProfile();
@@ -102,130 +70,84 @@ class EmergencyContactRepository {
           await saveEmergencyContact(userId, syncContact);
           contacts = [syncContact];
         }
-      } catch (e) {
-        debugPrint('[EMERGENCY CONTACT REPO] Profile sync note: $e');
-      }
+      } catch (_) {}
     }
 
     return contacts;
   }
 
   Future<bool> saveEmergencyContact(String userId, EmergencyContact contact) async {
-    if (userId.isEmpty) return false;
-
-    final cleanPhone = contact.phone.replaceAll(RegExp(r'[^\d]'), '');
-    final docId = contact.id.isNotEmpty
-        ? contact.id
-        : (cleanPhone.isNotEmpty ? cleanPhone : DateTime.now().millisecondsSinceEpoch.toString());
-
-    final updatedContact = EmergencyContact(
-      id: docId,
-      name: contact.name.trim(),
-      countryCode: contact.countryCode.trim(),
-      phone: contact.phone.trim(),
-      relationship: contact.relationship,
-      customRelationship: contact.customRelationship.trim(),
-    );
-
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final key = '${_contactsKey}_$userId';
-      final rawList = prefs.getStringList(key) ?? prefs.getStringList(_contactsKey) ?? [];
-      final contacts = rawList.map((str) => EmergencyContact.fromJson(str)).toList();
+      final body = {
+        'name': contact.name,
+        'relation': contact.displayRelationship,
+        'phone': contact.phone,
+        'isPrimary': true,
+      };
 
-      final index = contacts.indexWhere((c) => c.id == docId || c.phone == updatedContact.phone);
-      if (index >= 0) {
-        contacts[index] = updatedContact;
+      Map<String, dynamic> res;
+      if (contact.id.length == 24) {
+        res = await _apiClient.put('/emergency/contacts/${contact.id}', body: body);
       } else {
-        contacts.add(updatedContact);
+        res = await _apiClient.post('/emergency/contacts', body: body);
       }
-      await prefs.setStringList(key, contacts.map((c) => c.toJson()).toList());
-    } catch (e) {
-      debugPrint('[EMERGENCY CONTACT REPO] Local save error: $e');
-    }
 
-    if (_firestore != null) {
-      try {
-        await _firestore!
-            .collection('users')
-            .doc(userId)
-            .collection('emergency_contacts')
-            .doc(docId)
-            .set(updatedContact.toMap(), SetOptions(merge: true))
-            .timeout(const Duration(seconds: 4));
-      } catch (e) {
-        debugPrint('[EMERGENCY CONTACT REPO] Cloud save note: $e');
-      }
-    }
-
-    // Keep Profile emergency fields synced
-    try {
-      final profile = await _profileService.getProfile();
-      if (profile != null) {
-        final updatedProfile = profile.copyWith(
-          emergencyContactName: updatedContact.name,
-          emergencyPhone: updatedContact.phone,
-          emergencyCountryCode: updatedContact.countryCode,
-          emergencyRelationship: updatedContact.displayRelationship,
-        );
-        await _profileService.saveProfile(updatedProfile);
+      if (res['success'] == true && res['contact'] != null) {
+        final savedContact = EmergencyContact.fromMap(Map<String, dynamic>.from(res['contact']));
+        await _updateSingleLocalContact(userId, savedContact);
+        return true;
       }
     } catch (e) {
-      debugPrint('[EMERGENCY CONTACT REPO] Profile reverse sync note: $e');
+      debugPrint('[EMERGENCY CONTACT REPO] saveEmergencyContact API error: $e');
     }
 
-    return true;
+    return await _updateSingleLocalContact(userId, contact);
   }
 
   Future<bool> deleteEmergencyContact(String userId, String idOrPhone) async {
-    if (userId.isEmpty) return false;
+    try {
+      if (idOrPhone.length == 24) {
+        await _apiClient.delete('/emergency/contacts/$idOrPhone');
+      }
+    } catch (e) {
+      debugPrint('[EMERGENCY CONTACT REPO] deleteEmergencyContact API error: $e');
+    }
 
-    final clean = idOrPhone.replaceAll(RegExp(r'[^\d]'), '');
-    List<EmergencyContact> remainingContacts = [];
+    final prefs = await SharedPreferences.getInstance();
+    final key = '${_contactsKey}_$userId';
+    final rawList = prefs.getStringList(key) ?? prefs.getStringList(_contactsKey) ?? [];
+    final contacts = rawList.map((str) => EmergencyContact.fromJson(str)).toList();
+    contacts.removeWhere((c) => c.id == idOrPhone || c.phone == idOrPhone);
+    await prefs.setStringList(key, contacts.map((c) => c.toJson()).toList());
+    return true;
+  }
 
+  Future<bool> _updateSingleLocalContact(String userId, EmergencyContact contact) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final key = '${_contactsKey}_$userId';
-      final rawList = prefs.getStringList(key) ?? prefs.getStringList(_contactsKey) ?? [];
+      final rawList = prefs.getStringList(key) ?? [];
       final contacts = rawList.map((str) => EmergencyContact.fromJson(str)).toList();
-      contacts.removeWhere((c) => c.id == idOrPhone || c.phone == idOrPhone || (clean.isNotEmpty && c.id == clean));
-      remainingContacts = contacts;
+
+      final index = contacts.indexWhere((c) => c.id == contact.id || c.phone == contact.phone);
+      if (index >= 0) {
+        contacts[index] = contact;
+      } else {
+        contacts.add(contact);
+      }
+
       await prefs.setStringList(key, contacts.map((c) => c.toJson()).toList());
-    } catch (e) {
-      debugPrint('[EMERGENCY CONTACT REPO] Local delete error: $e');
+      return true;
+    } catch (_) {
+      return false;
     }
+  }
 
-    if (_firestore != null) {
-      try {
-        final docId = clean.isNotEmpty ? clean : idOrPhone;
-        await _firestore!
-            .collection('users')
-            .doc(userId)
-            .collection('emergency_contacts')
-            .doc(docId)
-            .delete()
-            .timeout(const Duration(seconds: 4));
-      } catch (e) {
-        debugPrint('[EMERGENCY CONTACT REPO] Cloud delete note: $e');
-      }
-    }
-
-    // Keep Profile emergency fields synced with remaining contacts or clear if empty
+  Future<void> _saveToLocalCache(List<EmergencyContact> contacts) async {
     try {
-      final profile = await _profileService.getProfile();
-      if (profile != null) {
-        final updatedProfile = profile.copyWith(
-          emergencyContactName: remainingContacts.isNotEmpty ? remainingContacts.first.name : '',
-          emergencyPhone: remainingContacts.isNotEmpty ? remainingContacts.first.phone : '',
-          emergencyCountryCode: remainingContacts.isNotEmpty ? remainingContacts.first.countryCode : '+91',
-          emergencyRelationship: remainingContacts.isNotEmpty ? remainingContacts.first.displayRelationship : 'Friend',
-        );
-        await _profileService.saveProfile(updatedProfile);
-      }
-    } catch (e) {
-      debugPrint('[EMERGENCY CONTACT REPO] Profile reverse sync delete note: $e');
-    }
-
-    return true;
+      final prefs = await SharedPreferences.getInstance();
+      final updatedRaw = contacts.map((c) => c.toJson()).toList();
+      await prefs.setStringList(_contactsKey, updatedRaw);
+    } catch (_) {}
   }
 }

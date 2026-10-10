@@ -110,28 +110,32 @@ class UserProfile {
   }
 
   factory UserProfile.fromMap(Map<String, dynamic> map) {
+    String parseListOrString(dynamic val) {
+      if (val is List) return val.join(', ');
+      return val?.toString() ?? '';
+    }
+
     return UserProfile(
-      name: map['name'] ?? '',
+      name: map['name'] ?? map['fullName'] ?? '',
       dateOfBirth: map['dateOfBirth'] != null
           ? DateTime.tryParse(map['dateOfBirth'])
-          : null,
+          : (map['age'] is num ? DateTime.now().subtract(Duration(days: (map['age'] as num).toInt() * 365)) : null),
       gender: map['gender'] ?? '',
       bloodGroup: map['bloodGroup'] ?? '',
-      height: map['height']?.toString() ?? '',
-      weight: map['weight']?.toString() ?? '',
-      allergies: map['allergies'] ?? '',
-      existingConditions: map['existingConditions'] ?? '',
-      currentMedications: map['currentMedications'] ?? '',
+      height: (map['height'] ?? map['heightCm'])?.toString() ?? '',
+      weight: (map['weight'] ?? map['weightKg'])?.toString() ?? '',
+      allergies: parseListOrString(map['allergies']),
+      existingConditions: parseListOrString(map['existingConditions'] ?? map['chronicConditions']),
+      currentMedications: map['currentMedications'] ?? map['emergencyMedicalInfo'] ?? '',
       emergencyContactName: map['emergencyContactName'] ?? '',
       emergencyCountryCode: map['emergencyCountryCode'] ?? '+91',
-      emergencyPhone: map['emergencyPhone'] ?? '',
+      emergencyPhone: map['emergencyPhone'] ?? map['phoneNumber'] ?? '',
       emergencyRelationship: map['emergencyRelationship'] ?? 'Dad',
-      profileImagePath: map['profileImagePath'],
+      profileImagePath: map['profileImagePath'] ?? map['profilePictureUrl'],
     );
   }
 
   String toJson() => json.encode(toMap());
 
-  factory UserProfile.fromJson(String source) =>
-      UserProfile.fromMap(json.decode(source));
+  factory UserProfile.fromJson(String source) => UserProfile.fromMap(json.decode(source));
 }

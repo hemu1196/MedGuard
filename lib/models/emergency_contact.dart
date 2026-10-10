@@ -70,17 +70,16 @@ class EmergencyContact {
     final rawPhone = map['phone'] ?? '';
     final cleanPhone = rawPhone.replaceAll(RegExp(r'[^\d]'), '');
     return EmergencyContact(
-      id: map['id'] ?? (cleanPhone.isNotEmpty ? cleanPhone : ''),
+      id: (map['_id'] ?? map['id'] ?? (cleanPhone.isNotEmpty ? cleanPhone : '')).toString(),
       name: map['name'] ?? '',
       countryCode: map['countryCode'] ?? '+91',
       phone: rawPhone,
-      relationship: map['relationship'] ?? 'Friend',
+      relationship: map['relationship'] ?? map['relation'] ?? 'Friend',
       customRelationship: map['customRelationship'] ?? '',
     );
   }
 
   String toJson() => json.encode(toMap());
 
-  factory EmergencyContact.fromJson(String source) =>
-      EmergencyContact.fromMap(json.decode(source));
+  factory EmergencyContact.fromJson(String source) => EmergencyContact.fromMap(json.decode(source));
 }

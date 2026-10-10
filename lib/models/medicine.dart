@@ -3,12 +3,11 @@ import 'dart:convert';
 class Medicine {
   final String id;
   final String userId;
-  final String?
-  sourceHealthRecordId; // Traces back to Prescription HealthRecord
+  final String? sourceHealthRecordId; // Traces back to Prescription HealthRecord
   final String name;
   final String dosage;
   final String frequency; // Once, Daily, Weekly, Specific Days
-  final List<String> reminderTimes; // e.g. ["08:30 AM", "08:00 PM"]
+  final List<String> reminderTimes; // e.g. ["08:30", "20:00"]
   final String notes;
 
   // Stock Predictor Fields
@@ -41,6 +40,36 @@ class Medicine {
     return estimatedDaysRemaining <= refillThreshold || quantityAvailable <= 5;
   }
 
+  Medicine copyWith({
+    String? id,
+    String? userId,
+    String? sourceHealthRecordId,
+    String? name,
+    String? dosage,
+    String? frequency,
+    List<String>? reminderTimes,
+    String? notes,
+    int? quantityAvailable,
+    int? dosageQuantity,
+    int? dailyConsumption,
+    int? refillThreshold,
+  }) {
+    return Medicine(
+      id: id ?? this.id,
+      userId: userId ?? this.userId,
+      sourceHealthRecordId: sourceHealthRecordId ?? this.sourceHealthRecordId,
+      name: name ?? this.name,
+      dosage: dosage ?? this.dosage,
+      frequency: frequency ?? this.frequency,
+      reminderTimes: reminderTimes ?? this.reminderTimes,
+      notes: notes ?? this.notes,
+      quantityAvailable: quantityAvailable ?? this.quantityAvailable,
+      dosageQuantity: dosageQuantity ?? this.dosageQuantity,
+      dailyConsumption: dailyConsumption ?? this.dailyConsumption,
+      refillThreshold: refillThreshold ?? this.refillThreshold,
+    );
+  }
+
   Map<String, dynamic> toMap() {
     return {
       'id': id,
@@ -59,24 +88,32 @@ class Medicine {
   }
 
   factory Medicine.fromMap(Map<String, dynamic> map) {
+    List<String> times = [];
+    if (map['reminderTimes'] != null) {
+      times = List<String>.from(map['reminderTimes']);
+    } else if (map['times'] != null) {
+      times = List<String>.from(map['times']);
+    }
+
+    final stock = map['quantityAvailable'] ?? map['remainingStock'] ?? map['totalStock'] ?? 30;
+
     return Medicine(
-      id: map['id'] ?? '',
-      userId: map['userId'] ?? 'demo_user',
+      id: (map['_id'] ?? map['id'] ?? '').toString(),
+      userId: (map['userId'] ?? 'demo_user').toString(),
       sourceHealthRecordId: map['sourceHealthRecordId'],
       name: map['name'] ?? '',
       dosage: map['dosage'] ?? '',
       frequency: map['frequency'] ?? 'Daily',
-      reminderTimes: List<String>.from(map['reminderTimes'] ?? []),
-      notes: map['notes'] ?? '',
-      quantityAvailable: map['quantityAvailable'] ?? 30,
+      reminderTimes: times,
+      notes: map['notes'] ?? map['instructions'] ?? '',
+      quantityAvailable: (stock is num) ? stock.toInt() : 30,
       dosageQuantity: map['dosageQuantity'] ?? 1,
-      dailyConsumption: map['dailyConsumption'] ?? 2,
+      dailyConsumption: map['dailyConsumption'] ?? (times.isNotEmpty ? times.length : 1),
       refillThreshold: map['refillThreshold'] ?? 5,
     );
   }
 
   String toJson() => json.encode(toMap());
 
-  factory Medicine.fromJson(String source) =>
-      Medicine.fromMap(json.decode(source));
+  factory Medicine.fromJson(String source) => Medicine.fromMap(json.decode(source));
 }

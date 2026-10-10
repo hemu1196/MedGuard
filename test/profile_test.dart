@@ -46,7 +46,7 @@ void main() {
       expect(profile.bmiCategory, equals('Underweight'));
     });
 
-    test('UserProfile serialization toMap and fromMap works accurately', () {
+    test('UserProfile serialization toMap and fromMap works accurately with profileCompleted', () {
       final dob = DateTime(1995, 10, 20);
       final original = UserProfile(
         name: 'User Alpha',
@@ -63,6 +63,7 @@ void main() {
         emergencyPhone: '5551234567',
         emergencyRelationship: 'Spouse',
         profileImagePath: '/path/to/avatar.jpg',
+        profileCompleted: true,
       );
 
       final map = original.toMap();
@@ -75,6 +76,35 @@ void main() {
       expect(restored.weight, equals('75'));
       expect(restored.emergencyRelationship, equals('Spouse'));
       expect(restored.profileImagePath, equals('/path/to/avatar.jpg'));
+      expect(restored.profileCompleted, isTrue);
+    });
+
+    test('UserProfile parses age and profileCompleted from MongoDB backend response', () {
+      final backendJson = {
+        '_id': '60d5ec49f1b2c81234567890',
+        'fullName': 'MongoDB User',
+        'email': 'mongodb@test.com',
+        'age': 25,
+        'gender': 'Male',
+        'bloodGroup': 'O+',
+        'heightCm': 175,
+        'weightKg': 70,
+        'allergies': ['Penicillin'],
+        'chronicConditions': ['None'],
+        'emergencyMedicalInfo': 'None',
+        'emergencyContactName': 'Contact Person',
+        'emergencyPhone': '9876543210',
+        'profileCompleted': true,
+      };
+
+      final profile = UserProfile.fromMap(backendJson);
+      expect(profile.name, equals('MongoDB User'));
+      expect(profile.age, equals(25));
+      expect(profile.gender, equals('Male'));
+      expect(profile.bloodGroup, equals('O+'));
+      expect(profile.height, equals('175'));
+      expect(profile.weight, equals('70'));
+      expect(profile.profileCompleted, isTrue);
     });
   });
 }

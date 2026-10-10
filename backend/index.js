@@ -8,6 +8,7 @@ const { connectDB, disconnectDB } = require("./config/database");
 
 // Route imports
 const authRoutes = require("./src/routes/authRoutes");
+const userRoutes = require("./src/routes/userRoutes");
 const medicineRoutes = require("./src/routes/medicineRoutes");
 const healthRecordRoutes = require("./src/routes/healthRecordRoutes");
 const appointmentRoutes = require("./src/routes/appointmentRoutes");
@@ -51,6 +52,7 @@ app.get("/api/health", (req, res) => {
 
 // Register API Routes
 app.use("/api/auth", authRoutes);
+app.use("/api/users", userRoutes);
 app.use("/api/medicines", medicineRoutes);
 app.use("/api/health-records", healthRecordRoutes);
 app.use("/api/appointments", appointmentRoutes);

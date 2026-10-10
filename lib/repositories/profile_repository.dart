@@ -14,7 +14,13 @@ class ProfileRepository {
   Future<UserProfile?> getProfile({required String userId}) async {
     // 1. Try to fetch from MongoDB Atlas backend API
     try {
-      final res = await _apiClient.get('/auth/me');
+      Map<String, dynamic> res;
+      try {
+        res = await _apiClient.get('/users/me');
+      } catch (_) {
+        res = await _apiClient.get('/auth/me');
+      }
+
       if (res['success'] == true && res['user'] != null) {
         final profile = UserProfile.fromMap(Map<String, dynamic>.from(res['user']));
         final prefs = await SharedPreferences.getInstance();
@@ -49,31 +55,58 @@ class ProfileRepository {
     UserProfile profile, {
     required String userId,
   }) async {
-    // 1. Sync to MongoDB Atlas Backend API
-    try {
-      final body = {
-        'fullName': profile.name,
-        'gender': profile.gender,
-        'bloodGroup': profile.bloodGroup,
-        'heightCm': double.tryParse(profile.height),
-        'weightKg': double.tryParse(profile.weight),
-        'allergies': profile.allergies.isNotEmpty ? profile.allergies.split(',').map((s) => s.trim()).toList() : [],
-        'chronicConditions': profile.existingConditions.isNotEmpty ? profile.existingConditions.split(',').map((s) => s.trim()).toList() : [],
-        'emergencyMedicalInfo': profile.currentMedications,
-      };
+    final body = {
+      'fullName': profile.name,
+      'name': profile.name,
+      'dateOfBirth': profile.dateOfBirth?.toIso8601String(),
+      'age': profile.age,
+      'gender': profile.gender,
+      'bloodGroup': profile.bloodGroup,
+      'heightCm': double.tryParse(profile.height),
+      'weightKg': double.tryParse(profile.weight),
+      'allergies': profile.allergies.isNotEmpty
+          ? profile.allergies.split(',').map((s) => s.trim()).filter((s) => s.isNotEmpty).toList()
+          : [],
+      'chronicConditions': profile.existingConditions.isNotEmpty
+          ? profile.existingConditions.split(',').map((s) => s.trim()).filter((s) => s.isNotEmpty).toList()
+          : [],
+      'emergencyMedicalInfo': profile.currentMedications,
+      'emergencyContactName': profile.emergencyContactName,
+      'emergencyCountryCode': profile.emergencyCountryCode,
+      'emergencyPhone': profile.emergencyPhone,
+      'emergencyRelationship': profile.emergencyRelationship,
+      'profilePictureUrl': profile.profileImagePath,
+      'profileCompleted': true,
+    };
 
-      await _apiClient.put('/auth/profile', body: body);
-    } catch (e) {
-      debugPrint('[PROFILE REPO] saveProfile API note: $e');
+    Map<String, dynamic> res;
+    try {
+      res = await _apiClient.patch('/users/me', body: body);
+    } catch (_) {
+      try {
+        res = await _apiClient.put('/auth/profile', body: body);
+      } catch (err) {
+        debugPrint('[PROFILE REPO ERROR] Save failed: $err');
+        rethrow;
+      }
     }
 
-    // 2. Save locally
-    final prefs = await SharedPreferences.getInstance();
-    return await prefs.setString('$_profileStoragePrefix$userId', profile.toJson());
+    if (res['success'] == true && res['user'] != null) {
+      final updatedProfile = UserProfile.fromMap(Map<String, dynamic>.from(res['user']));
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('$_profileStoragePrefix$userId', updatedProfile.toJson());
+      return true;
+    } else {
+      throw Exception(res['message'] ?? 'Failed to save profile to server');
+    }
   }
 
   Future<bool> hasCompletedProfile({required String userId}) async {
     final profile = await getProfile(userId: userId);
-    return profile != null && profile.name.trim().isNotEmpty;
+    return profile != null && profile.profileCompleted;
   }
+}
+
+extension IterableExtension<E> on Iterable<E> {
+  Iterable<E> filter(bool Function(E element) test) => where(test);
 }

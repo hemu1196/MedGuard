@@ -23,6 +23,10 @@ const userSchema = new mongoose.Schema({
     type: String,
     default: '',
   },
+  dateOfBirth: {
+    type: Date,
+    default: null,
+  },
   age: {
     type: Number,
     default: null,
@@ -55,9 +59,29 @@ const userSchema = new mongoose.Schema({
     type: String,
     default: '',
   },
+  emergencyContactName: {
+    type: String,
+    default: '',
+  },
+  emergencyCountryCode: {
+    type: String,
+    default: '+91',
+  },
+  emergencyPhone: {
+    type: String,
+    default: '',
+  },
+  emergencyRelationship: {
+    type: String,
+    default: '',
+  },
   profilePictureUrl: {
     type: String,
     default: '',
+  },
+  profileCompleted: {
+    type: Boolean,
+    default: false,
   },
   firebaseUid: {
     type: String,
@@ -82,14 +106,41 @@ const userSchema = new mongoose.Schema({
 });
 
 userSchema.pre('save', async function (next) {
-  if (!this.isModified('password')) return next();
-  try {
-    const salt = await bcrypt.genSalt(10);
-    this.password = await bcrypt.hash(this.password, salt);
-    next();
-  } catch (err) {
-    next(err);
+  if (this.isModified('password')) {
+    try {
+      const salt = await bcrypt.genSalt(10);
+      this.password = await bcrypt.hash(this.password, salt);
+    } catch (err) {
+      return next(err);
+    }
   }
+
+  // Auto-calculate age if dateOfBirth is present and age is null/unmodified
+  if (this.dateOfBirth) {
+    const dob = new Date(this.dateOfBirth);
+    const now = new Date();
+    let calculatedAge = now.getFullYear() - dob.getFullYear();
+    const monthDiff = now.getMonth() - dob.getMonth();
+    if (monthDiff < 0 || (monthDiff === 0 && now.getDate() < dob.getDate())) {
+      calculatedAge--;
+    }
+    if (calculatedAge >= 0) {
+      this.age = calculatedAge;
+    }
+  }
+
+  // Auto-evaluate profileCompleted status
+  const hasName = this.fullName && this.fullName.trim().length > 0;
+  const hasGender = this.gender && this.gender.trim().length > 0;
+  const hasAgeOrDob = (this.age !== null && this.age >= 0) || this.dateOfBirth !== null;
+  const hasHeight = this.heightCm !== null && this.heightCm > 0;
+  const hasWeight = this.weightKg !== null && this.weightKg > 0;
+
+  if (hasName && hasGender && hasAgeOrDob && hasHeight && hasWeight) {
+    this.profileCompleted = true;
+  }
+
+  next();
 });
 
 userSchema.methods.comparePassword = async function (candidatePassword) {
@@ -99,6 +150,22 @@ userSchema.methods.comparePassword = async function (candidatePassword) {
 userSchema.methods.toJSON = function () {
   const obj = this.toObject();
   delete obj.password;
+
+  // Add alias fields for frontend compatibility
+  obj.name = obj.fullName;
+  obj.isProfileComplete = obj.profileCompleted;
+  
+  if (obj.dateOfBirth && (obj.age === null || obj.age === undefined)) {
+    const dob = new Date(obj.dateOfBirth);
+    const now = new Date();
+    let calculatedAge = now.getFullYear() - dob.getFullYear();
+    const monthDiff = now.getMonth() - dob.getMonth();
+    if (monthDiff < 0 || (monthDiff === 0 && now.getDate() < dob.getDate())) {
+      calculatedAge--;
+    }
+    obj.age = calculatedAge >= 0 ? calculatedAge : 0;
+  }
+
   return obj;
 };
 

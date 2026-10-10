@@ -167,10 +167,19 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
       return;
     }
 
-    // 2. Height Validation
+    // 2. Date of Birth / Age Validation
+    if (_selectedDob == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please select your Date of Birth')),
+      );
+      setState(() => _currentStep = 0);
+      return;
+    }
+
+    // 3. Height Validation
     final heightText = _heightController.text.trim();
     final heightVal = double.tryParse(heightText);
-    if (heightText.isNotEmpty && (heightVal == null || heightVal <= 0)) {
+    if (heightText.isEmpty || heightVal == null || heightVal <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please enter a valid positive height in cm (e.g. 174)')),
       );
@@ -178,10 +187,10 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
       return;
     }
 
-    // 3. Weight Validation
+    // 4. Weight Validation
     final weightText = _weightController.text.trim();
     final weightVal = double.tryParse(weightText);
-    if (weightText.isNotEmpty && (weightVal == null || weightVal <= 0)) {
+    if (weightText.isEmpty || weightVal == null || weightVal <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please enter a valid positive weight in kg (e.g. 68)')),
       );
@@ -189,7 +198,7 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
       return;
     }
 
-    // 4. Emergency Phone Validation
+    // 5. Emergency Phone Validation
     final phoneText = _emergencyPhoneController.text.trim();
     if (phoneText.isNotEmpty && !RegExp(r'^\d{7,15}$').hasMatch(phoneText)) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -221,16 +230,17 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
         emergencyPhone: phoneText,
         emergencyRelationship: _selectedRelationship,
         profileImagePath: _existingImagePath,
+        profileCompleted: true,
       );
 
-      debugPrint('PROFILE: saving profile');
+      debugPrint('PROFILE: saving profile to MongoDB Atlas');
       final saved = await _profileRepository.createProfile(
         uid: userId,
         profile: profile,
       );
 
       if (!saved) {
-        throw Exception('Failed to persist profile data');
+        throw Exception('Failed to persist profile data to database');
       }
       debugPrint('PROFILE: profile save completed');
 
@@ -251,11 +261,9 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
 
       if (!mounted) return;
 
-      debugPrint('PROFILE: navigating to home');
-
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Profile updated successfully'),
+          content: Text('Profile saved successfully!'),
           backgroundColor: AppTheme.primaryTeal,
         ),
       );
@@ -274,7 +282,7 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Unable to save your profile: ${e.toString()}'),
+          content: Text('Unable to save profile: ${e.toString().replaceAll('Exception: ', '')}'),
           backgroundColor: AppTheme.accentRed,
         ),
       );

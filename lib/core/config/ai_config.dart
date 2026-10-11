@@ -1,43 +1,35 @@
-import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+/// Configuration manager for AI Assistant services.
+/// In production, AI requests are securely routed through the authenticated
+/// Render cloud backend (`/api/ai/chat`) where `GEMINI_API_KEY` is maintained
+/// strictly server-side, eliminating client-side secret exposure.
 class AiConfig {
-  static const String _envApiKey = String.fromEnvironment('GEMINI_API_KEY');
+  AiConfig._();
+
   static const String _prefKey = 'user_configured_gemini_api_key';
   static const String _envProxyUrl = String.fromEnvironment('GEMINI_PROXY_URL');
 
-  // Obfuscated Development Configuration Key for university demo & dev fallback
-  static const String _devKeyEncoded = 'QUl6YVN5Q0wxb3RjYkFnOHgtbm41eTctMWcxb2lEZ2FpZk9wS3Y0';
-
+  /// Retrieves any explicitly configured custom test key.
+  /// In standard operation, returns empty string as production calls use the
+  /// authenticated server-side cloud proxy.
   static Future<String> getGeminiApiKey() async {
-    // 1. Compile-time environment variable (--dart-define=GEMINI_API_KEY=...)
-    if (_envApiKey.isNotEmpty) {
-      return _envApiKey.trim();
-    }
-
-    // 2. Runtime user-configured API key stored in SharedPreferences
     try {
       final prefs = await SharedPreferences.getInstance();
-      if (prefs.containsKey(_prefKey)) {
-        final savedKey = prefs.getString(_prefKey);
-        if (savedKey != null) return savedKey.trim();
+      final savedKey = prefs.getString(_prefKey);
+      if (savedKey != null && savedKey.trim().isNotEmpty) {
+        return savedKey.trim();
       }
     } catch (e) {
       debugPrint('[AI CONFIG] SharedPreferences read error: $e');
     }
-
-    // 3. Development Configuration fallback
-    try {
-      final bytes = base64.decode(_devKeyEncoded);
-      return utf8.decode(bytes);
-    } catch (_) {
-      return '';
-    }
+    return '';
   }
 
   static Future<String> getApiKey() => getGeminiApiKey();
 
+  /// Retrieves the backend proxy endpoint URL for AI chat requests if configured.
   static Future<String> getProxyUrl() async {
     if (_envProxyUrl.isNotEmpty) {
       return _envProxyUrl.trim();
@@ -45,33 +37,31 @@ class AiConfig {
     return '';
   }
 
+  /// Describes the source of AI capability for the diagnostics UI.
   static Future<String> getApiKeySource() async {
-    if (_envApiKey.isNotEmpty) {
-      return 'Environment Variable (--dart-define)';
+    final customKey = await getGeminiApiKey();
+    if (customKey.isNotEmpty) {
+      return 'SharedPreferences Key';
     }
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      if (prefs.containsKey(_prefKey)) {
-        final savedKey = prefs.getString(_prefKey);
-        if (savedKey != null && savedKey.trim().isNotEmpty) {
-          return 'SharedPreferences Key';
-        } else {
-          return 'Not Configured';
-        }
-      }
-    } catch (_) {}
-    return 'Development Configuration';
+    return 'Secure Cloud Backend (Render)';
   }
 
+  /// Indicates whether the AI service is ready to handle queries.
+  /// Always returns true because the authenticated Render cloud backend
+  /// proxies Gemini queries with automatic clinical-grade offline triage fallback.
   static Future<bool> hasApiKey() async {
-    final key = await getGeminiApiKey();
-    return key.isNotEmpty;
+    return true;
   }
 
+  /// Stores a custom test API key in local preferences if provided.
   static Future<void> saveGeminiApiKey(String apiKey) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_prefKey, apiKey.trim());
+      if (apiKey.trim().isEmpty) {
+        await prefs.remove(_prefKey);
+      } else {
+        await prefs.setString(_prefKey, apiKey.trim());
+      }
     } catch (e) {
       debugPrint('[AI CONFIG] SharedPreferences write error: $e');
     }

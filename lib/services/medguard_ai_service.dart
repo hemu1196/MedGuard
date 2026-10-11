@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
+import '../core/api/api_client.dart';
 import '../models/ai_response.dart';
 import '../models/chat_message.dart';
 import 'ai_health_service.dart';
@@ -9,6 +10,7 @@ import 'local_health_fallback_service.dart';
 class MedGuardAIService {
   final AiHealthService _aiHealthService = AiHealthService();
   final LocalHealthFallbackService _fallbackService = LocalHealthFallbackService();
+  final ApiClient _apiClient = ApiClient();
 
   Future<AIResponse> getGuidance({
     required String userQuery,
@@ -21,6 +23,55 @@ class MedGuardAIService {
       return HealthSafetyFilter.filter(userQuery: 'General Health', response: rawFallback);
     }
 
+    // 1. Primary Route: Authenticated Cloud Backend AI Endpoint (Render)
+    if (!forceGemini) {
+      try {
+        final token = await _apiClient.getToken();
+        if (token != null && token.isNotEmpty) {
+          final historyPayload = conversationHistory
+              .where((m) => m.text.trim().isNotEmpty && !m.isError)
+              .map((m) => {'isUser': m.isUser, 'text': m.text})
+              .toList();
+
+          final res = await _apiClient.post(
+            '/ai/chat',
+            body: {
+              'message': cleanQuery,
+              'history': historyPayload,
+            },
+          ).timeout(const Duration(seconds: 12));
+
+          if (res['success'] == true && res['reply'] != null) {
+            final replyText = res['reply'].toString().trim();
+            final isEmergency = res['isEmergency'] == true;
+
+            final cloudResponse = AIResponse(
+              text: replyText,
+              source: AIResponseSource.gemini,
+              isFallback: false,
+              category: isEmergency ? 'Emergency Guidance' : 'MedGuard AI Cloud Guidance',
+              isEmergency: isEmergency,
+              urgency: isEmergency ? HealthUrgency.red : HealthUrgency.green,
+              understanding: cleanQuery,
+              followUpQuestions: const [],
+              considerations: const [],
+              whatYouCanDoNow: const [],
+              warningSigns: const [],
+              whenToSeekMedicalHelp: isEmergency
+                  ? 'Call emergency medical services immediately (108 / 112).'
+                  : 'Consult a licensed physician for personalized medical advice.',
+              disclaimer: 'This guidance is educational and does not constitute a clinical medical diagnosis.',
+            );
+
+            return HealthSafetyFilter.filter(userQuery: cleanQuery, response: cloudResponse);
+          }
+        }
+      } catch (e) {
+        debugPrint('[MEDGUARD AI SERVICE] Cloud backend AI request unauthenticated or timed out ($e). Falling back to direct/local pipeline...');
+      }
+    }
+
+    // 2. Direct SDK / REST Pipeline
     try {
       final AiHealthResponse geminiRes = await _aiHealthService
           .askAssistant(cleanQuery, conversationHistory: conversationHistory)

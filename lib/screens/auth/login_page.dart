@@ -74,11 +74,15 @@ class _LoginPageState extends State<LoginPage> {
       final raw = e is AppException ? e.message : e.toString().replaceAll('Exception: ', '');
       final isConnecting = raw.toLowerCase().contains('connecting to mongodb') ||
           raw.toLowerCase().contains('server is initializing') ||
+          raw.toLowerCase().contains('failed to fetch') ||
+          raw.toLowerCase().contains('clientfailed') ||
+          raw.toLowerCase().contains('connection refused') ||
+          raw.toLowerCase().contains('timed out') ||
           e is ServerUnavailableException;
 
       setState(() {
         _errorMessage = isConnecting
-            ? 'Server is connecting to MongoDB Atlas. Please tap Log In again in a few seconds.'
+            ? 'Cloud server is waking up or connecting to MongoDB Atlas. Please tap Log In again in a few moments.'
             : raw;
         _isLoading = false;
       });

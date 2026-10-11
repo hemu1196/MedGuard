@@ -1,8 +1,8 @@
 import 'dart:convert';
-import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import '../config/api_config.dart';
 import '../errors/app_exception.dart';
 
 class ApiClient {
@@ -22,18 +22,13 @@ class ApiClient {
     _customBaseUrl = url;
   }
 
-  /// Determine the appropriate Base URL according to target platform
+  /// Determine the appropriate Base URL (defaults to Render production cloud backend)
   String get baseUrl {
     if (_customBaseUrl != null && _customBaseUrl!.isNotEmpty) {
-      return _customBaseUrl!;
+      final trimmed = _customBaseUrl!.trim().replaceFirst(RegExp(r'/+$'), '');
+      return trimmed.endsWith('/api') ? trimmed : '$trimmed/api';
     }
-    if (kIsWeb) {
-      return 'http://localhost:5001/api';
-    } else if (Platform.isAndroid) {
-      return 'http://10.0.2.2:5001/api';
-    } else {
-      return 'http://localhost:5001/api';
-    }
+    return ApiConfig.apiUrl;
   }
 
   /// Inspect JWT token expiration timestamp
@@ -125,15 +120,15 @@ class ApiClient {
     final headers = await _getHeaders();
     http.Response response;
     try {
-      response = await http.get(uri, headers: headers).timeout(const Duration(seconds: 15));
+      response = await http.get(uri, headers: headers).timeout(const Duration(seconds: 30));
     } catch (_) {
       await Future.delayed(const Duration(milliseconds: 1500));
-      response = await http.get(uri, headers: headers).timeout(const Duration(seconds: 15));
+      response = await http.get(uri, headers: headers).timeout(const Duration(seconds: 30));
     }
 
     if (response.statusCode == 503) {
       await Future.delayed(const Duration(milliseconds: 2000));
-      response = await http.get(uri, headers: headers).timeout(const Duration(seconds: 15));
+      response = await http.get(uri, headers: headers).timeout(const Duration(seconds: 30));
     }
 
     return _handleResponse(response);
@@ -147,19 +142,19 @@ class ApiClient {
     try {
       response = await http
           .post(uri, headers: headers, body: body != null ? jsonEncode(body) : null)
-          .timeout(const Duration(seconds: 15));
+          .timeout(const Duration(seconds: 30));
     } catch (_) {
       await Future.delayed(const Duration(milliseconds: 1500));
       response = await http
           .post(uri, headers: headers, body: body != null ? jsonEncode(body) : null)
-          .timeout(const Duration(seconds: 15));
+          .timeout(const Duration(seconds: 30));
     }
 
     if (response.statusCode == 503) {
       await Future.delayed(const Duration(milliseconds: 2000));
       response = await http
           .post(uri, headers: headers, body: body != null ? jsonEncode(body) : null)
-          .timeout(const Duration(seconds: 15));
+          .timeout(const Duration(seconds: 30));
     }
 
     return _handleResponse(response);
@@ -173,19 +168,19 @@ class ApiClient {
     try {
       response = await http
           .put(uri, headers: headers, body: body != null ? jsonEncode(body) : null)
-          .timeout(const Duration(seconds: 15));
+          .timeout(const Duration(seconds: 30));
     } catch (_) {
       await Future.delayed(const Duration(milliseconds: 1500));
       response = await http
           .put(uri, headers: headers, body: body != null ? jsonEncode(body) : null)
-          .timeout(const Duration(seconds: 15));
+          .timeout(const Duration(seconds: 30));
     }
 
     if (response.statusCode == 503) {
       await Future.delayed(const Duration(milliseconds: 2000));
       response = await http
           .put(uri, headers: headers, body: body != null ? jsonEncode(body) : null)
-          .timeout(const Duration(seconds: 15));
+          .timeout(const Duration(seconds: 30));
     }
 
     return _handleResponse(response);
@@ -199,19 +194,19 @@ class ApiClient {
     try {
       response = await http
           .patch(uri, headers: headers, body: body != null ? jsonEncode(body) : null)
-          .timeout(const Duration(seconds: 15));
+          .timeout(const Duration(seconds: 30));
     } catch (_) {
       await Future.delayed(const Duration(milliseconds: 1500));
       response = await http
           .patch(uri, headers: headers, body: body != null ? jsonEncode(body) : null)
-          .timeout(const Duration(seconds: 15));
+          .timeout(const Duration(seconds: 30));
     }
 
     if (response.statusCode == 503) {
       await Future.delayed(const Duration(milliseconds: 2000));
       response = await http
           .patch(uri, headers: headers, body: body != null ? jsonEncode(body) : null)
-          .timeout(const Duration(seconds: 15));
+          .timeout(const Duration(seconds: 30));
     }
 
     return _handleResponse(response);
@@ -221,7 +216,7 @@ class ApiClient {
   Future<Map<String, dynamic>> delete(String endpoint) async {
     final uri = Uri.parse('$baseUrl$endpoint');
     final headers = await _getHeaders();
-    final response = await http.delete(uri, headers: headers).timeout(const Duration(seconds: 15));
+    final response = await http.delete(uri, headers: headers).timeout(const Duration(seconds: 30));
     return _handleResponse(response);
   }
 

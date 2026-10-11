@@ -72,17 +72,15 @@ class EmergencyService {
     final userName = (profile != null && profile.name.isNotEmpty) ? profile.name : 'MEDGUARD User';
 
     // 1. Log SOS Event on MongoDB Atlas via ApiClient
-    if (location != null) {
-      try {
-        await _apiClient.post('/emergency/sos/trigger', body: {
-          'triggerType': triggerType,
-          'latitude': location.latitude,
-          'longitude': location.longitude,
-          'address': location.address ?? '',
-        });
-      } catch (apiErr) {
-        debugPrint('[EMERGENCY SERVICE] Backend SOS log error: $apiErr');
-      }
+    try {
+      await _apiClient.post('/emergency/sos/trigger', body: {
+        'triggerType': triggerType,
+        'latitude': location?.latitude ?? 0.0,
+        'longitude': location?.longitude ?? 0.0,
+        'address': location?.address ?? (location == null ? 'Location unavailable' : ''),
+      });
+    } catch (apiErr) {
+      debugPrint('[EMERGENCY SERVICE] Backend SOS log error: $apiErr');
     }
 
     String locationString;

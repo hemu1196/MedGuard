@@ -7,6 +7,8 @@ router.use(authenticateToken);
 
 router.get('/water', wellnessController.getWaterIntake);
 router.post('/water', wellnessController.logWaterIntake);
+router.post('/water/undo', wellnessController.undoWaterLog);
+router.post('/water/reset', wellnessController.resetWaterIntake);
 
 router.get('/bmi', wellnessController.getBmiHistory);
 router.post('/bmi', wellnessController.saveBmiRecord);

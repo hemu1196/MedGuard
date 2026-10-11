@@ -111,12 +111,8 @@ const triggerSos = async (req, res) => {
   try {
     const { triggerType, latitude, longitude, address } = req.body;
 
-    if (latitude === undefined || longitude === undefined) {
-      return res.status(400).json({
-        success: false,
-        message: 'Real latitude and longitude are required to trigger SOS.',
-      });
-    }
+    const lat = (latitude !== undefined && latitude !== null && !isNaN(Number(latitude))) ? Number(latitude) : 0;
+    const lng = (longitude !== undefined && longitude !== null && !isNaN(Number(longitude))) ? Number(longitude) : 0;
 
     const contacts = await EmergencyContact.find({ userId: req.userId });
 
@@ -127,16 +123,19 @@ const triggerSos = async (req, res) => {
       status: 'sent',
     }));
 
-    const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${latitude},${longitude}`;
-    const smsMessage = `EMERGENCY ALERT from ${req.user.fullName}! I need immediate medical assistance. My live location: ${mapsUrl}`;
+    const mapsUrl = (lat !== 0 || lng !== 0)
+      ? `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`
+      : 'Location unavailable';
+    const senderName = (req.user && req.user.fullName) ? req.user.fullName : 'MEDGUARD User';
+    const smsMessage = `EMERGENCY ALERT from ${senderName}! I need immediate medical assistance. My live location: ${mapsUrl}`;
 
     const sosEvent = new EmergencyEvent({
       userId: req.userId,
       triggerType: triggerType || 'manual',
       location: {
-        latitude: Number(latitude),
-        longitude: Number(longitude),
-        address: address || '',
+        latitude: lat,
+        longitude: lng,
+        address: address || (lat === 0 && lng === 0 ? 'Location unavailable' : ''),
       },
       contactsNotified,
       status: 'active',

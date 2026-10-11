@@ -12,6 +12,7 @@ import '../../services/emergency_service.dart';
 import '../../widgets/app_header.dart';
 import '../../widgets/emergency_contact_dialog.dart';
 import '../../widgets/loading_view.dart';
+import '../../widgets/sos_countdown_dialog.dart';
 
 class EmergencySosPage extends StatefulWidget {
   const EmergencySosPage({super.key});
@@ -30,6 +31,7 @@ class _EmergencySosPageState extends State<EmergencySosPage> {
   bool _isLoadingContacts = true;
   bool _isProcessingSos = false;
   bool _isSharingLocation = false;
+  bool _isCountdownActive = false;
 
   @override
   void initState() {
@@ -93,7 +95,7 @@ class _EmergencySosPageState extends State<EmergencySosPage> {
             label: const Text('SEND SOS'),
             onPressed: () {
               Navigator.of(context).pop();
-              _triggerRealSos();
+              _triggerRealSos(triggerType: 'manual');
             },
           ),
         ],
@@ -101,7 +103,7 @@ class _EmergencySosPageState extends State<EmergencySosPage> {
     );
   }
 
-  void _triggerRealSos() async {
+  void _triggerRealSos({String triggerType = 'manual'}) async {
     if (_isProcessingSos) return;
 
     setState(() {
@@ -109,7 +111,10 @@ class _EmergencySosPageState extends State<EmergencySosPage> {
     });
 
     final userId = _currentUserId ?? await _authRepository.getCurrentUserId();
-    final result = await _emergencyService.triggerSos(userId: userId);
+    final result = await _emergencyService.triggerSos(
+      userId: userId,
+      triggerType: triggerType,
+    );
 
     if (!mounted) return;
 
@@ -447,84 +452,123 @@ class _EmergencySosPageState extends State<EmergencySosPage> {
     );
   }
 
-  void _triggerVoiceSos() async {
-    await Permission.microphone.request();
-    if (!mounted) return;
-    final speech = stt.SpeechToText();
-    String detectedText = 'Listening for keywords: "HELP ME", "SOS", or "EMERGENCY"...';
+  void _startSosCountdown({required String triggerWord, String triggerType = 'voice'}) {
+    if (_isCountdownActive) return;
+    _isCountdownActive = true;
 
-    showModalBottomSheet(
+    showDialog<bool>(
       context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setModalState) {
-            speech.initialize().then((available) {
-              if (available) {
-                speech.listen(onResult: (result) {
-                  final words = result.recognizedWords.toUpperCase();
-                  setModalState(() {
-                    detectedText = 'Heard: "$words"';
-                  });
-                  if (words.contains('HELP ME') ||
-                      words.contains('HELP') ||
-                      words.contains('SOS') ||
-                      words.contains('EMERGENCY')) {
-                    speech.stop();
-                    Navigator.of(context).pop();
-                    _onSosButtonTapped();
-                  }
-                });
-              }
-            });
-
-            return Container(
-              padding: const EdgeInsets.all(24.0),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: AppTheme.accentRed.withValues(alpha: 0.1),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.mic,
-                      color: AppTheme.accentRed,
-                      size: 48,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  const Text(
-                    'Voice Emergency Assistant',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    detectedText,
-                    style: const TextStyle(color: AppTheme.textMuted),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 24),
-                  ElevatedButton.icon(
-                    onPressed: () {
-                      speech.stop();
-                      Navigator.of(context).pop();
-                      _onSosButtonTapped();
-                    },
-                    icon: const Icon(Icons.emergency),
-                    label: const Text('Trigger Keyword: "HELP ME" / "SOS"'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppTheme.accentRed,
-                      foregroundColor: Colors.white,
-                    ),
-                  ),
-                ],
+      barrierDismissible: false,
+      builder: (dialogCtx) => SosCountdownDialog(
+        totalSeconds: 5,
+        triggerWord: triggerWord,
+        onCountdownComplete: () {
+          _isCountdownActive = false;
+          _triggerRealSos(triggerType: triggerType);
+        },
+        onCancel: () {
+          _isCountdownActive = false;
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Voice Emergency SOS cancelled by user.'),
+                backgroundColor: Colors.blueGrey,
+                duration: Duration(seconds: 2),
               ),
             );
+          }
+        },
+      ),
+    ).then((_) {
+      _isCountdownActive = false;
+    });
+  }
+
+  Future<void> _triggerVoiceSos() async {
+    // 1. Permission Check
+    final status = await Permission.microphone.status;
+    if (status.isPermanentlyDenied) {
+      if (!mounted) return;
+      showDialog(
+        context: context,
+        builder: (dialogCtx) => AlertDialog(
+          title: Row(
+            children: const [
+              Icon(Icons.mic_off, color: AppTheme.accentRed),
+              SizedBox(width: 8),
+              Text('Microphone Access Needed'),
+            ],
+          ),
+          content: const Text(
+            'Microphone permission is permanently denied. To enable hands-free Voice SOS keyword detection, please grant microphone permission in device settings.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogCtx).pop(),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.primaryTeal,
+                foregroundColor: Colors.white,
+              ),
+              onPressed: () {
+                Navigator.of(dialogCtx).pop();
+                openAppSettings();
+              },
+              child: const Text('Open Settings'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    if (!status.isGranted) {
+      final reqStatus = await Permission.microphone.request();
+      if (!reqStatus.isGranted) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Microphone permission is required to detect Voice SOS keywords.'),
+              backgroundColor: AppTheme.accentRed,
+            ),
+          );
+        }
+        return;
+      }
+    }
+
+    if (!mounted) return;
+
+    // 2. Initialize Speech-to-Text
+    final speech = stt.SpeechToText();
+    bool speechAvailable = false;
+    try {
+      speechAvailable = await speech.initialize(
+        onError: (err) => debugPrint('[VOICE SOS] Speech error: $err'),
+        onStatus: (st) => debugPrint('[VOICE SOS] Speech status: $st'),
+      );
+    } catch (e) {
+      debugPrint('[VOICE SOS] Speech init exception: $e');
+    }
+
+    if (!mounted) return;
+
+    // 3. Open Listening Modal Sheet
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (sheetContext) {
+        return _VoiceSosListeningSheet(
+          speech: speech,
+          speechAvailable: speechAvailable,
+          onKeywordDetected: (keyword) {
+            Navigator.of(sheetContext).pop();
+            _startSosCountdown(triggerWord: keyword, triggerType: 'voice');
           },
         );
       },
@@ -771,6 +815,212 @@ class _EmergencySosPageState extends State<EmergencySosPage> {
           Icons.arrow_forward_ios_rounded,
           size: 16,
           color: AppTheme.textMuted,
+        ),
+      ),
+    );
+  }
+}
+
+class _VoiceSosListeningSheet extends StatefulWidget {
+  final stt.SpeechToText speech;
+  final bool speechAvailable;
+  final void Function(String keyword) onKeywordDetected;
+
+  const _VoiceSosListeningSheet({
+    required this.speech,
+    required this.speechAvailable,
+    required this.onKeywordDetected,
+  });
+
+  @override
+  State<_VoiceSosListeningSheet> createState() => _VoiceSosListeningSheetState();
+}
+
+class _VoiceSosListeningSheetState extends State<_VoiceSosListeningSheet>
+    with SingleTickerProviderStateMixin {
+  String _recognizedWords = '';
+  bool _isListening = false;
+  bool _triggered = false;
+  late AnimationController _animController;
+  late Animation<double> _scaleAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _animController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 800),
+    )..repeat(reverse: true);
+
+    _scaleAnimation = Tween<double>(begin: 0.92, end: 1.12).animate(
+      CurvedAnimation(parent: _animController, curve: Curves.easeInOut),
+    );
+
+    if (widget.speechAvailable) {
+      _startListening();
+    }
+  }
+
+  void _startListening() {
+    try {
+      setState(() => _isListening = true);
+      widget.speech.listen(
+        onResult: (result) {
+          if (!mounted || _triggered) return;
+          final words = result.recognizedWords;
+          setState(() {
+            _recognizedWords = words;
+          });
+
+          final upper = words.toUpperCase();
+          if (upper.contains('HELP ME') ||
+              upper.contains('HELP') ||
+              upper.contains('SOS') ||
+              upper.contains('EMERGENCY')) {
+            _triggered = true;
+            try {
+              widget.speech.stop();
+            } catch (_) {}
+
+            String matched = 'HELP ME';
+            if (upper.contains('EMERGENCY')) {
+              matched = 'EMERGENCY';
+            } else if (upper.contains('SOS')) {
+              matched = 'SOS';
+            } else if (upper.contains('HELP')) {
+              matched = 'HELP';
+            }
+
+            widget.onKeywordDetected(matched);
+          }
+        },
+      );
+    } catch (e) {
+      debugPrint('[VOICE SOS] Listening start error: $e');
+    }
+  }
+
+  void _triggerManualKeyword(String keyword) {
+    if (_triggered) return;
+    _triggered = true;
+    try {
+      widget.speech.stop();
+    } catch (_) {}
+    widget.onKeywordDetected(keyword);
+  }
+
+  @override
+  void dispose() {
+    _animController.dispose();
+    try {
+      widget.speech.stop();
+    } catch (_) {}
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(24.0),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ScaleTransition(
+            scale: _scaleAnimation,
+            child: Container(
+              padding: const EdgeInsets.all(18),
+              decoration: BoxDecoration(
+                color: AppTheme.accentRed.withValues(alpha: 0.12),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.mic,
+                color: AppTheme.accentRed,
+                size: 48,
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          const Text(
+            'Voice Emergency Detection',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            widget.speechAvailable
+                ? (_recognizedWords.isEmpty
+                    ? (_isListening
+                        ? 'Listening for keywords: "HELP ME", "SOS", or "EMERGENCY"...'
+                        : 'Starting speech recognizer...')
+                    : 'Heard: "$_recognizedWords"')
+                : 'Speech recognizer unavailable on this platform/device. Use simulated test keyword below.',
+            style: const TextStyle(color: AppTheme.textMuted, fontSize: 13),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 20),
+
+          // Keyword chips
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            alignment: WrapAlignment.center,
+            children: [
+              _buildKeywordChip('HELP ME'),
+              _buildKeywordChip('SOS'),
+              _buildKeywordChip('EMERGENCY'),
+            ],
+          ),
+          const SizedBox(height: 24),
+
+          // Simulate / Manual Test Keyword Button
+          SizedBox(
+            width: double.infinity,
+            height: 48,
+            child: ElevatedButton.icon(
+              onPressed: () => _triggerManualKeyword('HELP ME'),
+              icon: const Icon(Icons.flash_on, color: Colors.white),
+              label: const Text(
+                'Test Trigger Keyword: "HELP ME"',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.accentRed,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          // Cancel / Close button
+          SizedBox(
+            width: double.infinity,
+            child: TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel Listening'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildKeywordChip(String keyword) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.red.shade50,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.red.shade200),
+      ),
+      child: Text(
+        keyword,
+        style: TextStyle(
+          color: Colors.red.shade800,
+          fontWeight: FontWeight.w600,
+          fontSize: 12,
         ),
       ),
     );

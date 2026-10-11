@@ -1,6 +1,8 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 
 class ImageHelper {
   /// Safely checks if a local file exists without throwing UnsupportedError on Web
@@ -70,6 +72,35 @@ class ImageHelper {
       return FileImage(File(pathOrUrl));
     }
 
+    return null;
+  }
+
+  /// Loads raw file/image bytes safely across Web and native Android
+  static Future<Uint8List?> loadBytes(String? pathOrUrl) async {
+    if (pathOrUrl == null || pathOrUrl.isEmpty) return null;
+
+    try {
+      if (pathOrUrl.startsWith('data:')) {
+        final commaIdx = pathOrUrl.indexOf(',');
+        if (commaIdx != -1) {
+          final b64 = pathOrUrl.substring(commaIdx + 1);
+          return base64Decode(b64);
+        }
+      }
+
+      if (pathOrUrl.startsWith('http://') || pathOrUrl.startsWith('https://')) {
+        final res = await http.get(Uri.parse(pathOrUrl));
+        if (res.statusCode == 200) {
+          return res.bodyBytes;
+        }
+      }
+
+      if (!kIsWeb && isLocalFile(pathOrUrl)) {
+        return await File(pathOrUrl).readAsBytes();
+      }
+    } catch (e) {
+      debugPrint('[IMAGE HELPER] loadBytes failed for $pathOrUrl: $e');
+    }
     return null;
   }
 }

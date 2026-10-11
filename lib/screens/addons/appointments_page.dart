@@ -1,8 +1,10 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../app/theme.dart';
 import '../../models/appointment.dart';
+import '../../services/pdf_export_service.dart';
 import '../../repositories/appointment_repository.dart';
 import '../../repositories/auth_repository.dart';
 import '../../services/notification_service.dart';
@@ -84,6 +86,163 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
     _notificationService.cancelAppointmentNotifications(
       baseNotificationId: appt.notificationId,
       reminderOffsets: appt.reminderOffsets,
+    );
+  }
+
+  Future<void> _callDoctor(String phoneNumber) async {
+    final cleanPhone = phoneNumber.replaceAll(RegExp(r'[^\d+]'), '');
+    if (cleanPhone.length < 5) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No valid doctor or clinic phone number available.'),
+          backgroundColor: AppColors.emergency,
+        ),
+      );
+      return;
+    }
+
+    final Uri phoneUri = Uri.parse('tel:$cleanPhone');
+    try {
+      if (await canLaunchUrl(phoneUri)) {
+        await launchUrl(phoneUri);
+      } else {
+        await launchUrl(phoneUri, mode: LaunchMode.externalApplication);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Could not open phone dialer: $e'),
+            backgroundColor: AppColors.emergency,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _downloadAppointmentPdf(Appointment appt) async {
+    try {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Generating appointment summary PDF...'),
+          duration: Duration(seconds: 1),
+        ),
+      );
+      final pdfBytes = await PdfExportService().generateAppointmentPdf(
+        appointment: appt,
+        patientName: 'Authorized User',
+      );
+      final filename = 'Appointment_Dr_${appt.doctorName.replaceAll(" ", "_")}.pdf';
+      await PdfExportService().downloadPdf(bytes: pdfBytes, filename: filename);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: AppColors.emergency,
+            content: Text('Failed to generate appointment PDF: $e'),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _shareAppointmentPdf(Appointment appt) async {
+    try {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Preparing appointment PDF for sharing...'),
+          duration: Duration(seconds: 1),
+        ),
+      );
+      final pdfBytes = await PdfExportService().generateAppointmentPdf(
+        appointment: appt,
+        patientName: 'Authorized User',
+      );
+      final filename = 'Appointment_Dr_${appt.doctorName.replaceAll(" ", "_")}.pdf';
+      await PdfExportService().sharePdf(
+        bytes: pdfBytes,
+        filename: filename,
+        subject: 'MEDGUARD Appointment Summary - Dr. ${appt.doctorName}',
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: AppColors.emergency,
+            content: Text('Failed to share appointment PDF: $e'),
+          ),
+        );
+      }
+    }
+  }
+
+  void _showAppointmentSuccessModal(Appointment appt) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppColors.success.withValues(alpha: 0.1),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.check_circle_rounded, color: AppColors.success, size: 40),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'Appointment Saved Successfully!',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Dr. ${appt.doctorName} • ${DateFormat("dd MMM yyyy, hh:mm a").format(appt.appointmentDate)}',
+              style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
+            ),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () {
+                      Navigator.pop(context);
+                      _downloadAppointmentPdf(appt);
+                    },
+                    icon: const Icon(Icons.download_rounded, size: 18),
+                    label: const Text('Download PDF'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: () {
+                      Navigator.pop(context);
+                      _shareAppointmentPdf(appt);
+                    },
+                    icon: const Icon(Icons.share_rounded, size: 18),
+                    label: const Text('Share PDF'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppTheme.primaryTeal,
+                      foregroundColor: Colors.white,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Done'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -498,16 +657,16 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
 
                         if (context.mounted) {
                           Navigator.of(context).pop();
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(
-                                existing == null
-                                    ? 'Appointment added successfully ✓'
-                                    : 'Appointment updated successfully ✓',
-                              ),
-                            ),
-                          );
                           _loadAppointments();
+                          if (existing == null) {
+                            _showAppointmentSuccessModal(appt);
+                          } else {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Appointment updated successfully ✓'),
+                              ),
+                            );
+                          }
                         }
                       },
                 child: isSaving
@@ -889,24 +1048,34 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
                                         ),
                                       ),
                                     ],
+                                    const Spacer(),
+                                    IconButton(
+                                      icon: const Icon(
+                                        Icons.picture_as_pdf_outlined,
+                                        color: AppColors.secondary,
+                                        size: 20,
+                                      ),
+                                      tooltip: 'Download Summary PDF',
+                                      onPressed: () => _downloadAppointmentPdf(appt),
+                                    ),
+                                    IconButton(
+                                      icon: const Icon(
+                                        Icons.share_outlined,
+                                        color: AppColors.primary,
+                                        size: 20,
+                                      ),
+                                      tooltip: 'Share Summary PDF',
+                                      onPressed: () => _shareAppointmentPdf(appt),
+                                    ),
                                     if (appt.phoneNumber.isNotEmpty) ...[
-                                      const SizedBox(width: 8),
                                       IconButton(
                                         icon: const Icon(
                                           Icons.call,
-                                          color: AppColors.primary,
+                                          color: AppColors.success,
+                                          size: 20,
                                         ),
-                                        onPressed: () {
-                                          ScaffoldMessenger.of(
-                                            context,
-                                          ).showSnackBar(
-                                            SnackBar(
-                                              content: Text(
-                                                'Calling ${appt.doctorName}: ${appt.phoneNumber}',
-                                              ),
-                                            ),
-                                          );
-                                        },
+                                        tooltip: 'Call Doctor / Clinic (${appt.phoneNumber})',
+                                        onPressed: () => _callDoctor(appt.phoneNumber),
                                       ),
                                     ],
                                   ],

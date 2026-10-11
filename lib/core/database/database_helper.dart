@@ -223,6 +223,35 @@ class DatabaseHelper {
     await _deleteTodayWaterIntakeWeb(userId, startOfDay, endOfDay);
   }
 
+  Future<void> deleteWaterIntake(String id) async {
+    if (!kIsWeb) {
+      try {
+        final db = await instance.database;
+        if (db != null) {
+          await db.delete('water_intake', where: 'id = ?', whereArgs: [id]);
+          return;
+        }
+      } catch (_) {}
+    }
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      for (final key in prefs.getKeys()) {
+        if (key.startsWith('water_logs_')) {
+          final list = prefs.getStringList(key) ?? [];
+          final filtered = list.where((s) {
+            try {
+              final item = WaterIntake.fromJson(s);
+              return item.id != id;
+            } catch (_) {
+              return true;
+            }
+          }).toList();
+          await prefs.setStringList(key, filtered);
+        }
+      }
+    } catch (_) {}
+  }
+
   Future<void> _deleteTodayWaterIntakeWeb(
     String userId,
     DateTime startOfDay,

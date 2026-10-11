@@ -76,9 +76,35 @@ class WaterRepository {
 
   Future<DailyWaterIntake> resetWater({required String userId}) async {
     try {
+      await _apiClient.post('/wellness/water/reset', body: {});
+    } catch (e) {
+      debugPrint('[WATER REPO] Reset API call error: $e');
+    }
+
+    try {
       await DatabaseHelper.instance.deleteTodayWaterIntake(userId);
     } catch (e) {
       debugPrint('[WATER REPO] Reset water error: $e');
+    }
+
+    return await getTodayWaterIntake(userId: userId);
+  }
+
+  Future<DailyWaterIntake> undoLastWaterLog({required String userId}) async {
+    try {
+      await _apiClient.post('/wellness/water/undo', body: {});
+    } catch (e) {
+      debugPrint('[WATER REPO] Undo API call error: $e');
+    }
+
+    try {
+      final logs = await DatabaseHelper.instance.getTodayWaterIntake(userId);
+      if (logs.isNotEmpty) {
+        final last = logs.last;
+        await DatabaseHelper.instance.deleteWaterIntake(last.id);
+      }
+    } catch (e) {
+      debugPrint('[WATER REPO] Undo local DB error: $e');
     }
 
     return await getTodayWaterIntake(userId: userId);

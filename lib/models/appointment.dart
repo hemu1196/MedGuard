@@ -58,6 +58,11 @@ class Appointment {
     return (id.hashCode.abs() + offsetMinutes) % 100000;
   }
 
+  // Compatibility getters
+  String get specialty => specialization;
+  String get location => hospitalOrClinic.isNotEmpty ? hospitalOrClinic : address;
+  String get statusText => status;
+
   Map<String, dynamic> toMap() {
     return {
       'id': id,

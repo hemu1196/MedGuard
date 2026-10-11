@@ -9,6 +9,7 @@ router.use(authenticateToken);
 router.get('/', healthRecordController.getRecords);
 router.post('/upload', uploadVault.single('file'), healthRecordController.uploadRecord);
 router.get('/download/:recordId', healthRecordController.downloadRecord);
+router.get('/:recordId/download', healthRecordController.downloadRecord);
 router.delete('/:recordId', healthRecordController.deleteRecord);
 
 module.exports = router;

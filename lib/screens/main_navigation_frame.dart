@@ -7,6 +7,10 @@ import 'vault/health_vault_page.dart';
 import 'medicines/medicine_page.dart';
 import 'profile/profile_page.dart';
 
+import 'dart:async';
+import '../services/notification_service.dart';
+import '../widgets/medicine_reminder_dialog.dart';
+
 class MainNavigationFrame extends StatefulWidget {
   final int initialIndex;
 
@@ -18,11 +22,27 @@ class MainNavigationFrame extends StatefulWidget {
 
 class _MainNavigationFrameState extends State<MainNavigationFrame> {
   late int _currentIndex;
+  StreamSubscription<MedicineAlertEvent>? _alertSubscription;
 
   @override
   void initState() {
     super.initState();
     _currentIndex = widget.initialIndex;
+    _initAlertListener();
+  }
+
+  void _initAlertListener() {
+    _alertSubscription = NotificationService().onMedicineAlert.listen((event) {
+      if (mounted) {
+        MedicineReminderDialog.show(context, event);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _alertSubscription?.cancel();
+    super.dispose();
   }
 
   void _onTabTapped(int index) {

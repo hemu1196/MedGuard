@@ -228,20 +228,24 @@ class _MedicinePageState extends State<MedicinePage> {
 
                   await _medicineRepository.saveMedicine(newMed);
 
-                  // Trigger local notification registration for each reminder time
+                  // Trigger exact timezone reminder registration for each reminder time
                   for (final time in reminderTimes) {
-                    await NotificationService().scheduleMedicineReminder(
+                    await NotificationService().scheduleExactMedicineReminder(
+                      medicineId: newMed.id,
                       medicineName: name,
-                      time: time,
+                      dosage: dosage,
+                      timeStr: time,
                     );
                   }
 
                   if (context.mounted) {
                     Navigator.of(context).pop();
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Medication added successfully.'),
-                        duration: Duration(seconds: 2),
+                      SnackBar(
+                        backgroundColor: AppColors.success,
+                        content: Text(
+                          '✅ Reminder scheduled for ${reminderTimes.join(", ")}.',
+                        ),
                       ),
                     );
                     setState(() {});
@@ -468,6 +472,34 @@ class _MedicinePageState extends State<MedicinePage> {
                                       ),
                                     )
                                     .toList(),
+                              ),
+                              const SizedBox(height: 8),
+                              Align(
+                                alignment: Alignment.centerRight,
+                                child: OutlinedButton.icon(
+                                  style: OutlinedButton.styleFrom(
+                                    visualDensity: VisualDensity.compact,
+                                    foregroundColor: AppColors.primary,
+                                    side: const BorderSide(color: AppColors.primary),
+                                  ),
+                                  onPressed: () async {
+                                    await NotificationService().testReminderNow(
+                                      medicineId: med.id,
+                                      medicineName: med.name,
+                                      dosage: med.dosage,
+                                    );
+                                    if (context.mounted) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(
+                                          content: Text('🔔 Test alert triggered! Check notification / popup.'),
+                                          duration: Duration(seconds: 2),
+                                        ),
+                                      );
+                                    }
+                                  },
+                                  icon: const Icon(Icons.notifications_active_outlined, size: 14),
+                                  label: const Text('Test Reminder Now', style: TextStyle(fontSize: 12)),
+                                ),
                               ),
                             ],
                           ),

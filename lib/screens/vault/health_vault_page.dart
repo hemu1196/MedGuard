@@ -1,9 +1,11 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import '../../app/theme.dart';
 import '../../core/utils/image_helper.dart';
 import '../../models/health_record.dart';
+import '../../services/pdf_export_service.dart';
 import '../../repositories/auth_repository.dart';
 import '../../repositories/health_record_repository.dart';
 import '../../widgets/app_header.dart';
@@ -514,6 +516,82 @@ class _HealthVaultPageState extends State<HealthVaultPage> {
     );
   }
 
+  Future<Uint8List> _resolveRecordPdfBytes(HealthRecord record) async {
+    final fileUrl = record.fileUrl;
+    if (fileUrl != null && fileUrl.isNotEmpty) {
+      final rawBytes = await ImageHelper.loadBytes(fileUrl);
+      if (rawBytes != null && rawBytes.isNotEmpty) {
+        // If file starts with %PDF-, it's already a valid PDF
+        if (rawBytes.length > 4 &&
+            rawBytes[0] == 0x25 && // %
+            rawBytes[1] == 0x50 && // P
+            rawBytes[2] == 0x44 && // D
+            rawBytes[3] == 0x46) { // F
+          return rawBytes;
+        }
+        // Otherwise convert image bytes into formatted A4 PDF
+        return await PdfExportService().convertImageToPdf(
+          imageBytes: rawBytes,
+          title: record.title,
+          recordDate: DateFormat('MMM dd, yyyy').format(record.documentDate),
+          patientName: record.doctorName.isNotEmpty ? 'Prescribed by Dr. ${record.doctorName}' : null,
+        );
+      }
+    }
+    // Summary PDF if no raw file attachment
+    return await PdfExportService().generateHealthRecordSummaryPdf(record: record);
+  }
+
+  Future<void> _downloadRecordPdf(HealthRecord record) async {
+    try {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Preparing document for download...'),
+          duration: Duration(seconds: 1),
+        ),
+      );
+      final pdfBytes = await _resolveRecordPdfBytes(record);
+      final safeName = '${record.title.replaceAll(RegExp(r"[^\w\s-]"), "").replaceAll(" ", "_")}.pdf';
+      await PdfExportService().downloadPdf(bytes: pdfBytes, filename: safeName);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: AppColors.emergency,
+            content: Text('Failed to download document: $e'),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _shareRecordPdf(HealthRecord record) async {
+    try {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Preparing document for sharing...'),
+          duration: Duration(seconds: 1),
+        ),
+      );
+      final pdfBytes = await _resolveRecordPdfBytes(record);
+      final safeName = '${record.title.replaceAll(RegExp(r"[^\w\s-]"), "").replaceAll(" ", "_")}.pdf';
+      await PdfExportService().sharePdf(
+        bytes: pdfBytes,
+        filename: safeName,
+        subject: 'MEDGUARD Health Vault - ${record.title}',
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: AppColors.emergency,
+            content: Text('Failed to share document: $e'),
+          ),
+        );
+      }
+    }
+  }
+
   void _viewDocumentFile(HealthRecord record) {
     final url = record.fileUrl;
     final isAvailable = url != null &&
@@ -659,6 +737,32 @@ class _HealthVaultPageState extends State<HealthVaultPage> {
                 Text(record.description),
                 const SizedBox(height: 16),
               ],
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () {
+                        Navigator.of(context).pop();
+                        _downloadRecordPdf(record);
+                      },
+                      icon: const Icon(Icons.download_rounded, size: 18),
+                      label: const Text('Download PDF'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () {
+                        Navigator.of(context).pop();
+                        _shareRecordPdf(record);
+                      },
+                      icon: const Icon(Icons.share_rounded, size: 18),
+                      label: const Text('Share'),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
               Row(
                 children: [
                   Expanded(
@@ -890,6 +994,10 @@ class _HealthVaultPageState extends State<HealthVaultPage> {
           onSelected: (val) {
             if (val == 'view') {
               _openRecordDetails(record);
+            } else if (val == 'download') {
+              _downloadRecordPdf(record);
+            } else if (val == 'share') {
+              _shareRecordPdf(record);
             } else if (val == 'edit') {
               _openAddEditRecordModal(recordToEdit: record);
             } else if (val == 'delete') {
@@ -897,13 +1005,54 @@ class _HealthVaultPageState extends State<HealthVaultPage> {
             }
           },
           itemBuilder: (context) => [
-            const PopupMenuItem(value: 'view', child: Text('View Details')),
-            const PopupMenuItem(value: 'edit', child: Text('Edit Record')),
+            const PopupMenuItem(
+              value: 'view',
+              child: Row(
+                children: [
+                  Icon(Icons.visibility_outlined, size: 18),
+                  SizedBox(width: 8),
+                  Text('View Details'),
+                ],
+              ),
+            ),
+            const PopupMenuItem(
+              value: 'download',
+              child: Row(
+                children: [
+                  Icon(Icons.download_rounded, size: 18),
+                  SizedBox(width: 8),
+                  Text('Download PDF'),
+                ],
+              ),
+            ),
+            const PopupMenuItem(
+              value: 'share',
+              child: Row(
+                children: [
+                  Icon(Icons.share_rounded, size: 18),
+                  SizedBox(width: 8),
+                  Text('Share Document'),
+                ],
+              ),
+            ),
+            const PopupMenuItem(
+              value: 'edit',
+              child: Row(
+                children: [
+                  Icon(Icons.edit_outlined, size: 18),
+                  SizedBox(width: 8),
+                  Text('Edit Record'),
+                ],
+              ),
+            ),
             const PopupMenuItem(
               value: 'delete',
-              child: Text(
-                'Delete',
-                style: TextStyle(color: AppColors.emergency),
+              child: Row(
+                children: [
+                  Icon(Icons.delete_outline, color: AppColors.emergency, size: 18),
+                  SizedBox(width: 8),
+                  Text('Delete', style: TextStyle(color: AppColors.emergency)),
+                ],
               ),
             ),
           ],

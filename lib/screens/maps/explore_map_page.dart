@@ -224,23 +224,32 @@ class _ExploreMapPageState extends State<ExploreMapPage> {
 
   Future<void> _launchPhoneCall(String phone) async {
     final cleanPhone = phone.replaceAll(RegExp(r'[^\d+]'), '');
-    if (cleanPhone.isEmpty) return;
+    if (cleanPhone.length < 5) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Phone number unavailable for this facility.'),
+            backgroundColor: AppColors.emergency,
+          ),
+        );
+      }
+      return;
+    }
 
     final Uri phoneUri = Uri.parse('tel:$cleanPhone');
     try {
       if (await canLaunchUrl(phoneUri)) {
         await launchUrl(phoneUri);
       } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Calling $phone...')),
-          );
-        }
+        await launchUrl(phoneUri, mode: LaunchMode.externalApplication);
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Calling $phone...')),
+          SnackBar(
+            content: Text('Could not open phone dialer: $e'),
+            backgroundColor: AppColors.emergency,
+          ),
         );
       }
     }
@@ -608,46 +617,62 @@ class _ExploreMapPageState extends State<ExploreMapPage> {
                         ),
                       ),
                       const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          _buildInfoChip(
-                            Icons.near_me_outlined,
-                            'Distance',
-                            '${_selectedHospital!.distanceKm} km',
-                          ),
-                          const SizedBox(width: 12),
-                          _buildInfoChip(
-                            Icons.timer_outlined,
-                            'Est. Travel Time',
-                            '${(_selectedHospital!.distanceKm * 4).round()} mins',
-                          ),
-                        ],
-                      ),
-                      const Divider(height: 24),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              onPressed: () => _launchPhoneCall(_selectedHospital!.phone),
-                              icon: const Icon(Icons.call, size: 16),
-                              label: const Text('Call Facility'),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: ElevatedButton.icon(
-                              onPressed: () => _launchMapsNavigation(_selectedHospital!),
-                              icon: const Icon(
-                                Icons.navigation,
-                                size: 16,
+                      Builder(
+                        builder: (context) {
+                          final hasPhone = _selectedHospital!.phone.trim().isNotEmpty &&
+                              RegExp(r'\d').hasMatch(_selectedHospital!.phone);
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  _buildInfoChip(
+                                    Icons.near_me_outlined,
+                                    'Distance',
+                                    '${_selectedHospital!.distanceKm} km',
+                                  ),
+                                  const SizedBox(width: 12),
+                                  _buildInfoChip(
+                                    hasPhone ? Icons.call_outlined : Icons.phone_disabled_outlined,
+                                    'Phone',
+                                    hasPhone ? _selectedHospital!.phone : 'Unavailable',
+                                  ),
+                                ],
                               ),
-                              label: const Text('Start Route'),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: AppTheme.primaryTeal,
+                              const Divider(height: 24),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: OutlinedButton.icon(
+                                      onPressed: hasPhone
+                                          ? () => _launchPhoneCall(_selectedHospital!.phone)
+                                          : null,
+                                      icon: Icon(
+                                        hasPhone ? Icons.call : Icons.phone_disabled,
+                                        size: 16,
+                                      ),
+                                      label: Text(hasPhone ? 'Call Hospital' : 'Phone Unavailable'),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: ElevatedButton.icon(
+                                      onPressed: () => _launchMapsNavigation(_selectedHospital!),
+                                      icon: const Icon(
+                                        Icons.navigation,
+                                        size: 16,
+                                      ),
+                                      label: const Text('Start Route'),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: AppTheme.primaryTeal,
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
-                            ),
-                          ),
-                        ],
+                            ],
+                          );
+                        },
                       ),
                     ],
                   ),

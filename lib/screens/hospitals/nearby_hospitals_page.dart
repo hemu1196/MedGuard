@@ -479,6 +479,21 @@ class _NearbyHospitalsPageState extends State<NearbyHospitalsPage> {
                                     overflow: TextOverflow.ellipsis,
                                   ),
                                 ),
+                              ] else ...[
+                                const SizedBox(width: 16),
+                                const Icon(
+                                  Icons.phone_disabled_outlined,
+                                  size: 14,
+                                  color: AppColors.textDisabled,
+                                ),
+                                const SizedBox(width: 4),
+                                const Text(
+                                  'Phone unavailable',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: AppColors.textDisabled,
+                                  ),
+                                ),
                               ],
                             ],
                           ),
@@ -490,7 +505,7 @@ class _NearbyHospitalsPageState extends State<NearbyHospitalsPage> {
                                 ElevatedButton.icon(
                                   onPressed: () => _makePhoneCall(h.phone),
                                   icon: const Icon(Icons.call, size: 16),
-                                  label: const Text('CALL'),
+                                  label: const Text('CALL HOSPITAL'),
                                   style: ElevatedButton.styleFrom(
                                     backgroundColor: AppTheme.secondaryBlue,
                                     foregroundColor: Colors.white,
@@ -500,7 +515,7 @@ class _NearbyHospitalsPageState extends State<NearbyHospitalsPage> {
                                 OutlinedButton.icon(
                                   onPressed: null,
                                   icon: const Icon(Icons.phone_disabled, size: 16),
-                                  label: const Text('No Phone'),
+                                  label: const Text('Phone Unavailable'),
                                 ),
                               const SizedBox(width: 8),
                               ElevatedButton.icon(

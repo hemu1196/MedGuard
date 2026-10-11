@@ -150,9 +150,68 @@ const saveBmiRecord = async (req, res) => {
   }
 };
 
+const undoWaterLog = async (req, res) => {
+  try {
+    const { logIndex, date } = req.body;
+    const targetDate = date || getTodayDateString();
+    const record = await WaterIntake.findOne({ userId: req.userId, date: targetDate });
+
+    if (!record || !record.logs || record.logs.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'No water logs found to undo.',
+      });
+    }
+
+    const idx = logIndex !== undefined ? Number(logIndex) : record.logs.length - 1;
+    if (idx >= 0 && idx < record.logs.length) {
+      const removed = record.logs.splice(idx, 1)[0];
+      record.consumedMl = Math.max(0, record.consumedMl - (removed.amountMl || 0));
+      await record.save();
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Water log entry removed.',
+      waterIntake: record,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to undo water log: ' + error.message,
+    });
+  }
+};
+
+const resetWaterIntake = async (req, res) => {
+  try {
+    const targetDate = req.body.date || getTodayDateString();
+    const record = await WaterIntake.findOne({ userId: req.userId, date: targetDate });
+
+    if (record) {
+      record.consumedMl = 0;
+      record.logs = [];
+      await record.save();
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Today\'s water intake reset to 0.',
+      waterIntake: record,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to reset water intake: ' + error.message,
+    });
+  }
+};
+
 module.exports = {
   getWaterIntake,
   logWaterIntake,
+  undoWaterLog,
+  resetWaterIntake,
   getBmiHistory,
   saveBmiRecord,
 };

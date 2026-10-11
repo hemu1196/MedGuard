@@ -5,6 +5,7 @@ import 'package:med_ai/core/errors/app_exception.dart';
 import 'package:med_ai/models/chat_message.dart';
 import 'package:med_ai/services/ai_health_service.dart';
 import 'package:med_ai/services/gemini_service.dart';
+import 'package:med_ai/services/local_health_fallback_service.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -95,6 +96,56 @@ void main() {
         whenToSeekMedicalHelp: 'Immediately',
       );
       expect(redResp.urgencyLabel, equals('EMERGENCY CARE REQUIRED IMMEDIATELY'));
+    });
+  });
+
+  group('LocalHealthFallbackService Clinical & Feature Tests', () {
+    test('BMI query returns dedicated Body Mass Index categorization', () {
+      final fallback = LocalHealthFallbackService();
+      final res = fallback.generateFallback('What is my BMI?');
+      expect(res.category, equals('Body Mass Index (BMI)'));
+      expect(res.text, contains('kg/m²'));
+      expect(res.text, isNot(contains('Rest in a comfortable environment and maintain regular fluid intake')));
+    });
+
+    test('Paracetamol query returns safe analgesic guidelines and 4000mg limit', () {
+      final fallback = LocalHealthFallbackService();
+      final res = fallback.generateFallback('Can I take paracetamol for fever?');
+      expect(res.category, equals('Medication: Paracetamol'));
+      expect(res.text, contains('4,000 mg'));
+      expect(res.text, contains('liver'));
+    });
+
+    test('Medicine reminders query returns MedGuard feature guidance', () {
+      final fallback = LocalHealthFallbackService();
+      final res = fallback.generateFallback('How do medicine reminders work in MedGuard?');
+      expect(res.category, equals('MedGuard Feature: Medicine Reminders'));
+      expect(res.text, contains('Taken'));
+      expect(res.text, contains('stock'));
+    });
+
+    test('Emergency SOS query returns MedGuard SOS protocol', () {
+      final fallback = LocalHealthFallbackService();
+      final res = fallback.generateFallback('How does emergency SOS work?');
+      expect(res.category, equals('MedGuard Feature: Emergency SOS'));
+      expect(res.text, contains('GPS'));
+      expect(res.text, contains('108'));
+    });
+
+    test('Blood pressure query returns AHA hypertension categories', () {
+      final fallback = LocalHealthFallbackService();
+      final res = fallback.generateFallback('What are blood pressure ranges?');
+      expect(res.category, equals('Cardiovascular: Blood Pressure'));
+      expect(res.text, contains('120'));
+      expect(res.text, contains('140'));
+    });
+
+    test('Burn first aid query provides cool water instructions and forbids ice/butter', () {
+      final fallback = LocalHealthFallbackService();
+      final res = fallback.generateFallback('First aid for minor burns');
+      expect(res.category, equals('First Aid: Burns & Scalds'));
+      expect(res.text, contains('cool running tap water'));
+      expect(res.text, contains('Never apply ice'));
     });
   });
 }

@@ -172,10 +172,57 @@ const deleteAppointment = async (req, res) => {
   }
 };
 
+const patchAppointmentStatus = async (req, res) => {
+  try {
+    const { appointmentId } = req.params;
+    const { status } = req.body;
+
+    if (!status || typeof status !== 'string') {
+      return res.status(400).json({
+        success: false,
+        message: 'Status is required.',
+      });
+    }
+
+    const validStatuses = ['upcoming', 'completed', 'cancelled'];
+    const normalized = status.toLowerCase().trim();
+    if (!validStatuses.includes(normalized)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid status "${status}". Must be one of: upcoming, completed, cancelled.`,
+      });
+    }
+
+    const appointment = await Appointment.findOne({ _id: appointmentId, userId: req.userId });
+    if (!appointment) {
+      return res.status(404).json({
+        success: false,
+        message: 'Appointment not found.',
+      });
+    }
+
+    appointment.status = normalized;
+    await appointment.save();
+
+    return res.status(200).json({
+      success: true,
+      message: `Appointment marked as ${normalized}.`,
+      appointment,
+    });
+  } catch (error) {
+    console.error('Patch Appointment Status Error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to update appointment status: ' + error.message,
+    });
+  }
+};
+
 module.exports = {
   getAppointments,
   addAppointment,
   updateAppointment,
+  patchAppointmentStatus,
   downloadAppointmentPdf,
   deleteAppointment,
 };

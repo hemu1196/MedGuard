@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import '../../app/routes.dart';
@@ -32,13 +33,17 @@ class _AiAssistantPageState extends State<AiAssistantPage> {
   final List<ChatMessage> _messages = [];
 
   final List<String> _quickPrompts = [
+    'What is BMI?',
+    'What is paracetamol?',
+    'How do medicine reminders work?',
+    'Emergency SOS guide',
     'I have a headache',
     'I have fever',
+    'Blood pressure ranges',
+    'Blood sugar ranges',
+    'First aid for minor burns',
     'I feel dizzy',
     'I have stomach pain',
-    'What medicine should I take?',
-    'I have headache and vomiting',
-    'I suddenly have severe headache and blurred vision',
   ];
 
   @override
@@ -1003,6 +1008,22 @@ class _AiAssistantPageState extends State<AiAssistantPage> {
                     backgroundColor: const Color(0xFFFEF2F2),
                     side: const BorderSide(color: AppTheme.accentRed),
                     onPressed: () => Navigator.pushNamed(context, AppRoutes.emergency),
+                  ),
+                  ActionChip(
+                    avatar: const Icon(Icons.copy_rounded, size: 16, color: AppTheme.textDark),
+                    label: const Text('Copy Guidance', style: TextStyle(fontSize: 11)),
+                    onPressed: () {
+                      final fullText = resp.text.isNotEmpty
+                          ? resp.text
+                          : '${resp.understanding}\n\n${resp.considerations.join('\n')}\n\n${resp.whatYouCanDoNow.join('\n')}\n\n${resp.whenToSeekMedicalHelp}';
+                      Clipboard.setData(ClipboardData(text: fullText));
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Guidance copied to clipboard ✓'),
+                          duration: Duration(seconds: 2),
+                        ),
+                      );
+                    },
                   ),
                   ActionChip(
                     avatar: const Icon(Icons.bookmark_add_outlined, size: 16, color: AppTheme.primaryBlue),

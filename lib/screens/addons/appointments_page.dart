@@ -704,6 +704,56 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
   }
 
   void _updateStatus(Appointment appt, String newStatus) async {
+    if (newStatus == 'Cancelled') {
+      final confirm = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Cancel Appointment?'),
+          content: Text(
+            'Are you sure you want to cancel your appointment with Dr. ${appt.doctorName}?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Keep Appointment'),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.emergency,
+                foregroundColor: Colors.white,
+              ),
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Cancel Appointment'),
+            ),
+          ],
+        ),
+      );
+      if (confirm != true) return;
+    } else if (newStatus == 'Completed') {
+      final confirm = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Mark Appointment as Completed?'),
+          content: Text('Mark visit with Dr. ${appt.doctorName} as completed?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Not Yet'),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.success,
+                foregroundColor: Colors.white,
+              ),
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Mark Complete'),
+            ),
+          ],
+        ),
+      );
+      if (confirm != true) return;
+    }
+
     final userId = await _authRepository.getCurrentUserId();
     await _appointmentRepository.updateStatus(
       userId,
@@ -712,11 +762,16 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
     );
     if (newStatus == 'Completed' || newStatus == 'Cancelled') {
       _cancelSystemNotification(appt);
+    } else if (newStatus == 'Upcoming' && appt.reminderEnabled) {
+      _scheduleSystemNotification(appt);
     }
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Appointment marked as $newStatus ✓'),
+          backgroundColor: newStatus == 'Completed'
+              ? AppColors.success
+              : (newStatus == 'Cancelled' ? AppColors.emergency : AppColors.primary),
         ),
       );
     }
@@ -1009,7 +1064,7 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
                                 Row(
                                   mainAxisAlignment: MainAxisAlignment.end,
                                   children: [
-                                    if (appt.status == 'Upcoming') ...[
+                                    if (appt.status.toLowerCase() == 'upcoming') ...[
                                       OutlinedButton.icon(
                                         onPressed: () =>
                                             _updateStatus(appt, 'Cancelled'),
@@ -1046,6 +1101,57 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
                                         style: ElevatedButton.styleFrom(
                                           backgroundColor: AppColors.success,
                                         ),
+                                      ),
+                                    ] else if (appt.status.toLowerCase() == 'completed') ...[
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                        decoration: BoxDecoration(
+                                          color: AppColors.success.withValues(alpha: 0.12),
+                                          borderRadius: BorderRadius.circular(8),
+                                        ),
+                                        child: const Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(Icons.check_circle, size: 14, color: AppColors.success),
+                                            SizedBox(width: 4),
+                                            Text(
+                                              'Completed',
+                                              style: TextStyle(
+                                                color: AppColors.success,
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 11,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ] else if (appt.status.toLowerCase() == 'cancelled') ...[
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                        decoration: BoxDecoration(
+                                          color: AppColors.emergency.withValues(alpha: 0.12),
+                                          borderRadius: BorderRadius.circular(8),
+                                        ),
+                                        child: const Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(Icons.cancel, size: 14, color: AppColors.emergency),
+                                            SizedBox(width: 4),
+                                            Text(
+                                              'Cancelled',
+                                              style: TextStyle(
+                                                color: AppColors.emergency,
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 11,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      TextButton(
+                                        onPressed: () => _updateStatus(appt, 'Upcoming'),
+                                        child: const Text('Re-open', style: TextStyle(fontSize: 11)),
                                       ),
                                     ],
                                     const Spacer(),

@@ -7,6 +7,7 @@ const { uploadVault } = require('../services/storageService');
 router.use(authenticateToken);
 
 router.get('/', healthRecordController.getRecords);
+router.post('/', healthRecordController.createRecord);
 router.post('/upload', uploadVault.single('file'), healthRecordController.uploadRecord);
 router.get('/download/:recordId', healthRecordController.downloadRecord);
 router.get('/:recordId/download', healthRecordController.downloadRecord);

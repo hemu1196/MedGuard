@@ -8,6 +8,7 @@ router.use(authenticateToken);
 router.get('/', appointmentController.getAppointments);
 router.post('/', appointmentController.addAppointment);
 router.put('/:appointmentId', appointmentController.updateAppointment);
+router.patch('/:appointmentId/status', appointmentController.patchAppointmentStatus);
 router.get('/:appointmentId/pdf', appointmentController.downloadAppointmentPdf);
 router.delete('/:appointmentId', appointmentController.deleteAppointment);
 

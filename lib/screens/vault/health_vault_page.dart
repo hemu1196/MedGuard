@@ -155,6 +155,8 @@ class _HealthVaultPageState extends State<HealthVaultPage> {
     HealthRecordType selectedType = recordToEdit?.recordType ?? initialType ?? HealthRecordType.labReport;
     DateTime documentDate = recordToEdit?.documentDate ?? DateTime.now();
     String? attachedFilePath = recordToEdit?.fileUrl;
+    Uint8List? attachedFileBytes;
+    String? attachedFileName;
     String? dialogErrorText;
     bool isSaving = false;
 
@@ -340,8 +342,11 @@ class _HealthVaultPageState extends State<HealthVaultPage> {
                                 imageQuality: 85,
                               );
                               if (file != null) {
+                                final bytes = await file.readAsBytes();
                                 setDialogState(() {
                                   attachedFilePath = file.path;
+                                  attachedFileBytes = bytes;
+                                  attachedFileName = file.name;
                                 });
                               }
                             } catch (e) {
@@ -362,8 +367,11 @@ class _HealthVaultPageState extends State<HealthVaultPage> {
                                 imageQuality: 85,
                               );
                               if (file != null) {
+                                final bytes = await file.readAsBytes();
                                 setDialogState(() {
                                   attachedFilePath = file.path;
+                                  attachedFileBytes = bytes;
+                                  attachedFileName = file.name;
                                 });
                               }
                             } catch (e) {
@@ -384,8 +392,11 @@ class _HealthVaultPageState extends State<HealthVaultPage> {
                                 imageQuality: 85,
                               );
                               if (file != null) {
+                                final bytes = await file.readAsBytes();
                                 setDialogState(() {
                                   attachedFilePath = file.path;
+                                  attachedFileBytes = bytes;
+                                  attachedFileName = file.name;
                                 });
                               }
                             } catch (e) {
@@ -412,14 +423,18 @@ class _HealthVaultPageState extends State<HealthVaultPage> {
                           const SizedBox(width: 6),
                           Expanded(
                             child: Text(
-                              attachedFilePath!.split('/').last,
+                              attachedFileName ?? attachedFilePath!.split('/').last,
                               style: const TextStyle(fontSize: 12, color: AppTheme.textDark),
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),
                           IconButton(
                             icon: const Icon(Icons.close, size: 16, color: Colors.red),
-                            onPressed: () => setDialogState(() => attachedFilePath = null),
+                            onPressed: () => setDialogState(() {
+                              attachedFilePath = null;
+                              attachedFileBytes = null;
+                              attachedFileName = null;
+                            }),
                           ),
                         ],
                       ),
@@ -469,7 +484,11 @@ class _HealthVaultPageState extends State<HealthVaultPage> {
                             fileUrl: attachedFilePath,
                           );
 
-                          await _vaultRepository.saveRecord(record);
+                          await _vaultRepository.saveRecord(
+                            record,
+                            fileBytes: attachedFileBytes,
+                            fileName: attachedFileName,
+                          );
 
                           if (mounted && dialogContext.mounted) {
                             Navigator.of(dialogContext).pop();

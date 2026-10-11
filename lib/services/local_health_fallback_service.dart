@@ -59,6 +59,434 @@ class LocalHealthFallbackService {
       );
     }
 
+    // 11. BODY MASS INDEX (BMI)
+    if (clean.contains('bmi') || clean.contains('body mass index')) {
+      return _buildResponse(
+        query: userQuery,
+        category: 'Body Mass Index (BMI)',
+        urgency: HealthUrgency.green,
+        isEmergency: false,
+        understanding: 'Inquiry regarding Body Mass Index (BMI) assessment.',
+        followUpQuestions: [
+          'What are your current height and weight measurements?',
+          'Have you calculated your BMI using the MedGuard BMI tool?',
+        ],
+        considerations: [
+          'BMI is calculated as weight in kilograms divided by height in meters squared (kg/m²).',
+          'WHO Classifications: Underweight (<18.5), Normal (18.5–24.9), Overweight (25–29.9), Obesity (≥30).',
+          'BMI is a screening tool and does not differentiate muscle mass from adipose fat tissue.',
+        ],
+        whatYouCanDoNow: [
+          'Open MEDGUARD Health Vault / BMI Tracker to compute your exact category.',
+          'Focus on balanced portion control and regular aerobic exercise.',
+          'Consult a physician or dietitian for personalized metabolic targets.',
+        ],
+        warningSigns: [
+          'Rapid unintentional weight loss or severe malnutrition.',
+          'Elevated BMI accompanied by high blood pressure, elevated fasting glucose, or joint pain.',
+        ],
+        whenToSeekMedicalHelp:
+            'Discuss body weight and cardiovascular risk factors with your primary physician at your next visit.',
+      );
+    }
+
+    // 12. PARACETAMOL & SPECIFIC ANALGESICS
+    if (clean.contains('paracetamol') ||
+        clean.contains('acetaminophen') ||
+        clean.contains('crocin') ||
+        clean.contains('dolo') ||
+        clean.contains('tylenol')) {
+      return _buildResponse(
+        query: userQuery,
+        category: 'Medication: Paracetamol',
+        urgency: HealthUrgency.yellow,
+        isEmergency: false,
+        understanding: 'Clinical inquiry regarding Paracetamol (Acetaminophen) safety and use.',
+        followUpQuestions: [
+          'What symptom (fever, headache, body pain) are you treating?',
+          'Have you taken any other medications containing acetaminophen today?',
+        ],
+        considerations: [
+          'Paracetamol is an analgesic and antipyretic indicated for mild pain and fever relief.',
+          'Adult safety threshold: Maximum 4,000 mg (4 grams) per 24 hours from all combined sources.',
+          'Exceeding recommended dosage carries serious danger of acute liver damage (hepatotoxicity).',
+          'Avoid consuming alcohol while taking paracetamol.',
+        ],
+        whatYouCanDoNow: [
+          'Check packaging labels for exact tablet strength (typically 500 mg or 650 mg).',
+          'Space individual doses at least 4 to 6 hours apart.',
+          'Track your doses in MEDGUARD Medicines tab.',
+        ],
+        warningSigns: [
+          'Accidental overdose or consumption exceeding 4,000 mg in 24 hours.',
+          'Nausea, upper right abdominal pain, or jaundice (yellowing skin/eyes).',
+        ],
+        whenToSeekMedicalHelp:
+            'Seek immediate poison control or emergency medical evaluation if excessive doses are suspected.',
+      );
+    }
+
+    // 13. APP FEATURE: MEDICINE REMINDERS
+    if (clean.contains('medicine reminder') ||
+        clean.contains('pill reminder') ||
+        clean.contains('how do medicine reminders work') ||
+        clean.contains('reminder work')) {
+      return _buildResponse(
+        query: userQuery,
+        category: 'MedGuard Feature: Medicine Reminders',
+        urgency: HealthUrgency.green,
+        isEmergency: false,
+        understanding: 'Guide on MEDGUARD Medicine Reminders and dose adherence.',
+        followUpQuestions: [
+          'Have you set your daily medication schedule in the Medicines tab?',
+          'Would you like assistance configuring dosage or frequency?',
+        ],
+        considerations: [
+          'MEDGUARD provides exact-time audio and popup notifications for scheduled medications.',
+          'Marking "Taken" deducts remaining pill stock by 1 and records an adherence log entry.',
+          'You can also "Snooze" alerts or "Skip" with an adherence note.',
+        ],
+        whatYouCanDoNow: [
+          'Tap the Medicines icon in the bottom navigation bar.',
+          'Add your medication name, dosage strength, scheduled times, and total pill count.',
+          'Enable notifications so alarms trigger reliably on your device.',
+        ],
+        warningSigns: [
+          'Frequent missed doses resulting in uncontrolled blood pressure, glucose, or infections.',
+        ],
+        whenToSeekMedicalHelp:
+            'Consult your prescribing doctor if you experience side effects or need to adjust prescribed dosages.',
+      );
+    }
+
+    // 14. APP FEATURE: EMERGENCY SOS & CONTACTS
+    if (clean.contains('emergency contact') ||
+        clean.contains('sos') ||
+        clean.contains('how does sos work') ||
+        clean.contains('distress')) {
+      return _buildResponse(
+        query: userQuery,
+        category: 'MedGuard Feature: Emergency SOS',
+        urgency: HealthUrgency.red,
+        isEmergency: false,
+        understanding: 'Overview of MEDGUARD Emergency SOS and contact broadcasting.',
+        followUpQuestions: [
+          'Have you registered your emergency contacts in your profile?',
+          'Are your phone location permissions enabled?',
+        ],
+        considerations: [
+          'The MEDGUARD SOS button triggers an instant alert protocol.',
+          'It transmits an emergency SMS with live GPS coordinates to your registered emergency contacts.',
+          'It also provides one-touch dialing to 108 (Ambulance) and 112 (National Emergency).',
+        ],
+        whatYouCanDoNow: [
+          'Ensure at least one trusted family member or physician is listed under Emergency Contacts.',
+          'Verify that location services are granted to MEDGUARD for accurate coordinates.',
+        ],
+        warningSigns: [
+          'Life-threatening emergencies: chest pain, choking, unconsciousness, severe bleeding.',
+        ],
+        whenToSeekMedicalHelp:
+            'Trigger the red SOS button or dial 108/112 immediately in any life-threatening situation.',
+      );
+    }
+
+    // 15. APP FEATURE: AMBULANCE ASSISTANCE
+    if (clean.contains('ambulance') || clean.contains('paramedic')) {
+      return _buildResponse(
+        query: userQuery,
+        category: 'MedGuard Feature: Ambulance Assistance',
+        urgency: HealthUrgency.orange,
+        isEmergency: false,
+        understanding: 'Guide to MEDGUARD Ambulance dispatch and calling.',
+        followUpQuestions: [
+          'Are you currently experiencing a medical emergency?',
+          'Do you need immediate dispatch to your current location?',
+        ],
+        considerations: [
+          'MEDGUARD connects you directly to emergency ambulance services (108 / 112).',
+          'The screen displays your verified address and exact coordinates to share with dispatchers.',
+        ],
+        whatYouCanDoNow: [
+          'Tap "Call 108 Ambulance" in the Ambulance section.',
+          'Keep your phone line open and clearly state your landmark to the emergency dispatcher.',
+        ],
+        warningSigns: [
+          'Severe trauma, cardiac arrest, respiratory failure, or stroke symptoms.',
+        ],
+        whenToSeekMedicalHelp:
+            'Call 108 immediately for urgent emergency medical transport.',
+      );
+    }
+
+    // 16. APP FEATURE: NEARBY HOSPITALS & MAP
+    if (clean.contains('hospital') ||
+        clean.contains('clinic') ||
+        clean.contains('map') ||
+        clean.contains('nearby')) {
+      return _buildResponse(
+        query: userQuery,
+        category: 'MedGuard Feature: Nearby Hospitals & Map',
+        urgency: HealthUrgency.green,
+        isEmergency: false,
+        understanding: 'Locating nearby healthcare facilities on MEDGUARD Explore Map.',
+        followUpQuestions: [
+          'Are you looking for 24/7 emergency care or outpatient clinics?',
+          'Is GPS enabled on your device?',
+        ],
+        considerations: [
+          'MEDGUARD discovers nearby medical centers using real OpenStreetMap geolocation data.',
+          'Cards show distance in kilometers, estimated drive time, emergency status, and direct call buttons.',
+        ],
+        whatYouCanDoNow: [
+          'Navigate to the Explore Map / Nearby Hospitals tab.',
+          'Filter by "24/7 Emergency" for urgent trauma centers.',
+          'Tap the phone icon to call facility reception directly.',
+        ],
+        warningSigns: [
+          'Do not drive yourself if experiencing severe pain, bleeding, or dizziness; call an ambulance.',
+        ],
+        whenToSeekMedicalHelp:
+            'Visit the nearest emergency department for acute, worsening, or traumatic conditions.',
+      );
+    }
+
+    // 17. APP FEATURE: HEALTH VAULT & PDF EXPORT
+    if (clean.contains('vault') ||
+        clean.contains('health record') ||
+        clean.contains('document') ||
+        clean.contains('pdf')) {
+      return _buildResponse(
+        query: userQuery,
+        category: 'MedGuard Feature: Health Vault & PDF',
+        urgency: HealthUrgency.green,
+        isEmergency: false,
+        understanding: 'Managing personal health records and PDF summaries in MEDGUARD.',
+        followUpQuestions: [
+          'Would you like to upload a prescription, blood test, or consultation note?',
+          'Do you need to download or share your health records?',
+        ],
+        considerations: [
+          'MEDGUARD Health Vault securely stores lab reports, prescriptions, scans, and notes in MongoDB Atlas.',
+          'You can generate A4 PDF summaries, convert image attachments to PDF, and share via system share sheets.',
+        ],
+        whatYouCanDoNow: [
+          'Tap the Health Vault icon to view or add medical records.',
+          'Attach doctor notes, facility names, and dates for organized clinical history.',
+          'Use "Download PDF" or "Share" on any record card to distribute to your physician.',
+        ],
+        warningSigns: [
+          'Keep your records private and only share with authorized medical personnel.',
+        ],
+        whenToSeekMedicalHelp:
+            'Bring your exported Health Vault PDF summary to your doctor appointments.',
+      );
+    }
+
+    // 18. APP FEATURE: DOCTOR APPOINTMENTS
+    if (clean.contains('appointment') ||
+        clean.contains('doctor visit') ||
+        clean.contains('schedule visit')) {
+      return _buildResponse(
+        query: userQuery,
+        category: 'MedGuard Feature: Doctor Appointments',
+        urgency: HealthUrgency.green,
+        isEmergency: false,
+        understanding: 'Scheduling and tracking clinical appointments in MEDGUARD.',
+        followUpQuestions: [
+          'Do you have an upcoming doctor consultation to schedule?',
+        ],
+        considerations: [
+          'MEDGUARD schedules appointments with doctor specialty, clinic name, date, and reminders.',
+          'Reminders notify you 1 day, 1 hour, or 30 minutes before your consultation.',
+          'Mark visits as "Completed" or "Cancelled" to keep your medical timeline up to date.',
+        ],
+        whatYouCanDoNow: [
+          'Open Doctor Appointments from Quick Actions or the drawer.',
+          'Tap "+" to add a new visit with reminders.',
+          'Download or share your Appointment Summary PDF slip.',
+        ],
+        warningSigns: [
+          'Never postpone emergency symptoms for a future scheduled appointment.',
+        ],
+        whenToSeekMedicalHelp:
+            'For acute symptoms, seek immediate urgent care rather than waiting for an appointment.',
+      );
+    }
+
+    // 19. APP FEATURE: WATER INTAKE & HYDRATION
+    if (clean.contains('water') || clean.contains('hydration') || clean.contains('drink water')) {
+      return _buildResponse(
+        query: userQuery,
+        category: 'MedGuard Feature: Water Tracker',
+        urgency: HealthUrgency.green,
+        isEmergency: false,
+        understanding: 'Daily hydration guidance and MEDGUARD Water Tracker.',
+        followUpQuestions: [
+          'How many glasses of water have you logged today?',
+        ],
+        considerations: [
+          'A standard baseline intake is 2,000 to 2,500 mL (approx. 8–10 glasses) daily for adults.',
+          'Individual fluid needs vary with climate, physical activity, and medical conditions (e.g. renal or heart failure).',
+        ],
+        whatYouCanDoNow: [
+          'Log each glass (250 mL) in the MEDGUARD Water Tracker on the Dashboard.',
+          'Monitor your progress ring toward your daily hydration goal.',
+        ],
+        warningSigns: [
+          'Signs of severe dehydration: extreme thirst, dark urine, confusion, or fainting.',
+        ],
+        whenToSeekMedicalHelp:
+            'Seek clinical care if severe dehydration occurs with persistent vomiting or diarrhea.',
+      );
+    }
+
+    // 20. BLOOD PRESSURE & HYPERTENSION
+    if (clean.contains('bp') || clean.contains('blood pressure') || clean.contains('hypertension')) {
+      return _buildResponse(
+        query: userQuery,
+        category: 'Cardiovascular: Blood Pressure',
+        urgency: HealthUrgency.yellow,
+        isEmergency: false,
+        understanding: 'Blood pressure classification and clinical guidance.',
+        followUpQuestions: [
+          'What was your latest systolic and diastolic reading?',
+          'Are you currently prescribed antihypertensive medication?',
+        ],
+        considerations: [
+          'Standard Guidelines: Normal is <120/<80 mmHg; Stage 1 Hypertension is 130–139/80–89 mmHg; Stage 2 is ≥140/≥90 mmHg.',
+          'Hypertensive Crisis occurs when readings exceed 180/120 mmHg.',
+        ],
+        whatYouCanDoNow: [
+          'Rest seated quietly for 5 minutes before taking blood pressure readings.',
+          'Log your systolic and diastolic values in MEDGUARD for your physician.',
+          'Reduce sodium intake and avoid smoking or caffeine prior to measurement.',
+        ],
+        warningSigns: [
+          'Blood pressure >180/120 mmHg with headache, chest pain, or vision changes (emergency).',
+        ],
+        whenToSeekMedicalHelp:
+            'Consult your physician if readings are consistently above 130/80 mmHg. Seek ER care for hypertensive crisis.',
+      );
+    }
+
+    // 21. BLOOD SUGAR & DIABETES
+    if (clean.contains('sugar') || clean.contains('glucose') || clean.contains('diabetes') || clean.contains('hypoglycemia')) {
+      return _buildResponse(
+        query: userQuery,
+        category: 'Metabolic: Blood Glucose & Diabetes',
+        urgency: HealthUrgency.yellow,
+        isEmergency: false,
+        understanding: 'Blood glucose targets and diabetes guidance.',
+        followUpQuestions: [
+          'Is this reading fasting or 2 hours post-meal?',
+          'Are you experiencing shakiness, sweating, or extreme thirst?',
+        ],
+        considerations: [
+          'Normal fasting blood glucose is 70–99 mg/dL; prediabetes is 100–125 mg/dL; diabetes is ≥126 mg/dL.',
+          'Hypoglycemia occurs below 70 mg/dL and requires urgent correction.',
+        ],
+        whatYouCanDoNow: [
+          'If hypoglycemic (<70 mg/dL): Immediately consume 15g fast-acting sugar (fruit juice or glucose tablets) and re-check in 15 min.',
+          'Maintain regular meal timings and take diabetes medications as prescribed.',
+        ],
+        warningSigns: [
+          'Severe hypoglycemia: confusion, seizures, or loss of consciousness.',
+          'Diabetic ketoacidosis: fruity breath, extreme nausea, deep rapid breathing.',
+        ],
+        whenToSeekMedicalHelp:
+            'Seek emergency medical care for severe hypoglycemia or symptoms of ketoacidosis.',
+      );
+    }
+
+    // 22. BURNS & SCALDS FIRST AID
+    if (clean.contains('burn') || clean.contains('scald')) {
+      return _buildResponse(
+        query: userQuery,
+        category: 'First Aid: Burns & Scalds',
+        urgency: HealthUrgency.yellow,
+        isEmergency: false,
+        understanding: 'First aid treatment for minor thermal burns and scalds.',
+        followUpQuestions: [
+          'What caused the burn (hot liquid, flame, chemical, electrical)?',
+          'Is the skin red, blistering, or charred white/black?',
+        ],
+        considerations: [
+          'Immediate cooling reduces tissue damage and pain.',
+          'Never apply ice, butter, oil, or toothpaste to burns.',
+        ],
+        whatYouCanDoNow: [
+          'Hold the burned area under cool running tap water for 10 to 20 minutes.',
+          'Cover loosely with a sterile, non-adherent dressing or clean plastic wrap.',
+          'Take over-the-counter pain relief if appropriate.',
+        ],
+        warningSigns: [
+          'Burns larger than the palm of the hand, or burns on the face, hands, or groin.',
+          'Chemical, electrical, or full-thickness charred burns.',
+        ],
+        whenToSeekMedicalHelp:
+            'Seek emergency medical attention for all chemical/electrical burns, blistering over large areas, or facial burns.',
+      );
+    }
+
+    // 23. ALLERGIES & ANAPHYLAXIS
+    if (clean.contains('allergy') || clean.contains('allergic') || clean.contains('hives')) {
+      return _buildResponse(
+        query: userQuery,
+        category: 'Immune: Allergy & Anaphylaxis',
+        urgency: HealthUrgency.yellow,
+        isEmergency: false,
+        understanding: 'Assessment of allergic symptoms.',
+        followUpQuestions: [
+          'What triggered the reaction (food, insect sting, medication)?',
+          'Are your lips, tongue, or throat swelling, or are you wheezing?',
+        ],
+        considerations: [
+          'Mild reactions include hives, itching, and sneezing.',
+          'Anaphylaxis is a life-threatening systemic reaction requiring immediate epinephrine.',
+        ],
+        whatYouCanDoNow: [
+          'For mild localized itching, an oral antihistamine may provide relief.',
+          'Avoid known triggers and record allergies in your MEDGUARD Health Profile.',
+        ],
+        warningSigns: [
+          'ANAPHYLAXIS RED FLAGS: Lip/throat swelling, difficulty swallowing or breathing, dizziness.',
+        ],
+        whenToSeekMedicalHelp:
+            'If lip/throat swelling or breathing difficulty occurs, use an EpiPen immediately and call 108/112.',
+      );
+    }
+
+    // 24. BACK & MUSCLE STRAIN
+    if (clean.contains('back pain') || clean.contains('muscle pain') || clean.contains('strain')) {
+      return _buildResponse(
+        query: userQuery,
+        category: 'Musculoskeletal: Back & Muscle Pain',
+        urgency: HealthUrgency.green,
+        isEmergency: false,
+        understanding: 'Back pain and muscle strain self-care guidance.',
+        followUpQuestions: [
+          'Did the pain start after lifting or sudden movement?',
+          'Does pain shoot down your leg past the knee?',
+        ],
+        considerations: [
+          'Acute lumbar strain usually improves over several days with gentle movement and posture care.',
+          'Prolonged strict bed rest can delay recovery.',
+        ],
+        whatYouCanDoNow: [
+          'Apply cold compresses for the first 24–48 hours, followed by warm compresses.',
+          'Engage in gentle walking and avoid heavy lifting.',
+        ],
+        warningSigns: [
+          'Loss of bladder or bowel control (cauda equina emergency).',
+          'Numbness in the groin area or progressive weakness in legs/feet.',
+        ],
+        whenToSeekMedicalHelp:
+            'Seek immediate emergency care for loss of bowel/bladder control or progressive leg weakness.',
+      );
+    }
+
+
     // 2. MEDICATION QUESTIONS (Prioritized for safe non-prescriptive disclaimers)
     if (clean.contains('medicine') ||
         clean.contains('pill') ||
@@ -378,7 +806,8 @@ class LocalHealthFallbackService {
       );
     }
 
-    // 11. GENERAL HEALTH / DEFAULT FALLBACK
+
+    // 25. GENERAL HEALTH / DEFAULT FALLBACK
     return _buildResponse(
       query: userQuery,
       category: 'General Health',

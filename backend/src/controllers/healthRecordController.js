@@ -24,6 +24,50 @@ const getRecords = async (req, res) => {
   }
 };
 
+const createRecord = async (req, res) => {
+  try {
+    const { title, category, recordType, doctorName, hospitalName, documentDate, tags, notes } = req.body;
+
+    if (!title || typeof title !== 'string' || title.trim().length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Record title is required.',
+      });
+    }
+
+    let tagList = [];
+    if (tags) {
+      tagList = Array.isArray(tags) ? tags : tags.split(',').map((t) => t.trim());
+    }
+
+    const record = new HealthRecord({
+      userId: req.userId,
+      title: title.trim(),
+      category: category || 'other',
+      recordType: recordType || category || 'other',
+      doctorName: doctorName || '',
+      hospitalName: hospitalName || '',
+      documentDate: documentDate ? new Date(documentDate) : new Date(),
+      tags: tagList,
+      notes: notes || '',
+    });
+
+    await record.save();
+
+    return res.status(201).json({
+      success: true,
+      message: 'Health record created successfully.',
+      record,
+    });
+  } catch (error) {
+    console.error('Create Health Record Error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to create health record: ' + error.message,
+    });
+  }
+};
+
 const uploadRecord = async (req, res) => {
   try {
     if (!req.file) {
@@ -33,7 +77,7 @@ const uploadRecord = async (req, res) => {
       });
     }
 
-    const { title, category, tags, notes } = req.body;
+    const { title, category, recordType, doctorName, hospitalName, documentDate, tags, notes } = req.body;
     let tagList = [];
     if (tags) {
       tagList = Array.isArray(tags) ? tags : tags.split(',').map((t) => t.trim());
@@ -43,6 +87,10 @@ const uploadRecord = async (req, res) => {
       userId: req.userId,
       title: title || req.file.originalname,
       category: category || 'other',
+      recordType: recordType || category || 'other',
+      doctorName: doctorName || '',
+      hospitalName: hospitalName || '',
+      documentDate: documentDate ? new Date(documentDate) : new Date(),
       filePath: req.file.path,
       fileName: req.file.originalname,
       mimeType: req.file.mimetype,
@@ -136,6 +184,7 @@ const deleteRecord = async (req, res) => {
 
 module.exports = {
   getRecords,
+  createRecord,
   uploadRecord,
   downloadRecord,
   deleteRecord,

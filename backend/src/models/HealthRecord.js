@@ -14,24 +14,41 @@ const healthRecordSchema = new mongoose.Schema({
   },
   category: {
     type: String,
-    enum: ['lab', 'prescription', 'scan', 'other'],
     default: 'other',
+  },
+  recordType: {
+    type: String,
+    default: 'other',
+  },
+  doctorName: {
+    type: String,
+    default: '',
+    trim: true,
+  },
+  hospitalName: {
+    type: String,
+    default: '',
+    trim: true,
+  },
+  documentDate: {
+    type: Date,
+    default: Date.now,
   },
   filePath: {
     type: String,
-    required: true,
+    default: null,
   },
   fileName: {
     type: String,
-    required: true,
+    default: '',
   },
   mimeType: {
     type: String,
-    required: true,
+    default: '',
   },
   fileSizeBytes: {
     type: Number,
-    required: true,
+    default: 0,
   },
   tags: [{
     type: String,

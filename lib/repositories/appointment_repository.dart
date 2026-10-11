@@ -52,14 +52,17 @@ class AppointmentRepository {
 
   Future<bool> saveAppointment(String userId, Appointment appointment) async {
     try {
+      final formattedTime =
+          '${appointment.appointmentDate.hour.toString().padLeft(2, '0')}:${appointment.appointmentDate.minute.toString().padLeft(2, '0')}';
       final body = {
         'doctorName': appointment.doctorName,
         'specialty': appointment.specialization,
         'hospitalName': appointment.hospitalOrClinic,
         'appointmentDate': appointment.appointmentDate.toIso8601String(),
-        'appointmentTime': '${appointment.appointmentDate.hour}:${String.fromCharCodes([appointment.appointmentDate.minute])}',
+        'appointmentTime': formattedTime,
         'reason': appointment.notes,
         'notes': appointment.notes,
+        'status': appointment.status.toLowerCase(),
       };
 
       Map<String, dynamic> res;
@@ -86,39 +89,53 @@ class AppointmentRepository {
     String id,
     String status,
   ) async {
+    final normalized = status.toLowerCase();
+    bool updatedInCloud = false;
+
     try {
       if (id.length == 24) {
-        await _apiClient.put('/appointments/$id', body: {'status': status.toLowerCase()});
+        final res = await _apiClient.patch(
+          '/appointments/$id/status',
+          body: {'status': normalized},
+        );
+        if (res['success'] == true && res['appointment'] != null) {
+          final savedAppt = Appointment.fromMap(Map<String, dynamic>.from(res['appointment']));
+          await _updateSingleLocalAppt(userId, savedAppt);
+          updatedInCloud = true;
+        }
       }
     } catch (e) {
       debugPrint('[APPOINTMENT REPO] updateStatus API error: $e');
     }
 
-    final appointments = await getAppointments(userId: userId);
-    final index = appointments.indexWhere((a) => a.id == id);
-    if (index >= 0) {
-      final old = appointments[index];
-      final updated = Appointment(
-        id: old.id,
-        userId: userId,
-        doctorName: old.doctorName,
-        specialization: old.specialization,
-        hospitalOrClinic: old.hospitalOrClinic,
-        appointmentDate: old.appointmentDate,
-        phoneNumber: old.phoneNumber,
-        address: old.address,
-        notes: old.notes,
-        reminderEnabled: old.reminderEnabled,
-        reminderTimeMinutesBefore: old.reminderTimeMinutesBefore,
-        selectedRemindersMinutes: old.selectedRemindersMinutes,
-        status: status,
-        pdfPath: old.pdfPath,
-        createdAt: old.createdAt,
-        updatedAt: DateTime.now(),
-      );
-      return await saveAppointment(userId, updated);
+    if (!updatedInCloud) {
+      final appointments = await getAppointments(userId: userId);
+      final index = appointments.indexWhere((a) => a.id == id);
+      if (index >= 0) {
+        final old = appointments[index];
+        final updated = Appointment(
+          id: old.id,
+          userId: userId,
+          doctorName: old.doctorName,
+          specialization: old.specialization,
+          hospitalOrClinic: old.hospitalOrClinic,
+          appointmentDate: old.appointmentDate,
+          phoneNumber: old.phoneNumber,
+          address: old.address,
+          notes: old.notes,
+          reminderEnabled: old.reminderEnabled,
+          reminderTimeMinutesBefore: old.reminderTimeMinutesBefore,
+          selectedRemindersMinutes: old.selectedRemindersMinutes,
+          status: status,
+          pdfPath: old.pdfPath,
+          createdAt: old.createdAt,
+          updatedAt: DateTime.now(),
+        );
+        await _updateSingleLocalAppt(userId, updated);
+      }
     }
-    return false;
+
+    return true;
   }
 
   Future<bool> deleteAppointment(

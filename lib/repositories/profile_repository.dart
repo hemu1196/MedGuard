@@ -95,6 +95,11 @@ class ProfileRepository {
       final updatedProfile = UserProfile.fromMap(Map<String, dynamic>.from(res['user']));
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('$_profileStoragePrefix$userId', updatedProfile.toJson());
+      
+      final currentToken = await _apiClient.getToken();
+      if (currentToken != null && currentToken.isNotEmpty) {
+        await _apiClient.saveAuthSession(currentToken, Map<String, dynamic>.from(res['user']));
+      }
       return true;
     } else {
       throw Exception(res['message'] ?? 'Failed to save profile to server');

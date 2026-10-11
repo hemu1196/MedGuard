@@ -10,8 +10,10 @@ router.post('/firebase-migrate', authController.firebaseMigrate);
 
 // Authenticated routes
 router.get('/me', authenticateToken, authController.getMe);
+router.get('/profile', authenticateToken, authController.getMe);
 router.put('/profile', authenticateToken, authController.updateProfile);
 router.patch('/profile', authenticateToken, authController.updateProfile);
+router.post('/profile', authenticateToken, authController.updateProfile);
 router.post('/logout', authenticateToken, authController.logout);
 
 module.exports = router;

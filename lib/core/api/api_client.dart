@@ -14,8 +14,18 @@ class ApiClient {
 
   String? _cachedToken;
 
+  String? _customBaseUrl;
+
+  /// Allows setting a custom backend URL (e.g. for physical Android test over LAN)
+  void setCustomBaseUrl(String? url) {
+    _customBaseUrl = url;
+  }
+
   /// Determine the appropriate Base URL according to target platform
   String get baseUrl {
+    if (_customBaseUrl != null && _customBaseUrl!.isNotEmpty) {
+      return _customBaseUrl!;
+    }
     if (kIsWeb) {
       return 'http://localhost:5001/api';
     } else if (Platform.isAndroid) {
@@ -67,6 +77,7 @@ class ApiClient {
     if (isJson) {
       headers['Content-Type'] = 'application/json';
     }
+    headers['Accept'] = 'application/json';
     if (token != null && token.isNotEmpty) {
       headers['Authorization'] = 'Bearer $token';
     }

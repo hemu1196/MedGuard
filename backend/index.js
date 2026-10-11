@@ -18,8 +18,53 @@ const aiAssistantRoutes = require("./src/routes/aiAssistantRoutes");
 
 const app = express();
 
-// Enable CORS for local Flutter dev and web clients
-app.use(cors());
+// Dynamic CORS configuration supporting Flutter Web, Android Emulators, LAN IPs, and local tools
+const allowedOriginPatterns = [
+  /^http:\/\/localhost(:\d+)?$/,
+  /^http:\/\/127\.0\.0\.1(:\d+)?$/,
+  /^http:\/\/10\.0\.2\.2(:\d+)?$/,
+  /^http:\/\/10\.\d{1,3}\.\d{1,3}\.\d{1,3}(:\d+)?$/,
+  /^http:\/\/192\.168\.\d{1,3}\.\d{1,3}(:\d+)?$/,
+];
+
+const corsOptions = {
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    const isAllowed = allowedOriginPatterns.some((pattern) => pattern.test(origin));
+    if (isAllowed || origin.startsWith("http://localhost") || origin.startsWith("http://127.0.0.1")) {
+      return callback(null, true);
+    }
+    return callback(null, true);
+  },
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: [
+    "Origin",
+    "X-Requested-With",
+    "Content-Type",
+    "Accept",
+    "Authorization",
+  ],
+  optionsSuccessStatus: 204,
+};
+
+app.use(cors(corsOptions));
+
+// Explicit preflight handler ensuring HTTP 204 with CORS headers for all OPTIONS requests
+app.use((req, res, next) => {
+  if (req.method === "OPTIONS") {
+    const origin = req.headers.origin || "*";
+    res.header("Access-Control-Allow-Origin", origin);
+    res.header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
+    res.header(
+      "Access-Control-Allow-Headers",
+      "Origin, X-Requested-With, Content-Type, Accept, Authorization"
+    );
+    res.header("Access-Control-Allow-Credentials", "true");
+    return res.status(204).end();
+  }
+  next();
+});
 
 // Parse incoming JSON and urlencoded requests
 app.use(express.json({ limit: "50mb" }));
@@ -50,6 +95,21 @@ app.get("/api/health", (req, res) => {
   });
 });
 
+// Database connection readiness check middleware for /api routes
+app.use("/api", (req, res, next) => {
+  if (req.path === "/health") {
+    return next();
+  }
+  if (mongoose.connection.readyState !== 1) {
+    return res.status(503).json({
+      success: false,
+      message: "Database is connecting to MongoDB Atlas. Please retry in a few seconds.",
+      database: "disconnected",
+    });
+  }
+  next();
+});
+
 // Register API Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
@@ -78,35 +138,49 @@ app.use((err, req, res, next) => {
 });
 
 let serverInstance = null;
+let isConnecting = false;
 
-// Start Server after verifying MongoDB Atlas connection
-async function startServer() {
+async function attemptDbConnection() {
+  if (isConnecting || mongoose.connection.readyState === 1) return;
+  isConnecting = true;
   try {
-    console.log("[SERVER] Starting MEDGUARD Backend Service...");
     await connectDB();
-
-    const PORT = process.env.PORT || 5001;
-
-    serverInstance = app.listen(PORT, "0.0.0.0", () => {
-      console.log(`[SERVER] MEDGUARD Backend running on port ${PORT}`);
-      console.log(`[SERVER] Local URL: http://localhost:${PORT}`);
-      console.log(`[SERVER] Health check: http://localhost:${PORT}/api/health`);
-    });
-
-    serverInstance.on("error", (err) => {
-      if (err.code === "EADDRINUSE") {
-        console.error(`[SERVER ERROR] Port ${PORT} is already in use by another application.`);
-        console.error(`[SERVER TIP] Disable conflicting service or set PORT=5001 in .env.`);
-      } else {
-        console.error(`[SERVER ERROR] Server error on port ${PORT}:`, err.message);
-      }
-      process.exit(1);
-    });
+    console.log("[SERVER] MongoDB Atlas ready to serve requests.");
   } catch (error) {
-    console.error("[SERVER ERROR] Startup failed:", error.message);
-    await disconnectDB().catch(() => {});
-    process.exit(1);
+    console.error("[SERVER] DB connection attempt failed:", error.message);
+    console.log("[SERVER] Scheduling background reconnect in 5 seconds...");
+    setTimeout(() => {
+      isConnecting = false;
+      attemptDbConnection();
+    }, 5000);
+  } finally {
+    isConnecting = false;
   }
+}
+
+// Start Server immediately and connect to MongoDB Atlas
+async function startServer() {
+  const PORT = process.env.PORT || 5001;
+
+  console.log("[SERVER] Starting MEDGUARD Backend Service...");
+
+  serverInstance = app.listen(PORT, "0.0.0.0", () => {
+    console.log(`[SERVER] MEDGUARD Backend running on port ${PORT}`);
+    console.log(`[SERVER] Local URL: http://localhost:${PORT}`);
+    console.log(`[SERVER] Health check: http://localhost:${PORT}/api/health`);
+  });
+
+  serverInstance.on("error", (err) => {
+    if (err.code === "EADDRINUSE") {
+      console.error(`[SERVER ERROR] Port ${PORT} is already in use by another application.`);
+      console.error(`[SERVER TIP] Disable conflicting service or set PORT=5001 in .env.`);
+    } else {
+      console.error(`[SERVER ERROR] Server error on port ${PORT}:`, err.message);
+    }
+    process.exit(1);
+  });
+
+  attemptDbConnection();
 }
 
 // Graceful Shutdown Handlers

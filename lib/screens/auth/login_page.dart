@@ -45,12 +45,12 @@ class _LoginPageState extends State<LoginPage> {
     final password = _passwordController.text;
 
     try {
-      debugPrint('[AUTH] Attempting Firebase Sign-In for email: $email');
-      final credential = await _authRepository.signIn(email, password);
-      final userId = credential.user?.uid ?? await _authRepository.getCurrentUserId();
+      debugPrint('[AUTH] Attempting Sign-In for email: $email');
+      final session = await _authRepository.signIn(email, password);
+      final userId = session.userId.isNotEmpty ? session.userId : await _authRepository.getCurrentUserId();
 
-      debugPrint('[AUTH] Firebase Sign-In successful. User UID: $userId');
-      final profileExists = await _profileRepository.profileExists(userId);
+      debugPrint('[AUTH] Sign-In successful. User ID: $userId');
+      final profileExists = session.profileCompleted || await _profileRepository.profileExists(userId);
       debugPrint('[PROFILE] Profile exists check for $userId: $profileExists');
 
       if (!mounted) return;
@@ -389,18 +389,13 @@ class _LoginPageState extends State<LoginPage> {
 
                         try {
                           debugPrint('[REGISTER] Calling AuthRepository.signUp');
-                          final credential = await _authRepository.signUp(
+                          final session = await _authRepository.signUp(
                             name: name,
                             email: email,
                             password: pass,
                           );
 
-                          final user = credential.user;
-                          if (user == null) {
-                            throw AuthenticationException('Account creation did not return a Firebase user.');
-                          }
-
-                          debugPrint('[REGISTER] SUCCESS UID=${user.uid}');
+                          debugPrint('[REGISTER] SUCCESS UserID=${session.userId}');
 
                           if (dialogContext.mounted) {
                             Navigator.of(dialogContext).pop();

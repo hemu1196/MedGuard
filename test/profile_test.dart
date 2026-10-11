@@ -1,5 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:med_ai/core/api/api_client.dart';
 import 'package:med_ai/models/user_profile.dart';
+import 'package:med_ai/repositories/auth_repository.dart';
 
 void main() {
   group('UserProfile Unit Tests', () {
@@ -105,6 +107,42 @@ void main() {
       expect(profile.height, equals('175'));
       expect(profile.weight, equals('70'));
       expect(profile.profileCompleted, isTrue);
+    });
+  });
+
+  group('Authentication & Token Integration Unit Tests', () {
+    test('AuthSession accurately maps token, userId, and properties', () {
+      final session = AuthSession(
+        token: 'test_jwt_token_abc123',
+        userId: 'user_mongodb_id_999',
+        email: 'doctor@medguard.dev',
+        name: 'Dr. John Doe',
+        profileCompleted: true,
+        rawUser: {'_id': 'user_mongodb_id_999', 'role': 'user'},
+      );
+
+      expect(session.token, equals('test_jwt_token_abc123'));
+      expect(session.userId, equals('user_mongodb_id_999'));
+      expect(session.uid, equals('user_mongodb_id_999'));
+      expect(session.user, isNotNull);
+      expect(session['token'], equals('test_jwt_token_abc123'));
+      expect(session['userId'], equals('user_mongodb_id_999'));
+      expect(session.profileCompleted, isTrue);
+    });
+
+    test('ApiClient detects expired JWT tokens correctly', () {
+      final client = ApiClient();
+      // Valid dummy JWT expiring in the future (exp: 2500000000 -> year 2049)
+      const validToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiIxMjMiLCJleHAiOjI1MDAwMDAwMDB9.signature';
+      expect(client.isTokenExpired(validToken), isFalse);
+
+      // Expired dummy JWT (exp: 1000000000 -> year 2001)
+      const expiredToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiIxMjMiLCJleHAiOjEwMDAwMDAwMDB9.signature';
+      expect(client.isTokenExpired(expiredToken), isTrue);
+
+      // Malformed token considered expired / invalid
+      const malformedToken = 'invalid.jwt';
+      expect(client.isTokenExpired(malformedToken), isTrue);
     });
   });
 }

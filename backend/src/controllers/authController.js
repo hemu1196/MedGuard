@@ -57,6 +57,7 @@ const register = async (req, res) => {
       success: true,
       message: 'Registration successful.',
       token,
+      accessToken: token,
       user: newUser.toJSON(),
       profileCompleted: newUser.profileCompleted,
     });
@@ -130,6 +131,7 @@ const login = async (req, res) => {
       success: true,
       message: 'Login successful.',
       token,
+      accessToken: token,
       user: user.toJSON(),
       profileCompleted: user.profileCompleted,
     });
@@ -377,6 +379,7 @@ const firebaseMigrate = async (req, res) => {
       success: true,
       message: 'Firebase user synced to MongoDB Atlas.',
       token,
+      accessToken: token,
       user: user.toJSON(),
       profileCompleted: user.profileCompleted,
     });
@@ -389,6 +392,38 @@ const firebaseMigrate = async (req, res) => {
   }
 };
 
+/**
+ * Refresh access token
+ */
+const refreshToken = async (req, res) => {
+  try {
+    const user = await User.findById(req.userId);
+    if (!user || !user.isActive) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid or inactive user account.',
+      });
+    }
+
+    const token = generateToken({ userId: user._id, email: user.email, role: user.role });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Token refreshed successfully.',
+      token,
+      accessToken: token,
+      user: user.toJSON(),
+      profileCompleted: user.profileCompleted,
+    });
+  } catch (error) {
+    console.error('Refresh Token Error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to refresh token.',
+    });
+  }
+};
+
 module.exports = {
   register,
   login,
@@ -396,4 +431,5 @@ module.exports = {
   updateProfile,
   logout,
   firebaseMigrate,
+  refreshToken,
 };

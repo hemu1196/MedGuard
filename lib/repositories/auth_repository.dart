@@ -5,6 +5,36 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../core/api/api_client.dart';
 import '../core/errors/app_exception.dart';
 
+class AuthSession {
+  final String token;
+  final String userId;
+  final String email;
+  final String name;
+  final bool profileCompleted;
+  final Map<String, dynamic> rawUser;
+
+  AuthSession({
+    required this.token,
+    required this.userId,
+    required this.email,
+    required this.name,
+    this.profileCompleted = false,
+    required this.rawUser,
+  });
+
+  dynamic get user => this;
+  String get uid => userId;
+  String? get displayName => name;
+
+  dynamic operator [](String key) {
+    if (key == 'token' || key == 'accessToken') return token;
+    if (key == 'userId' || key == 'uid' || key == '_id') return userId;
+    if (key == 'user') return rawUser;
+    if (key == 'profileCompleted') return profileCompleted;
+    return rawUser[key];
+  }
+}
+
 class AuthRepository {
   static const String _sessionKey = 'auth_user_session';
   static const String _userIdKey = 'auth_user_id';
@@ -34,116 +64,117 @@ class AuthRepository {
 
   Future<bool> isAuthenticated() async {
     final token = await _apiClient.getToken();
-    if (token != null && token.isNotEmpty) return true;
+    if (token != null && token.isNotEmpty) {
+      final user = await _apiClient.getStoredUser();
+      if (user != null) {
+        return true;
+      }
+    }
 
+    // If no valid JWT token, check if we can migrate/recover from Firebase Auth
     if (_firebaseAuth != null) {
       try {
-        final user = _firebaseAuth!.currentUser;
-        if (user != null && user.uid.isNotEmpty) return true;
+        final fbUser = _firebaseAuth!.currentUser;
+        if (fbUser != null && fbUser.uid.isNotEmpty) {
+          try {
+            final syncRes = await _apiClient.post('/auth/firebase-migrate', body: {
+              'firebaseUid': fbUser.uid,
+              'email': fbUser.email,
+              'fullName': fbUser.displayName ?? fbUser.email?.split('@')[0] ?? 'User',
+            });
+            final recoveredToken = syncRes['token'] ?? syncRes['accessToken'];
+            if (recoveredToken != null && syncRes['user'] != null) {
+              final userMap = Map<String, dynamic>.from(syncRes['user']);
+              await _apiClient.saveAuthSession(recoveredToken.toString(), userMap);
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.setBool(_sessionKey, true);
+              if (userMap['_id'] != null) {
+                await prefs.setString(_userIdKey, userMap['_id'].toString());
+              }
+              return true;
+            }
+          } catch (e) {
+            debugPrint('[AUTH] Firebase session recovery note: $e');
+          }
+        }
       } catch (_) {}
     }
+
+    // Invalid or missing JWT session: clear stale local flags
+    await clearStaleSession();
+    return false;
+  }
+
+  Future<void> clearStaleSession() async {
+    await _apiClient.clearAuthSession();
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getBool(_sessionKey) ?? false;
+    await prefs.setBool(_sessionKey, false);
+    await prefs.remove(_userIdKey);
   }
 
   Future<String> getCurrentUserId() async {
     final userMap = await _apiClient.getStoredUser();
-    if (userMap != null && userMap.containsKey('_id')) {
-      return userMap['_id'].toString();
-    }
-
-    if (_firebaseAuth != null) {
-      try {
-        final user = _firebaseAuth!.currentUser;
-        if (user != null && user.uid.isNotEmpty) {
-          return user.uid;
-        }
-      } catch (_) {}
+    if (userMap != null) {
+      if (userMap['_id'] != null) return userMap['_id'].toString();
+      if (userMap['id'] != null) return userMap['id'].toString();
     }
     final prefs = await SharedPreferences.getInstance();
     final localId = prefs.getString(_userIdKey);
     if (localId != null && localId.isNotEmpty) {
       return localId;
     }
-    throw AuthenticationException('No authenticated user session found. Please sign in again.');
+    throw AuthenticationException('Authentication required. No token provided.');
   }
 
-  /// Sign In with MongoDB Node.js Backend & Firebase Sync
-  Future<dynamic> signIn(String email, String password) async {
+  /// Sign In with MongoDB Node.js Backend & Optional Secondary Firebase Sync
+  Future<AuthSession> signIn(String email, String password) async {
     final cleanEmail = email.trim();
     if (cleanEmail.isEmpty || password.isEmpty) {
       throw AuthenticationException('Email and password are required.');
     }
 
-    try {
-      // 1. Authenticate with MongoDB Backend API
-      final res = await _apiClient.post('/auth/login', body: {
-        'email': cleanEmail,
-        'password': password,
-      });
+    // 1. Authenticate with MongoDB Backend API
+    final res = await _apiClient.post('/auth/login', body: {
+      'email': cleanEmail,
+      'password': password,
+    });
 
-      if (res['success'] == true && res['token'] != null) {
-        final token = res['token'].toString();
-        final userMap = Map<String, dynamic>.from(res['user']);
-        await _apiClient.saveAuthSession(token, userMap);
+    final token = res['token'] ?? res['accessToken'] ?? res['data']?['token'] ?? res['data']?['accessToken'];
+    if (res['success'] == true && token != null) {
+      final userMap = Map<String, dynamic>.from(res['user'] ?? res['data']?['user'] ?? {});
+      await _apiClient.saveAuthSession(token.toString(), userMap);
 
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setBool(_sessionKey, true);
-        await prefs.setString(_userIdKey, userMap['_id'].toString());
-
-        // 2. Optional Firebase Sync
-        if (_firebaseAuth != null) {
-          try {
-            await _firebaseAuth!.signInWithEmailAndPassword(email: cleanEmail, password: password);
-          } catch (fbErr) {
-            debugPrint('[AUTH WARNING] Firebase secondary sign-in skipped: $fbErr');
-          }
-        }
-
-        return userMap;
-      } else {
-        throw AuthenticationException(res['message'] ?? 'Invalid credentials.');
+      final userId = (userMap['_id'] ?? userMap['id'] ?? '').toString();
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_sessionKey, true);
+      if (userId.isNotEmpty) {
+        await prefs.setString(_userIdKey, userId);
       }
-    } catch (e) {
-      debugPrint('[AUTH ERROR] MongoDB Login Exception: $e');
 
-      // Fallback to Firebase if MongoDB backend is unreachable
+      // 2. Optional secondary Firebase sync
       if (_firebaseAuth != null) {
         try {
-          final credential = await _firebaseAuth!.signInWithEmailAndPassword(
-            email: cleanEmail,
-            password: password,
-          );
-          if (credential.user != null) {
-            // Sync user to MongoDB Atlas
-            try {
-              final syncRes = await _apiClient.post('/auth/firebase-migrate', body: {
-                'firebaseUid': credential.user!.uid,
-                'email': cleanEmail,
-                'fullName': credential.user!.displayName ?? cleanEmail.split('@')[0],
-              });
-              if (syncRes['success'] == true && syncRes['token'] != null) {
-                await _apiClient.saveAuthSession(syncRes['token'], Map<String, dynamic>.from(syncRes['user']));
-              }
-            } catch (_) {}
-
-            final prefs = await SharedPreferences.getInstance();
-            await prefs.setBool(_sessionKey, true);
-            await prefs.setString(_userIdKey, credential.user!.uid);
-            return credential;
-          }
-        } on FirebaseAuthException catch (fbEx) {
-          throw parseAuthException(fbEx);
+          await _firebaseAuth!.signInWithEmailAndPassword(email: cleanEmail, password: password);
+        } catch (fbErr) {
+          debugPrint('[AUTH WARNING] Secondary Firebase sign-in skipped: $fbErr');
         }
       }
 
-      if (e is AppException) rethrow;
-      throw AuthenticationException(e.toString().replaceAll('Exception: ', ''));
+      return AuthSession(
+        token: token.toString(),
+        userId: userId,
+        email: cleanEmail,
+        name: (userMap['fullName'] ?? userMap['name'] ?? '').toString(),
+        profileCompleted: res['profileCompleted'] == true || userMap['profileCompleted'] == true,
+        rawUser: userMap,
+      );
+    } else {
+      throw AuthenticationException(res['message'] ?? 'Invalid credentials.');
     }
   }
 
-  /// Sign Up with MongoDB Node.js Backend & Firebase Sync
-  Future<dynamic> signUp({
+  /// Sign Up with MongoDB Node.js Backend & Optional Secondary Firebase Sync
+  Future<AuthSession> signUp({
     required String name,
     required String email,
     required String password,
@@ -154,73 +185,45 @@ class AuthRepository {
       throw AuthenticationException('All fields (Name, Email, Password) are required.');
     }
 
-    try {
-      // 1. Register with MongoDB Backend API
-      final res = await _apiClient.post('/auth/register', body: {
-        'fullName': cleanName,
-        'email': cleanEmail,
-        'password': password,
-      });
+    // 1. Register with MongoDB Backend API
+    final res = await _apiClient.post('/auth/register', body: {
+      'fullName': cleanName,
+      'email': cleanEmail,
+      'password': password,
+    });
 
-      if (res['success'] == true && res['token'] != null) {
-        final token = res['token'].toString();
-        final userMap = Map<String, dynamic>.from(res['user']);
-        await _apiClient.saveAuthSession(token, userMap);
+    final token = res['token'] ?? res['accessToken'] ?? res['data']?['token'] ?? res['data']?['accessToken'];
+    if (res['success'] == true && token != null) {
+      final userMap = Map<String, dynamic>.from(res['user'] ?? res['data']?['user'] ?? {});
+      await _apiClient.saveAuthSession(token.toString(), userMap);
 
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setBool(_sessionKey, true);
-        await prefs.setString(_userIdKey, userMap['_id'].toString());
-
-        // 2. Optional Firebase Sync
-        if (_firebaseAuth != null) {
-          try {
-            final cred = await _firebaseAuth!.createUserWithEmailAndPassword(email: cleanEmail, password: password);
-            await cred.user?.updateDisplayName(cleanName);
-          } catch (fbErr) {
-            debugPrint('[AUTH WARNING] Firebase secondary sign-up skipped: $fbErr');
-          }
-        }
-
-        return userMap;
-      } else {
-        throw AuthenticationException(res['message'] ?? 'Failed to register account.');
+      final userId = (userMap['_id'] ?? userMap['id'] ?? '').toString();
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_sessionKey, true);
+      if (userId.isNotEmpty) {
+        await prefs.setString(_userIdKey, userId);
       }
-    } catch (e) {
-      debugPrint('[AUTH ERROR] MongoDB Register Exception: $e');
 
-      // Fallback to Firebase if MongoDB backend is unreachable
+      // 2. Optional secondary Firebase sync
       if (_firebaseAuth != null) {
         try {
-          final credential = await _firebaseAuth!.createUserWithEmailAndPassword(
-            email: cleanEmail,
-            password: password,
-          );
-          if (credential.user != null) {
-            try {
-              await credential.user!.updateDisplayName(cleanName);
-            } catch (_) {}
-
-            final syncRes = await _apiClient.post('/auth/firebase-migrate', body: {
-              'firebaseUid': credential.user!.uid,
-              'email': cleanEmail,
-              'fullName': cleanName,
-            });
-            if (syncRes['success'] == true && syncRes['token'] != null) {
-              await _apiClient.saveAuthSession(syncRes['token'], Map<String, dynamic>.from(syncRes['user']));
-            }
-
-            final prefs = await SharedPreferences.getInstance();
-            await prefs.setBool(_sessionKey, true);
-            await prefs.setString(_userIdKey, credential.user!.uid);
-            return credential;
-          }
-        } on FirebaseAuthException catch (fbEx) {
-          throw parseAuthException(fbEx);
+          final cred = await _firebaseAuth!.createUserWithEmailAndPassword(email: cleanEmail, password: password);
+          await cred.user?.updateDisplayName(cleanName);
+        } catch (fbErr) {
+          debugPrint('[AUTH WARNING] Secondary Firebase sign-up skipped: $fbErr');
         }
       }
 
-      if (e is AppException) rethrow;
-      throw AuthenticationException(e.toString().replaceAll('Exception: ', ''));
+      return AuthSession(
+        token: token.toString(),
+        userId: userId,
+        email: cleanEmail,
+        name: cleanName,
+        profileCompleted: res['profileCompleted'] == true || userMap['profileCompleted'] == true,
+        rawUser: userMap,
+      );
+    } else {
+      throw AuthenticationException(res['message'] ?? 'Failed to register account.');
     }
   }
 

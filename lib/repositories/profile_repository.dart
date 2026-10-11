@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../core/api/api_client.dart';
+import '../core/errors/app_exception.dart';
 import '../models/user_profile.dart';
 
 class ProfileRepository {
@@ -81,10 +82,12 @@ class ProfileRepository {
 
     Map<String, dynamic> res;
     try {
-      res = await _apiClient.patch('/users/me', body: body);
+      res = await _apiClient.put('/auth/profile', body: body);
+    } on AuthenticationException {
+      rethrow;
     } catch (_) {
       try {
-        res = await _apiClient.put('/auth/profile', body: body);
+        res = await _apiClient.patch('/users/me', body: body);
       } catch (err) {
         debugPrint('[PROFILE REPO ERROR] Save failed: $err');
         rethrow;

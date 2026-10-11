@@ -4,6 +4,8 @@ import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../app/routes.dart';
 import '../../app/theme.dart';
+import '../../core/api/api_client.dart';
+import '../../core/errors/app_exception.dart';
 import '../../core/utils/bmi_calculator.dart';
 import '../../models/emergency_contact.dart';
 import '../../models/user_profile.dart';
@@ -81,6 +83,26 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
   @override
   void initState() {
     super.initState();
+    _checkAuthAndLoadProfile();
+  }
+
+  void _checkAuthAndLoadProfile() async {
+    final isAuth = await _authRepository.isAuthenticated();
+    if (!isAuth) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Authentication required. Please sign in to continue.'),
+            backgroundColor: AppTheme.accentRed,
+          ),
+        );
+        Navigator.of(context).pushNamedAndRemoveUntil(
+          AppRoutes.login,
+          (route) => false,
+        );
+      }
+      return;
+    }
     _loadExistingProfile();
   }
 
@@ -213,6 +235,10 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
     });
 
     try {
+      final token = await ApiClient().getToken();
+      if (token == null || token.isEmpty) {
+        throw AuthenticationException('Authentication required. No token provided.');
+      }
       final userId = await _authRepository.getCurrentUserId();
 
       final profile = UserProfile(
@@ -280,10 +306,35 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
       debugPrint('PROFILE COMPLETION ERROR: $e');
       debugPrint('$stackTrace');
       if (!mounted) return;
+
+      final rawMsg = e.toString().replaceAll('Exception: ', '');
+      final isAuthError = rawMsg.toLowerCase().contains('authentication required') ||
+                          rawMsg.toLowerCase().contains('token expired') ||
+                          rawMsg.toLowerCase().contains('invalid token') ||
+                          rawMsg.toLowerCase().contains('no token') ||
+                          rawMsg.toLowerCase().contains('sign in again');
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Unable to save profile: ${e.toString().replaceAll('Exception: ', '')}'),
+          content: Text(
+            isAuthError
+                ? 'Session expired or authentication missing. Please sign in to save your profile.'
+                : 'Unable to save profile: $rawMsg',
+          ),
           backgroundColor: AppTheme.accentRed,
+          duration: const Duration(seconds: 4),
+          action: isAuthError
+              ? SnackBarAction(
+                  label: 'LOGIN',
+                  textColor: Colors.white,
+                  onPressed: () {
+                    Navigator.of(context).pushNamedAndRemoveUntil(
+                      AppRoutes.login,
+                      (route) => false,
+                    );
+                  },
+                )
+              : null,
         ),
       );
     } finally {

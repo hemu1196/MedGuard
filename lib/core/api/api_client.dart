@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import '../errors/app_exception.dart';
 
 class ApiClient {
   static final ApiClient _instance = ApiClient._internal();
@@ -35,19 +36,53 @@ class ApiClient {
     }
   }
 
+  /// Inspect JWT token expiration timestamp
+  bool isTokenExpired(String token) {
+    try {
+      final parts = token.split('.');
+      if (parts.length != 3) return true;
+      final normalized = base64.normalize(parts[1]);
+      final payload = utf8.decode(base64Url.decode(normalized));
+      final map = jsonDecode(payload) as Map<String, dynamic>;
+      if (map.containsKey('exp')) {
+        final expSec = map['exp'] as int;
+        final expiry = DateTime.fromMillisecondsSinceEpoch(expSec * 1000);
+        return DateTime.now().isAfter(expiry);
+      }
+      return false;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// Get stored JWT token
   Future<String?> getToken() async {
-    if (_cachedToken != null) return _cachedToken;
+    if (_cachedToken != null && _cachedToken!.trim().isNotEmpty) {
+      if (isTokenExpired(_cachedToken!)) {
+        await clearAuthSession();
+        return null;
+      }
+      return _cachedToken;
+    }
     final prefs = await SharedPreferences.getInstance();
-    _cachedToken = prefs.getString(_authTokenKey);
-    return _cachedToken;
+    final stored = prefs.getString(_authTokenKey);
+    if (stored != null && stored.trim().isNotEmpty) {
+      if (isTokenExpired(stored)) {
+        await clearAuthSession();
+        return null;
+      }
+      _cachedToken = stored.trim();
+      return _cachedToken;
+    }
+    return null;
   }
 
   /// Store JWT token and User data locally
   Future<void> saveAuthSession(String token, Map<String, dynamic> userMap) async {
-    _cachedToken = token;
+    final cleanToken = token.trim();
+    _cachedToken = cleanToken;
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_authTokenKey, token);
+    await prefs.setString(_authTokenKey, cleanToken);
     await prefs.setString(_userDataKey, jsonEncode(userMap));
   }
 
@@ -179,6 +214,12 @@ class ApiClient {
         return decoded;
       }
       return {'success': true, 'data': decoded};
+    } else if (response.statusCode == 401) {
+      _cachedToken = null;
+      final message = (decoded is Map && decoded.containsKey('message'))
+          ? decoded['message']
+          : 'Authentication required. No token provided.';
+      throw AuthenticationException(message.toString());
     } else {
       final message = (decoded is Map && decoded.containsKey('message'))
           ? decoded['message']

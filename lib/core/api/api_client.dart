@@ -119,41 +119,101 @@ class ApiClient {
     return headers;
   }
 
-  /// GET Request
+  /// GET Request with bounded transient retry
   Future<Map<String, dynamic>> get(String endpoint, {Map<String, String>? queryParams}) async {
     final uri = Uri.parse('$baseUrl$endpoint').replace(queryParameters: queryParams);
     final headers = await _getHeaders();
-    final response = await http.get(uri, headers: headers).timeout(const Duration(seconds: 15));
+    http.Response response;
+    try {
+      response = await http.get(uri, headers: headers).timeout(const Duration(seconds: 15));
+    } catch (_) {
+      await Future.delayed(const Duration(milliseconds: 1500));
+      response = await http.get(uri, headers: headers).timeout(const Duration(seconds: 15));
+    }
+
+    if (response.statusCode == 503) {
+      await Future.delayed(const Duration(milliseconds: 2000));
+      response = await http.get(uri, headers: headers).timeout(const Duration(seconds: 15));
+    }
+
     return _handleResponse(response);
   }
 
-  /// POST Request
+  /// POST Request with bounded transient retry
   Future<Map<String, dynamic>> post(String endpoint, {Map<String, dynamic>? body}) async {
     final uri = Uri.parse('$baseUrl$endpoint');
     final headers = await _getHeaders();
-    final response = await http
-        .post(uri, headers: headers, body: body != null ? jsonEncode(body) : null)
-        .timeout(const Duration(seconds: 15));
+    http.Response response;
+    try {
+      response = await http
+          .post(uri, headers: headers, body: body != null ? jsonEncode(body) : null)
+          .timeout(const Duration(seconds: 15));
+    } catch (_) {
+      await Future.delayed(const Duration(milliseconds: 1500));
+      response = await http
+          .post(uri, headers: headers, body: body != null ? jsonEncode(body) : null)
+          .timeout(const Duration(seconds: 15));
+    }
+
+    if (response.statusCode == 503) {
+      await Future.delayed(const Duration(milliseconds: 2000));
+      response = await http
+          .post(uri, headers: headers, body: body != null ? jsonEncode(body) : null)
+          .timeout(const Duration(seconds: 15));
+    }
+
     return _handleResponse(response);
   }
 
-  /// PUT Request
+  /// PUT Request with bounded transient retry
   Future<Map<String, dynamic>> put(String endpoint, {Map<String, dynamic>? body}) async {
     final uri = Uri.parse('$baseUrl$endpoint');
     final headers = await _getHeaders();
-    final response = await http
-        .put(uri, headers: headers, body: body != null ? jsonEncode(body) : null)
-        .timeout(const Duration(seconds: 15));
+    http.Response response;
+    try {
+      response = await http
+          .put(uri, headers: headers, body: body != null ? jsonEncode(body) : null)
+          .timeout(const Duration(seconds: 15));
+    } catch (_) {
+      await Future.delayed(const Duration(milliseconds: 1500));
+      response = await http
+          .put(uri, headers: headers, body: body != null ? jsonEncode(body) : null)
+          .timeout(const Duration(seconds: 15));
+    }
+
+    if (response.statusCode == 503) {
+      await Future.delayed(const Duration(milliseconds: 2000));
+      response = await http
+          .put(uri, headers: headers, body: body != null ? jsonEncode(body) : null)
+          .timeout(const Duration(seconds: 15));
+    }
+
     return _handleResponse(response);
   }
 
-  /// PATCH Request
+  /// PATCH Request with bounded transient retry
   Future<Map<String, dynamic>> patch(String endpoint, {Map<String, dynamic>? body}) async {
     final uri = Uri.parse('$baseUrl$endpoint');
     final headers = await _getHeaders();
-    final response = await http
-        .patch(uri, headers: headers, body: body != null ? jsonEncode(body) : null)
-        .timeout(const Duration(seconds: 15));
+    http.Response response;
+    try {
+      response = await http
+          .patch(uri, headers: headers, body: body != null ? jsonEncode(body) : null)
+          .timeout(const Duration(seconds: 15));
+    } catch (_) {
+      await Future.delayed(const Duration(milliseconds: 1500));
+      response = await http
+          .patch(uri, headers: headers, body: body != null ? jsonEncode(body) : null)
+          .timeout(const Duration(seconds: 15));
+    }
+
+    if (response.statusCode == 503) {
+      await Future.delayed(const Duration(milliseconds: 2000));
+      response = await http
+          .patch(uri, headers: headers, body: body != null ? jsonEncode(body) : null)
+          .timeout(const Duration(seconds: 15));
+    }
+
     return _handleResponse(response);
   }
 
@@ -220,6 +280,11 @@ class ApiClient {
           ? decoded['message']
           : 'Authentication required. No token provided.';
       throw AuthenticationException(message.toString());
+    } else if (response.statusCode == 503) {
+      final msg = (decoded is Map && decoded.containsKey('message'))
+          ? decoded['message'].toString()
+          : 'Server is connecting to MongoDB Atlas. Please tap retry in a few seconds.';
+      throw ServerUnavailableException(msg);
     } else {
       final message = (decoded is Map && decoded.containsKey('message'))
           ? decoded['message']

@@ -7,6 +7,7 @@ class EmergencyContact {
   final String phone;
   final String relationship;
   final String customRelationship;
+  final bool isPrimary;
 
   EmergencyContact({
     String? id,
@@ -15,6 +16,7 @@ class EmergencyContact {
     required this.phone,
     this.relationship = 'Friend',
     this.customRelationship = '',
+    this.isPrimary = false,
   }) : id = id ?? (phone.replaceAll(RegExp(r'[^\d]'), '').isNotEmpty 
             ? phone.replaceAll(RegExp(r'[^\d]'), '') 
             : DateTime.now().millisecondsSinceEpoch.toString());
@@ -63,6 +65,7 @@ class EmergencyContact {
       'phone': phone,
       'relationship': relationship,
       'customRelationship': customRelationship,
+      'isPrimary': isPrimary,
     };
   }
 
@@ -76,6 +79,7 @@ class EmergencyContact {
       phone: rawPhone,
       relationship: map['relationship'] ?? map['relation'] ?? 'Friend',
       customRelationship: map['customRelationship'] ?? '',
+      isPrimary: map['isPrimary'] == true,
     );
   }
 

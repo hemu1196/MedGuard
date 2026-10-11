@@ -82,7 +82,7 @@ class HospitalService {
 
     final Future<HospitalSearchResult> searchFuture = () async {
       try {
-        HospitalSearchResult result = await _executeFastHospitalSearch(
+        HospitalSearchResult result = await _executeHealthcareSearch(
           location: location,
           onProgress: onProgress,
         );
@@ -101,8 +101,8 @@ class HospitalService {
     return await searchFuture;
   }
 
-  /// Fast primary OpenStreetMap search with multi-radius failover.
-  Future<HospitalSearchResult> _executeFastHospitalSearch({
+  /// Comprehensive multi-provider healthcare discovery pipeline
+  Future<HospitalSearchResult> _executeHealthcareSearch({
     required SelectedLocation location,
     Function(String status)? onProgress,
   }) async {
@@ -110,57 +110,90 @@ class HospitalService {
     final double lng = location.longitude;
     final Map<String, Hospital> deduplicatedMap = {};
 
-    debugPrint('[HOSPITAL SERVICE] Starting search for coordinates ($lat, $lng), city: "${location.cityName}"');
-    onProgress?.call('Fetching nearby healthcare facilities...');
+    debugPrint('[HOSPITAL SERVICE] Searching healthcare for ($lat, $lng), city: "${location.cityName}"');
+    onProgress?.call('Discovering nearby healthcare facilities...');
 
-    // 1. PRIMARY FAST SEARCH: Nominatim OpenStreetMap Search (< 1 second response)
-    final nominatimHospitals = await _fetchHospitalsViaNominatim(
-      latitude: lat,
-      longitude: lng,
-      city: location.cityName,
-      onProgress: onProgress,
-    );
-
-    for (final h in nominatimHospitals) {
-      deduplicatedMap[h.id] = h;
-    }
-
-    debugPrint('[HOSPITAL SERVICE] Nominatim returned ${nominatimHospitals.length} real hospitals');
-
-    // 2. SECONDARY ENHANCEMENT: Query Overpass GET endpoint for additional node/way details
+    // 1. PRIMARY FAST QUERY: Overpass API with rich metadata (phones, emergency, hours, categories)
     if (lat != 0.0 && lng != 0.0) {
       try {
-        final overpassHospitals = await _fetchHospitalsViaOverpassGet(
+        onProgress?.call('Querying healthcare places and contact details...');
+        final overpassHospitals = await _fetchViaOverpass(
           latitude: lat,
           longitude: lng,
-          radiusMeters: 5000,
+          radiusMeters: 6000,
         );
+
         for (final h in overpassHospitals) {
-          if (!deduplicatedMap.containsKey(h.id)) {
-            deduplicatedMap[h.id] = h;
-          }
+          deduplicatedMap[h.id] = h;
         }
-        debugPrint('[HOSPITAL SERVICE] Overpass GET returned ${overpassHospitals.length} additional elements');
+        debugPrint('[HOSPITAL SERVICE] Overpass returned ${overpassHospitals.length} rich healthcare places');
       } catch (e) {
-        debugPrint('[HOSPITAL SERVICE] Overpass GET skipped/failed: $e');
+        debugPrint('[HOSPITAL SERVICE] Overpass primary failed or timed out: $e');
       }
     }
 
-    // Sort by distance
+    // 2. SECONDARY / COMPLEMENTARY SEARCH: Nominatim Search engine with extratags
+    try {
+      onProgress?.call('Fetching regional hospital registry...');
+      final nominatimHospitals = await _fetchViaNominatim(
+        latitude: lat != 0.0 ? lat : null,
+        longitude: lng != 0.0 ? lng : null,
+        city: location.cityName,
+      );
+
+      for (final h in nominatimHospitals) {
+        if (!deduplicatedMap.containsKey(h.id)) {
+          deduplicatedMap[h.id] = h;
+        } else {
+          // If existing entry lacks phone but Nominatim has it, enrich it
+          final existing = deduplicatedMap[h.id]!;
+          if (!existing.hasValidPhone && h.hasValidPhone) {
+            deduplicatedMap[h.id] = Hospital(
+              id: existing.id,
+              source: existing.source,
+              sourcePlaceId: existing.sourcePlaceId,
+              name: existing.name,
+              category: existing.category,
+              latitude: existing.latitude,
+              longitude: existing.longitude,
+              address: existing.address,
+              phoneNumber: h.phoneNumber,
+              website: existing.website.isNotEmpty ? existing.website : h.website,
+              openingHours: existing.openingHours.isNotEmpty ? existing.openingHours : h.openingHours,
+              emergencyServiceVerified: existing.emergencyServiceVerified,
+              emergencyVerificationSource: existing.emergencyVerificationSource,
+              distanceMeters: existing.distanceMeters,
+              isDemoData: false,
+            );
+          }
+        }
+      }
+      debugPrint('[HOSPITAL SERVICE] Combined total unique facilities: ${deduplicatedMap.length}');
+    } catch (e) {
+      debugPrint('[HOSPITAL SERVICE] Nominatim fetch note: $e');
+    }
+
+    // Sort: Verified emergency first, then by distance
     final sortedList = deduplicatedMap.values.toList()
-      ..sort((a, b) => a.distanceKm.compareTo(b.distanceKm));
+      ..sort((a, b) {
+        // Prioritize verified emergency capabilities if applicable
+        if (a.emergencyServiceVerified != b.emergencyServiceVerified) {
+          return a.emergencyServiceVerified ? -1 : 1;
+        }
+        return a.distanceMeters.compareTo(b.distanceMeters);
+      });
 
     final String searchLocationTitle = location.cityName != null && location.cityName!.isNotEmpty
         ? location.cityName!
-        : 'your area';
+        : 'your current area';
 
     final String statusMsg = sortedList.isNotEmpty
-        ? 'Found ${sortedList.length} hospital(s) near $searchLocationTitle.'
-        : 'No hospitals found near $searchLocationTitle.';
+        ? 'Found ${sortedList.length} healthcare facility(ies) near $searchLocationTitle.'
+        : 'No healthcare facilities found near $searchLocationTitle.';
 
     return HospitalSearchResult(
       hospitals: sortedList,
-      maxRadiusMeters: 50000,
+      maxRadiusMeters: 6000,
       city: location.cityName,
       statusMessage: statusMsg,
       location: location,
@@ -168,94 +201,24 @@ class HospitalService {
     );
   }
 
-  /// Fetches real OpenStreetMap hospital nodes directly via Nominatim search engine.
-  Future<List<Hospital>> _fetchHospitalsViaNominatim({
-    double? latitude,
-    double? longitude,
-    String? city,
-    Function(String status)? onProgress,
-  }) async {
-    try {
-      String queryUrlStr;
-      if (latitude != null && longitude != null && latitude != 0.0 && longitude != 0.0) {
-        queryUrlStr =
-            'https://nominatim.openstreetmap.org/search?q=hospitals+near+$latitude,$longitude&format=json&limit=30';
-      } else if (city != null && city.trim().isNotEmpty) {
-        queryUrlStr =
-            'https://nominatim.openstreetmap.org/search?q=hospitals+in+${Uri.encodeComponent(city.trim())}&format=json&limit=30';
-      } else {
-        return [];
-      }
-
-      debugPrint('[HOSPITAL SERVICE] Nominatim GET query: $queryUrlStr');
-      final queryUrl = Uri.parse(queryUrlStr);
-      final response = await http
-          .get(queryUrl, headers: {'User-Agent': 'MedGuardAI-App/1.0', 'Accept': 'application/json'})
-          .timeout(const Duration(seconds: 10));
-
-      if (response.statusCode == 200) {
-        final List data = json.decode(response.body);
-        final List<Hospital> realHospitals = [];
-
-        for (var i = 0; i < data.length; i++) {
-          final item = data[i];
-          final displayName = item['display_name'] ?? city ?? 'Hospital';
-          final nameParts = displayName.split(',');
-          final hospitalName = nameParts.first.trim();
-          final address = nameParts.skip(1).take(3).join(',').trim();
-          final itemLat = double.tryParse(item['lat']?.toString() ?? '') ?? 0.0;
-          final itemLon = double.tryParse(item['lon']?.toString() ?? '') ?? 0.0;
-
-          if (itemLat == 0.0 || itemLon == 0.0 || hospitalName.isEmpty) continue;
-
-          double distKm = 1.0 + (i * 0.5);
-          if (latitude != null && longitude != null && latitude != 0.0 && longitude != 0.0) {
-            distKm = Geolocator.distanceBetween(latitude, longitude, itemLat, itemLon) / 1000.0;
-          }
-
-          final String osmId = item['place_id'] != null ? 'osm_city_${item['place_id']}' : 'osm_nom_$i';
-
-          realHospitals.add(
-            Hospital(
-              id: osmId,
-              name: hospitalName,
-              address: address.isNotEmpty ? address : (city ?? 'Medical Facility'),
-              distanceKm: double.parse(distKm.toStringAsFixed(1)),
-              phone: '',
-              hasEmergencyServices: true,
-              latitude: itemLat,
-              longitude: itemLon,
-              isDemoData: false,
-            ),
-          );
-        }
-
-        realHospitals.sort((a, b) => a.distanceKm.compareTo(b.distanceKm));
-        return realHospitals;
-      } else {
-        debugPrint('[HOSPITAL SERVICE] Nominatim HTTP status: ${response.statusCode}');
-      }
-      return [];
-    } catch (e) {
-      debugPrint('[HOSPITAL SERVICE ERROR] Nominatim request failed: $e');
-      return [];
-    }
-  }
-
-  /// Lightweight Overpass GET query for additional OpenStreetMap hospital nodes/ways.
-  Future<List<Hospital>> _fetchHospitalsViaOverpassGet({
+  /// Fetches rich OpenStreetMap healthcare nodes & ways via Overpass API
+  Future<List<Hospital>> _fetchViaOverpass({
     required double latitude,
     required double longitude,
     required int radiusMeters,
   }) async {
+    // Overpass query for hospitals, clinics, pharmacies, doctors, and primary health centers
     final query =
-        '[out:json][timeout:10];(node(around:$radiusMeters,$latitude,$longitude)[amenity~"hospital|clinic"];way(around:$radiusMeters,$latitude,$longitude)[amenity~"hospital|clinic"];);out center 30;';
+        '[out:json][timeout:10];(node(around:$radiusMeters,$latitude,$longitude)[amenity~"hospital|clinic|pharmacy|doctors"];way(around:$radiusMeters,$latitude,$longitude)[amenity~"hospital|clinic|pharmacy|doctors"];node(around:$radiusMeters,$latitude,$longitude)[healthcare~"hospital|clinic|centre|pharmacy|doctor"];way(around:$radiusMeters,$latitude,$longitude)[healthcare~"hospital|clinic|centre|pharmacy|doctor"];);out center tags 40;';
     final urlStr = 'https://overpass-api.de/api/interpreter?data=${Uri.encodeComponent(query)}';
-    
+
     try {
       final response = await http
-          .get(Uri.parse(urlStr), headers: {'User-Agent': 'MedGuardAI-App/1.0', 'Accept': 'application/json'})
-          .timeout(const Duration(seconds: 8));
+          .get(Uri.parse(urlStr), headers: {
+            'User-Agent': 'MedGuard-Healthcare/2.0 (health@medguard.app)',
+            'Accept': 'application/json',
+          })
+          .timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
@@ -263,11 +226,12 @@ class HospitalService {
         return _parseOsmElements(elements, latitude, longitude);
       }
     } catch (e) {
-      debugPrint('[HOSPITAL SERVICE] Overpass GET exception: $e');
+      debugPrint('[HOSPITAL SERVICE] Overpass GET query error: $e');
     }
     return [];
   }
 
+  /// Parses OpenStreetMap elements into normalized Hospital records
   List<Hospital> _parseOsmElements(List elements, double centerLat, double centerLng) {
     final List<Hospital> list = [];
 
@@ -275,7 +239,6 @@ class HospitalService {
       final item = elements[i];
       final tags = item['tags'] ?? {};
 
-      // Support node (lat/lon) as well as way/relation (center.lat / center.lon)
       final double? itemLat = (item['lat'] as num?)?.toDouble() ??
           (item['center']?['lat'] as num?)?.toDouble();
       final double? itemLon = (item['lon'] as num?)?.toDouble() ??
@@ -296,19 +259,47 @@ class HospitalService {
       }
 
       final String name = nameTag.trim();
-      final String street = tags['addr:street'] ??
-          tags['addr:full'] ??
-          tags['addr:suburb'] ??
-          tags['addr:city'] ??
-          tags['healthcare'] ??
-          tags['amenity'] ??
-          'Medical Facility';
+
+      // Classification based on OSM tags
+      final HealthcareCategory category = _determineCategory(tags, name);
+
+      // Verified emergency status: ONLY true if tags explicitly verify emergency service
+      final bool emergencyVerified = tags['emergency'] == 'yes' ||
+          tags['emergency:service'] == 'yes' ||
+          tags['healthcare:emergency'] == 'yes';
+
+      final String emergencySource = emergencyVerified
+          ? 'OpenStreetMap Verified Emergency'
+          : 'unverified';
+
+      // Address construction
+      final List<String> addressParts = [];
+      if (tags['addr:housenumber'] != null) addressParts.add(tags['addr:housenumber'].toString());
+      if (tags['addr:street'] != null) addressParts.add(tags['addr:street'].toString());
+      if (tags['addr:suburb'] != null) addressParts.add(tags['addr:suburb'].toString());
+      if (tags['addr:city'] != null) addressParts.add(tags['addr:city'].toString());
+
+      String address = addressParts.join(', ').trim();
+      if (address.isEmpty) {
+        address = tags['addr:full'] ?? tags['note'] ?? category.displayName;
+      }
+
+      // Phone normalization
       final String rawPhone = tags['phone'] ??
           tags['contact:phone'] ??
-          tags['mobile'] ??
           tags['emergency:phone'] ??
+          tags['mobile'] ??
+          tags['contact:mobile'] ??
           '';
-      final String phone = rawPhone.trim();
+      final String normalizedPhone = _cleanPhoneNumber(rawPhone);
+
+      // Opening hours
+      final String hours = tags['opening_hours']?.toString() ?? '';
+
+      // Website
+      final String website = tags['website']?.toString() ??
+          tags['contact:website']?.toString() ??
+          '';
 
       final double distanceMeters = Geolocator.distanceBetween(
         centerLat,
@@ -316,29 +307,185 @@ class HospitalService {
         itemLat,
         itemLon,
       );
-      final double distanceKm = distanceMeters / 1000.0;
 
       final String osmKey = item['type'] != null && item['id'] != null
           ? 'osm_${item['type']}_${item['id']}'
-          : 'hospital_${name}_${itemLat.toStringAsFixed(3)}_${itemLon.toStringAsFixed(3)}';
+          : 'osm_item_${i}_${itemLat.toStringAsFixed(4)}';
 
       list.add(
         Hospital(
           id: osmKey,
+          source: 'openstreetmap_overpass',
+          sourcePlaceId: item['id']?.toString() ?? '',
           name: name,
-          address: street,
-          distanceKm: double.parse(distanceKm.toStringAsFixed(1)),
-          phone: phone,
-          hasEmergencyServices:
-              tags['emergency'] == 'yes' || tags['amenity'] == 'hospital',
+          category: category,
           latitude: itemLat,
           longitude: itemLon,
+          address: address,
+          phoneNumber: normalizedPhone,
+          website: website,
+          openingHours: hours,
+          emergencyServiceVerified: emergencyVerified,
+          emergencyVerificationSource: emergencySource,
+          distanceMeters: distanceMeters,
           isDemoData: false,
         ),
       );
     }
 
     return list;
+  }
+
+  /// Classifies facility into standard HealthcareCategory based on OSM tags
+  HealthcareCategory _determineCategory(Map tags, String name) {
+    final amenity = (tags['amenity'] ?? '').toString().toLowerCase();
+    final healthcare = (tags['healthcare'] ?? '').toString().toLowerCase();
+    final emergency = (tags['emergency'] ?? '').toString().toLowerCase();
+    final nameLower = name.toLowerCase();
+
+    if (emergency == 'yes' ||
+        nameLower.contains('trauma') ||
+        nameLower.contains('casualty') ||
+        nameLower.contains('emergency center') ||
+        nameLower.contains('emergency hospital')) {
+      return HealthcareCategory.emergencyDepartment;
+    }
+    if (amenity == 'pharmacy' || healthcare == 'pharmacy' || nameLower.contains('pharmacy') || nameLower.contains('medical hall') || nameLower.contains('chemist')) {
+      return HealthcareCategory.pharmacy;
+    }
+    if (healthcare == 'centre' ||
+        nameLower.contains('primary health') ||
+        nameLower.contains('phc') ||
+        nameLower.contains('community health centre') ||
+        nameLower.contains('dispensary')) {
+      return HealthcareCategory.primaryHealthCentre;
+    }
+    if (amenity == 'clinic' ||
+        healthcare == 'clinic' ||
+        amenity == 'doctors' ||
+        healthcare == 'doctor' ||
+        nameLower.contains('clinic') ||
+        nameLower.contains('polyclinic')) {
+      return HealthcareCategory.clinic;
+    }
+    if (amenity == 'hospital' || healthcare == 'hospital' || nameLower.contains('hospital')) {
+      return HealthcareCategory.hospital;
+    }
+    return HealthcareCategory.otherHealthcareFacility;
+  }
+
+  /// Sanitizes phone numbers by extracting first valid contact number
+  String _cleanPhoneNumber(String raw) {
+    if (raw.trim().isEmpty) return '';
+    // May contain multiple numbers separated by semicolon, comma, or slash
+    final parts = raw.split(RegExp(r'[;,/|]'));
+    for (final p in parts) {
+      final trimmed = p.trim();
+      final digitCount = trimmed.replaceAll(RegExp(r'[^\d]'), '').length;
+      if (digitCount >= 6) {
+        return trimmed;
+      }
+    }
+    return '';
+  }
+
+  /// Fetches healthcare facilities via Nominatim search engine with extratags
+  Future<List<Hospital>> _fetchViaNominatim({
+    double? latitude,
+    double? longitude,
+    String? city,
+  }) async {
+    try {
+      String queryUrlStr;
+      if (latitude != null && longitude != null && latitude != 0.0 && longitude != 0.0) {
+        queryUrlStr =
+            'https://nominatim.openstreetmap.org/search?q=hospital|clinic|healthcare+near+$latitude,$longitude&format=json&limit=30&extratags=1&addressdetails=1';
+      } else if (city != null && city.trim().isNotEmpty) {
+        queryUrlStr =
+            'https://nominatim.openstreetmap.org/search?q=hospitals+in+${Uri.encodeComponent(city.trim())}&format=json&limit=30&extratags=1&addressdetails=1';
+      } else {
+        return [];
+      }
+
+      final queryUrl = Uri.parse(queryUrlStr);
+      final response = await http.get(queryUrl, headers: {
+        'User-Agent': 'MedGuard-Healthcare/2.0 (health@medguard.app)',
+        'Accept': 'application/json',
+      }).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final List data = json.decode(response.body);
+        final List<Hospital> results = [];
+
+        for (var i = 0; i < data.length; i++) {
+          final item = data[i];
+          final displayName = item['display_name'] ?? city ?? 'Hospital';
+          final nameParts = displayName.split(',');
+          final hospitalName = nameParts.first.trim();
+          final address = nameParts.skip(1).take(3).join(',').trim();
+          final itemLat = double.tryParse(item['lat']?.toString() ?? '') ?? 0.0;
+          final itemLon = double.tryParse(item['lon']?.toString() ?? '') ?? 0.0;
+          final extraTags = item['extratags'] is Map ? item['extratags'] as Map : {};
+
+          if (itemLat == 0.0 || itemLon == 0.0 || hospitalName.isEmpty) continue;
+
+          double distanceMeters = 1000.0 + (i * 500.0);
+          if (latitude != null && longitude != null && latitude != 0.0 && longitude != 0.0) {
+            distanceMeters = Geolocator.distanceBetween(latitude, longitude, itemLat, itemLon);
+          }
+
+          final rawPhone = extraTags['phone'] ??
+              extraTags['contact:phone'] ??
+              extraTags['emergency:phone'] ??
+              '';
+          final normalizedPhone = _cleanPhoneNumber(rawPhone.toString());
+
+          // Emergency verification
+          final isEmergencyVerified = extraTags['emergency'] == 'yes' ||
+              extraTags['emergency:service'] == 'yes';
+
+          final HealthcareCategory category = _determineCategory(
+            {
+              'amenity': item['type'] ?? item['class'] ?? '',
+              'healthcare': extraTags['healthcare'] ?? '',
+              'emergency': extraTags['emergency'] ?? '',
+            },
+            hospitalName,
+          );
+
+          final String osmId = item['place_id'] != null
+              ? 'osm_place_${item['place_id']}'
+              : 'osm_nom_$i';
+
+          results.add(
+            Hospital(
+              id: osmId,
+              source: 'openstreetmap_nominatim',
+              sourcePlaceId: item['place_id']?.toString() ?? '',
+              name: hospitalName,
+              category: category,
+              address: address.isNotEmpty ? address : (city ?? 'Medical Facility'),
+              distanceMeters: distanceMeters,
+              phoneNumber: normalizedPhone,
+              openingHours: extraTags['opening_hours']?.toString() ?? '',
+              website: extraTags['website']?.toString() ?? '',
+              emergencyServiceVerified: isEmergencyVerified,
+              emergencyVerificationSource: isEmergencyVerified ? 'OpenStreetMap Verified' : 'unverified',
+              latitude: itemLat,
+              longitude: itemLon,
+              isDemoData: false,
+            ),
+          );
+        }
+
+        results.sort((a, b) => a.distanceMeters.compareTo(b.distanceMeters));
+        return results;
+      }
+      return [];
+    } catch (e) {
+      debugPrint('[HOSPITAL SERVICE ERROR] Nominatim request failed: $e');
+      return [];
+    }
   }
 
   /// Progressively searches nearby real hospitals.
@@ -380,7 +527,7 @@ class HospitalService {
         final result = await searchHospitalsForLocation(loc, onProgress: onProgress);
         return result.hospitals;
       } else if (city != null && city.trim().isNotEmpty) {
-        return await _fetchHospitalsViaNominatim(city: city, onProgress: onProgress);
+        return await _fetchViaNominatim(city: city);
       }
       return [];
     } catch (e) {

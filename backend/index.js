@@ -95,11 +95,47 @@ app.get("/api/health", (req, res) => {
   });
 });
 
+// Production Readiness Endpoint for Render / Load Balancers
+app.get("/api/health/ready", async (req, res) => {
+  const isConnected = mongoose.connection.readyState === 1;
+  if (!isConnected) {
+    return res.status(503).json({
+      status: "not_ready",
+      database: "connecting_or_disconnected",
+      message: "Database is establishing connection to MongoDB Atlas.",
+    });
+  }
+
+  try {
+    await mongoose.connection.db.admin().ping();
+    return res.status(200).json({
+      status: "ready",
+      database: "connected",
+      message: "MEDGUARD Backend and MongoDB Atlas are ready to serve requests.",
+    });
+  } catch (err) {
+    return res.status(503).json({
+      status: "unhealthy",
+      database: "error",
+      message: err.message,
+    });
+  }
+});
+
 // Database connection readiness check middleware for /api routes
-app.use("/api", (req, res, next) => {
-  if (req.path === "/health") {
+app.use("/api", async (req, res, next) => {
+  if (req.path === "/health" || req.path === "/health/ready") {
     return next();
   }
+
+  // If connection is in progress, give it up to 4.5 seconds to establish before returning 503
+  if (mongoose.connection.readyState !== 1) {
+    const startTime = Date.now();
+    while (mongoose.connection.readyState !== 1 && (Date.now() - startTime) < 4500) {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+  }
+
   if (mongoose.connection.readyState !== 1) {
     return res.status(503).json({
       success: false,

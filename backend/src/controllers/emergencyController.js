@@ -1,9 +1,27 @@
 const EmergencyContact = require('../models/EmergencyContact');
 const EmergencyEvent = require('../models/EmergencyEvent');
+const User = require('../models/User');
 
 const getEmergencyContacts = async (req, res) => {
   try {
-    const contacts = await EmergencyContact.find({ userId: req.userId }).sort({ isPrimary: -1, createdAt: -1 });
+    let contacts = await EmergencyContact.find({ userId: req.userId }).sort({ isPrimary: -1, createdAt: -1 });
+
+    // Safe synchronization: If EmergencyContact collection has 0 contacts, check User profile from onboarding
+    if (contacts.length === 0) {
+      const user = await User.findById(req.userId);
+      if (user && user.emergencyPhone && user.emergencyPhone.trim().length >= 7) {
+        const autoContact = new EmergencyContact({
+          userId: req.userId,
+          name: user.emergencyContactName || 'Emergency Contact',
+          relation: user.emergencyRelationship || 'Family',
+          phone: user.emergencyPhone.trim(),
+          isPrimary: true,
+        });
+        await autoContact.save();
+        contacts = [autoContact];
+      }
+    }
+
     return res.status(200).json({
       success: true,
       contacts,
@@ -11,7 +29,7 @@ const getEmergencyContacts = async (req, res) => {
   } catch (error) {
     return res.status(500).json({
       success: false,
-      message: 'Failed to fetch emergency contacts.',
+      message: 'Failed to fetch emergency contacts: ' + error.message,
     });
   }
 };
@@ -27,19 +45,31 @@ const addEmergencyContact = async (req, res) => {
       });
     }
 
-    if (isPrimary) {
+    const existingCount = await EmergencyContact.countDocuments({ userId: req.userId });
+    const shouldBePrimary = isPrimary !== undefined ? !!isPrimary : existingCount === 0;
+
+    if (shouldBePrimary) {
       await EmergencyContact.updateMany({ userId: req.userId }, { $set: { isPrimary: false } });
     }
 
     const contact = new EmergencyContact({
       userId: req.userId,
-      name,
-      relation,
-      phone,
-      isPrimary: !!isPrimary,
+      name: name.trim(),
+      relation: relation.trim(),
+      phone: phone.trim(),
+      isPrimary: shouldBePrimary,
     });
 
     await contact.save();
+
+    // Synchronize to User profile if primary
+    if (shouldBePrimary) {
+      await User.findByIdAndUpdate(req.userId, {
+        emergencyContactName: contact.name,
+        emergencyRelationship: contact.relation,
+        emergencyPhone: contact.phone,
+      });
+    }
 
     return res.status(201).json({
       success: true,
@@ -49,7 +79,7 @@ const addEmergencyContact = async (req, res) => {
   } catch (error) {
     return res.status(500).json({
       success: false,
-      message: 'Failed to add emergency contact.',
+      message: 'Failed to add emergency contact: ' + error.message,
     });
   }
 };
@@ -71,12 +101,21 @@ const updateEmergencyContact = async (req, res) => {
       await EmergencyContact.updateMany({ userId: req.userId }, { $set: { isPrimary: false } });
     }
 
-    if (name) contact.name = name;
-    if (relation) contact.relation = relation;
-    if (phone) contact.phone = phone;
-    if (isPrimary !== undefined) contact.isPrimary = isPrimary;
+    if (name) contact.name = name.trim();
+    if (relation) contact.relation = relation.trim();
+    if (phone) contact.phone = phone.trim();
+    if (isPrimary !== undefined) contact.isPrimary = !!isPrimary;
 
     await contact.save();
+
+    // If primary, update User profile
+    if (contact.isPrimary) {
+      await User.findByIdAndUpdate(req.userId, {
+        emergencyContactName: contact.name,
+        emergencyRelationship: contact.relation,
+        emergencyPhone: contact.phone,
+      });
+    }
 
     return res.status(200).json({
       success: true,
@@ -86,7 +125,41 @@ const updateEmergencyContact = async (req, res) => {
   } catch (error) {
     return res.status(500).json({
       success: false,
-      message: 'Failed to update emergency contact.',
+      message: 'Failed to update emergency contact: ' + error.message,
+    });
+  }
+};
+
+const setPrimaryEmergencyContact = async (req, res) => {
+  try {
+    const { contactId } = req.params;
+    const contact = await EmergencyContact.findOne({ _id: contactId, userId: req.userId });
+    if (!contact) {
+      return res.status(404).json({
+        success: false,
+        message: 'Emergency contact not found.',
+      });
+    }
+
+    await EmergencyContact.updateMany({ userId: req.userId }, { $set: { isPrimary: false } });
+    contact.isPrimary = true;
+    await contact.save();
+
+    await User.findByIdAndUpdate(req.userId, {
+      emergencyContactName: contact.name,
+      emergencyRelationship: contact.relation,
+      emergencyPhone: contact.phone,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Primary emergency contact set successfully.',
+      contact,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to set primary emergency contact: ' + error.message,
     });
   }
 };
@@ -94,7 +167,37 @@ const updateEmergencyContact = async (req, res) => {
 const deleteEmergencyContact = async (req, res) => {
   try {
     const { contactId } = req.params;
+    const contact = await EmergencyContact.findOne({ _id: contactId, userId: req.userId });
+    if (!contact) {
+      return res.status(404).json({
+        success: false,
+        message: 'Emergency contact not found.',
+      });
+    }
+
+    const wasPrimary = contact.isPrimary;
     await EmergencyContact.deleteOne({ _id: contactId, userId: req.userId });
+
+    // If deleted contact was primary, promote next remaining contact if any
+    if (wasPrimary) {
+      const nextContact = await EmergencyContact.findOne({ userId: req.userId }).sort({ createdAt: -1 });
+      if (nextContact) {
+        nextContact.isPrimary = true;
+        await nextContact.save();
+        await User.findByIdAndUpdate(req.userId, {
+          emergencyContactName: nextContact.name,
+          emergencyRelationship: nextContact.relation,
+          emergencyPhone: nextContact.phone,
+        });
+      } else {
+        await User.findByIdAndUpdate(req.userId, {
+          emergencyContactName: '',
+          emergencyRelationship: '',
+          emergencyPhone: '',
+        });
+      }
+    }
+
     return res.status(200).json({
       success: true,
       message: 'Emergency contact deleted successfully.',
@@ -102,7 +205,7 @@ const deleteEmergencyContact = async (req, res) => {
   } catch (error) {
     return res.status(500).json({
       success: false,
-      message: 'Failed to delete emergency contact.',
+      message: 'Failed to delete emergency contact: ' + error.message,
     });
   }
 };
@@ -180,6 +283,7 @@ module.exports = {
   getEmergencyContacts,
   addEmergencyContact,
   updateEmergencyContact,
+  setPrimaryEmergencyContact,
   deleteEmergencyContact,
   triggerSos,
   getSosHistory,

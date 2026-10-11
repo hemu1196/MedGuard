@@ -38,6 +38,7 @@ Future<EmergencyContact?> showEmergencyContactDialog(
   String? phoneError;
   String? dialogError;
   bool isSaving = false;
+  bool isPrimary = existing?.isPrimary ?? false;
 
   return showDialog<EmergencyContact>(
     context: context,
@@ -161,6 +162,15 @@ Future<EmergencyContact?> showEmergencyContactDialog(
                       ),
                     ),
                   ],
+                  const SizedBox(height: 12),
+                  SwitchListTile(
+                    title: const Text('Primary Emergency Contact', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                    subtitle: const Text('Prioritized for instant emergency SOS calls', style: TextStyle(fontSize: 11, color: AppTheme.textMuted)),
+                    value: isPrimary,
+                    contentPadding: EdgeInsets.zero,
+                    activeTrackColor: AppTheme.primaryTeal,
+                    onChanged: (val) => setDialogState(() => isPrimary = val),
+                  ),
                 ],
               ),
             ),
@@ -262,6 +272,7 @@ Future<EmergencyContact?> showEmergencyContactDialog(
                         phone: cleanPhone,
                         relationship: selectedRelationship,
                         customRelationship: customRel,
+                        isPrimary: isPrimary,
                       );
 
                       final saved = await contactRepository.saveEmergencyContact(userId, contact);

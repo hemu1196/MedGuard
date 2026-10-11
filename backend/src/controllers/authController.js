@@ -1,6 +1,7 @@
 const User = require('../models/User');
 const UserSession = require('../models/UserSession');
 const AuditEvent = require('../models/AuditEvent');
+const EmergencyContact = require('../models/EmergencyContact');
 const { generateToken } = require('../utils/jwt');
 
 /**
@@ -292,6 +293,32 @@ const updateProfile = async (req, res) => {
     }
 
     await currentUser.save();
+
+    // Synchronize emergency contact to authoritative EmergencyContact collection
+    const cleanEmergencyPhone = (currentUser.emergencyPhone || '').trim();
+    if (cleanEmergencyPhone.length >= 7) {
+      try {
+        const existingPrimary = await EmergencyContact.findOne({ userId: req.userId, isPrimary: true }) ||
+                                await EmergencyContact.findOne({ userId: req.userId });
+        if (existingPrimary) {
+          if (currentUser.emergencyContactName) existingPrimary.name = currentUser.emergencyContactName;
+          if (currentUser.emergencyRelationship) existingPrimary.relation = currentUser.emergencyRelationship;
+          existingPrimary.phone = cleanEmergencyPhone;
+          existingPrimary.isPrimary = true;
+          await existingPrimary.save();
+        } else {
+          await EmergencyContact.create({
+            userId: req.userId,
+            name: currentUser.emergencyContactName || 'Emergency Contact',
+            relation: currentUser.emergencyRelationship || 'Family',
+            phone: cleanEmergencyPhone,
+            isPrimary: true,
+          });
+        }
+      } catch (syncErr) {
+        console.warn('[AUTH CONTROLLER] Emergency contact sync note:', syncErr.message);
+      }
+    }
 
     await AuditEvent.create({
       userId: req.userId,

@@ -8,6 +8,8 @@ router.use(authenticateToken);
 router.get('/contacts', emergencyController.getEmergencyContacts);
 router.post('/contacts', emergencyController.addEmergencyContact);
 router.put('/contacts/:contactId', emergencyController.updateEmergencyContact);
+router.patch('/contacts/:contactId', emergencyController.updateEmergencyContact);
+router.patch('/contacts/:contactId/primary', emergencyController.setPrimaryEmergencyContact);
 router.delete('/contacts/:contactId', emergencyController.deleteEmergencyContact);
 
 router.post('/sos/trigger', emergencyController.triggerSos);

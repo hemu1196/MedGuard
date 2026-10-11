@@ -42,3 +42,8 @@ class ApiException extends AppException {
 class ValidationException extends AppException {
   ValidationException(super.message, {super.code = 'VALIDATION_ERROR'});
 }
+
+class ServerUnavailableException extends AppException {
+  ServerUnavailableException([super.message = 'Server is initializing database connection. Please retry in a moment.'])
+      : super(code: 'SERVER_CONNECTING');
+}

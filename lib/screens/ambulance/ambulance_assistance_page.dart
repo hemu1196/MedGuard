@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../app/theme.dart';
 import '../../models/emergency_contact.dart';
@@ -50,6 +52,10 @@ class _AmbulanceAssistancePageState extends State<AmbulanceAssistancePage> {
       setState(() {
         _currentUserId = userId;
       });
+    }
+    // Fetch emergency contacts from API to warm up stream and sync from backend
+    if (userId.isNotEmpty) {
+      _contactRepository.getContactsFromApi(userId: userId);
     }
     await _fetchLocationAndFacilities();
   }
@@ -200,7 +206,15 @@ class _AmbulanceAssistancePageState extends State<AmbulanceAssistancePage> {
     );
   }
 
-  Future<void> _makePhoneCall(String phoneNumber) async {
+  Future<void> _makePhoneCall(String? phoneNumber) async {
+    if (phoneNumber == null || phoneNumber.trim().isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No valid phone number configured.')),
+        );
+      }
+      return;
+    }
     final cleanNumber = phoneNumber.replaceAll(RegExp(r'[^\d+]'), '');
     if (cleanNumber.isEmpty) {
       if (mounted) {
@@ -217,15 +231,31 @@ class _AmbulanceAssistancePageState extends State<AmbulanceAssistancePage> {
         await launchUrl(phoneUri);
       } else {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Calling is not supported on this device.')),
+          showDialog(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: const Text('Call Details'),
+              content: SelectableText(
+                'Number: $phoneNumber\n\nDirect calling is not supported in this browser or device. You can copy this number to dial manually.',
+              ),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close')),
+              ],
+            ),
           );
         }
       }
     } catch (_) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Calling is not supported on this device.')),
+        showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Call Details'),
+            content: SelectableText('Number: $phoneNumber'),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close')),
+            ],
+          ),
         );
       }
     }
@@ -311,11 +341,11 @@ class _AmbulanceAssistancePageState extends State<AmbulanceAssistancePage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // 1. CURRENT LOCATION
+              // 1. CURRENT LOCATION BANNER
               _buildLocationBanner(),
               const SizedBox(height: 16),
 
-              // 2. CALL FOR HELP (Prominent Red Emergency Button)
+              // 2. CALL FOR HELP (Regional Emergency Service Numbers)
               _buildCallForHelpSection(),
               const SizedBox(height: 20),
 
@@ -323,7 +353,7 @@ class _AmbulanceAssistancePageState extends State<AmbulanceAssistancePage> {
               _buildSavedContactsSection(),
               const SizedBox(height: 20),
 
-              // 4. MAP CANVAS PREVIEW
+              // 4. REAL GEOGRAPHIC MAP PREVIEW
               _buildMapPreviewBox(),
               const SizedBox(height: 20),
 
@@ -457,9 +487,9 @@ class _AmbulanceAssistancePageState extends State<AmbulanceAssistancePage> {
                 Icon(Icons.warning_amber_rounded, color: AppColors.emergency, size: 24),
                 SizedBox(width: 8),
                 Text(
-                  'CALL FOR HELP',
+                  'IMMEDIATE EMERGENCY DISPATCH',
                   style: TextStyle(
-                    fontSize: 16,
+                    fontSize: 15,
                     fontWeight: FontWeight.bold,
                     color: AppColors.emergency,
                   ),
@@ -468,25 +498,44 @@ class _AmbulanceAssistancePageState extends State<AmbulanceAssistancePage> {
             ),
             const SizedBox(height: 6),
             const Text(
-              'Immediate emergency phone dispatch for life-threatening situations.',
+              'Direct emergency tele-dispatch for critical and life-threatening situations.',
               style: TextStyle(fontSize: 12, color: AppTheme.textDark),
             ),
-            const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              height: 48,
-              child: ElevatedButton.icon(
-                onPressed: () => _confirmEmergencyCall('108', 'National Emergency Line'),
-                icon: const Icon(Icons.phone_in_talk, color: Colors.white),
-                label: const Text(
-                  'CALL EMERGENCY SERVICES (108 / 911)',
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: () => _confirmEmergencyCall('108', 'Emergency Ambulance Service (India)'),
+                    icon: const Icon(Icons.medical_services_outlined, size: 18, color: Colors.white),
+                    label: const Text(
+                      'AMBULANCE (108)',
+                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.emergency,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                  ),
                 ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.emergency,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: () => _confirmEmergencyCall('112', 'National Emergency Line (India)'),
+                    icon: const Icon(Icons.emergency, size: 18, color: Colors.white),
+                    label: const Text(
+                      'NATIONAL SOS (112)',
+                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.red.shade800,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                  ),
                 ),
-              ),
+              ],
             ),
           ],
         ),
@@ -518,7 +567,7 @@ class _AmbulanceAssistancePageState extends State<AmbulanceAssistancePage> {
         else
           StreamBuilder<List<EmergencyContact>>(
             stream: _contactRepository.watchEmergencyContacts(_currentUserId!),
-            builder: (context, snapshot) {
+            builder: (streamContext, snapshot) {
               final contacts = snapshot.data ?? [];
 
               if (contacts.isEmpty) {
@@ -533,7 +582,7 @@ class _AmbulanceAssistancePageState extends State<AmbulanceAssistancePage> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       const Text(
-                        'No emergency contacts added.',
+                        'No emergency contacts configured.',
                         style: TextStyle(fontSize: 12, color: AppTheme.textMuted),
                       ),
                       OutlinedButton(
@@ -552,22 +601,108 @@ class _AmbulanceAssistancePageState extends State<AmbulanceAssistancePage> {
                     child: ListTile(
                       dense: true,
                       leading: CircleAvatar(
-                        backgroundColor: AppTheme.primaryTeal.withValues(alpha: 0.12),
+                        backgroundColor: c.isPrimary
+                            ? AppColors.emergency.withValues(alpha: 0.15)
+                            : AppTheme.primaryTeal.withValues(alpha: 0.12),
                         child: Text(
                           c.name.isNotEmpty ? c.name[0].toUpperCase() : 'E',
-                          style: const TextStyle(color: AppTheme.primaryTeal, fontWeight: FontWeight.bold),
+                          style: TextStyle(
+                            color: c.isPrimary ? AppColors.emergency : AppTheme.primaryTeal,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                       ),
-                      title: Text(c.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                      subtitle: Text('${c.relationship} • ${c.fullPhoneNumber}', style: const TextStyle(fontSize: 12)),
-                      trailing: ElevatedButton.icon(
-                        onPressed: () => _makePhoneCall(c.phone),
-                        icon: const Icon(Icons.call, size: 14),
-                        label: const Text('Call'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppTheme.primaryTeal,
-                          visualDensity: VisualDensity.compact,
-                        ),
+                      title: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              c.name,
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          if (c.isPrimary)
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: Colors.red.shade50,
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(color: Colors.red.shade200),
+                              ),
+                              child: const Text(
+                                'PRIMARY',
+                                style: TextStyle(
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.bold,
+                                  color: AppColors.emergency,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                      subtitle: Text(
+                        '${c.displayRelationship} • ${c.fullPhoneNumber}',
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          ElevatedButton.icon(
+                            onPressed: () => _makePhoneCall(c.dialablePhone),
+                            icon: const Icon(Icons.call, size: 14),
+                            label: const Text('Call'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppTheme.primaryTeal,
+                              visualDensity: VisualDensity.compact,
+                              padding: const EdgeInsets.symmetric(horizontal: 10),
+                            ),
+                          ),
+                          PopupMenuButton<String>(
+                            icon: const Icon(Icons.more_vert, size: 18),
+                            onSelected: (val) async {
+                              if (val == 'edit') {
+                                await showEmergencyContactDialog(
+                                  context,
+                                  existing: c,
+                                  onSaved: () {
+                                    if (mounted) setState(() {});
+                                  },
+                                );
+                              } else if (val == 'primary') {
+                                await _contactRepository.setPrimaryContact(_currentUserId!, c.id);
+                                if (!mounted) return;
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text('${c.name} set as primary contact')),
+                                );
+                              } else if (val == 'delete') {
+                                final confirm = await showDialog<bool>(
+                                  context: context,
+                                  builder: (ctx) => AlertDialog(
+                                    title: const Text('Delete Contact'),
+                                    content: Text('Are you sure you want to delete ${c.name}?'),
+                                    actions: [
+                                      TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+                                      ElevatedButton(
+                                        style: ElevatedButton.styleFrom(backgroundColor: AppColors.emergency),
+                                        onPressed: () => Navigator.pop(ctx, true),
+                                        child: const Text('Delete'),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                                if (confirm == true) {
+                                  await _contactRepository.deleteEmergencyContact(_currentUserId!, c.id);
+                                }
+                              }
+                            },
+                            itemBuilder: (ctx) => [
+                              if (!c.isPrimary)
+                                const PopupMenuItem(value: 'primary', child: Text('Set as Primary')),
+                              const PopupMenuItem(value: 'edit', child: Text('Edit Contact')),
+                              const PopupMenuItem(value: 'delete', child: Text('Delete Contact', style: TextStyle(color: AppColors.emergency))),
+                            ],
+                          ),
+                        ],
                       ),
                     ),
                   );
@@ -580,67 +715,104 @@ class _AmbulanceAssistancePageState extends State<AmbulanceAssistancePage> {
   }
 
   Widget _buildMapPreviewBox() {
+    final centerLat = _selectedLocation?.latitude ?? 17.3850;
+    final centerLng = _selectedLocation?.longitude ?? 78.4867;
     final isCitySearch = _selectedLocation?.isCitySearch ?? false;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'EMERGENCY MAP PREVIEW',
-          style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppTheme.textDark, letterSpacing: 0.5),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text(
+              'LIVE GEOGRAPHIC MAP PREVIEW',
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppTheme.textDark, letterSpacing: 0.5),
+            ),
+            Text(
+              '${_nearbyFacilities.length} facilities nearby',
+              style: const TextStyle(fontSize: 11, color: AppTheme.textMuted),
+            ),
+          ],
         ),
         const SizedBox(height: 8),
         SizedBox(
-          height: 180,
+          height: 200,
           width: double.infinity,
-          child: Container(
-            decoration: BoxDecoration(
-              color: const Color(0xFFE2E8F0),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.grey.shade300),
-            ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(12),
             child: Stack(
               children: [
-                CustomPaint(size: Size.infinite, painter: _SimpleMapGridPainter()),
-                Positioned(
-                  left: 100,
-                  top: 70,
-                  child: Column(
-                    children: [
-                      Icon(
-                        isCitySearch ? Icons.location_city : Icons.my_location,
-                        color: isCitySearch ? Colors.amber.shade900 : AppTheme.primaryTeal,
-                        size: 24,
-                      ),
-                      Text(
-                        isCitySearch ? (_selectedLocation?.cityName ?? 'City') : 'You',
-                        style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.bold,
-                          color: isCitySearch ? Colors.amber.shade900 : AppTheme.primaryTeal,
-                        ),
-                      ),
-                    ],
+                FlutterMap(
+                  options: MapOptions(
+                    initialCenter: LatLng(centerLat, centerLng),
+                    initialZoom: 13.0,
+                    minZoom: 3.0,
+                    maxZoom: 18.0,
                   ),
-                ),
-                ..._nearbyFacilities.take(3).toList().asMap().entries.map((e) {
-                  final idx = e.key;
-                  final f = e.value;
-                  return Positioned(
-                    left: 60.0 + (idx * 80.0),
-                    top: 40.0 + (idx * 40.0),
-                    child: Column(
-                      children: [
-                        const Icon(Icons.local_hospital, color: AppColors.emergency, size: 22),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                          decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(4)),
-                          child: Text(f.name.split(' ').first, style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold)),
+                  children: [
+                    TileLayer(
+                      urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                      userAgentPackageName: 'com.medguard.app',
+                      maxZoom: 19,
+                    ),
+                    MarkerLayer(
+                      markers: [
+                        // Center user marker
+                        Marker(
+                          point: LatLng(centerLat, centerLng),
+                          width: 40,
+                          height: 40,
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: isCitySearch ? Colors.amber.shade900 : AppTheme.primaryTeal,
+                              shape: BoxShape.circle,
+                              boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 4)],
+                            ),
+                            child: const Icon(Icons.my_location, color: Colors.white, size: 20),
+                          ),
                         ),
+                        // Nearby facility markers
+                        ..._nearbyFacilities.take(8).map((f) {
+                          final isEmergency = f.emergencyServiceVerified;
+                          return Marker(
+                            point: LatLng(f.latitude, f.longitude),
+                            width: 32,
+                            height: 32,
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: isEmergency ? AppTheme.accentRed : AppTheme.primaryBlue,
+                                shape: BoxShape.circle,
+                                border: Border.all(color: Colors.white, width: 1.5),
+                                boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 3)],
+                              ),
+                              child: Icon(
+                                isEmergency ? Icons.emergency : Icons.local_hospital,
+                                color: Colors.white,
+                                size: 16,
+                              ),
+                            ),
+                          );
+                        }),
                       ],
                     ),
-                  );
-                }),
+                  ],
+                ),
+                Positioned(
+                  left: 8,
+                  bottom: 6,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.8),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: const Text(
+                      '© OpenStreetMap contributors',
+                      style: TextStyle(fontSize: 9, color: Colors.black87),
+                    ),
+                  ),
+                ),
               ],
             ),
           ),
@@ -703,25 +875,79 @@ class _AmbulanceAssistancePageState extends State<AmbulanceAssistancePage> {
           )
         else
           Column(
-            children: _nearbyFacilities.take(3).map((f) {
+            children: _nearbyFacilities.take(4).map((f) {
+              final hasPhone = f.hasValidPhone;
+
               return Card(
                 margin: const EdgeInsets.only(bottom: 10),
                 child: Padding(
-                  padding: const EdgeInsets.all(12.0),
+                  padding: const EdgeInsets.all(14.0),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(f.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                      const SizedBox(height: 2),
-                      Text('${f.distanceKm.toStringAsFixed(1)} km away • ${f.address}', style: const TextStyle(fontSize: 12, color: AppTheme.textMuted)),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              f.name,
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Wrap(
+                            spacing: 4,
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: AppTheme.primaryTeal.withValues(alpha: 0.1),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Text(
+                                  f.category.displayName,
+                                  style: const TextStyle(color: AppTheme.primaryTeal, fontSize: 10, fontWeight: FontWeight.bold),
+                                ),
+                              ),
+                              if (f.emergencyServiceVerified)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: Colors.red.shade50,
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: const Text(
+                                    '24/7',
+                                    style: TextStyle(color: AppTheme.accentRed, fontSize: 10, fontWeight: FontWeight.bold),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '${f.distanceKm.toStringAsFixed(1)} km away • ${f.address}',
+                        style: const TextStyle(fontSize: 12, color: AppTheme.textMuted),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        hasPhone ? 'Phone: ${f.displayPhone}' : 'Phone number unavailable',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: hasPhone ? FontWeight.w600 : FontWeight.normal,
+                          color: hasPhone ? AppTheme.secondaryBlue : AppColors.textDisabled,
+                        ),
+                      ),
                       const Divider(height: 16),
                       Row(
                         children: [
                           Expanded(
                             child: OutlinedButton.icon(
-                              onPressed: () => _makePhoneCall(f.phone),
-                              icon: const Icon(Icons.call, size: 14),
-                              label: const Text('Call Facility'),
+                              onPressed: hasPhone ? () => _makePhoneCall(f.dialablePhone) : null,
+                              icon: Icon(hasPhone ? Icons.call : Icons.phone_disabled, size: 14),
+                              label: Text(hasPhone ? 'Call Facility' : 'Phone Unavailable'),
                             ),
                           ),
                           const SizedBox(width: 8),
@@ -760,7 +986,7 @@ class _AmbulanceAssistancePageState extends State<AmbulanceAssistancePage> {
           SizedBox(width: 8),
           Expanded(
             child: Text(
-              'SAFETY NOTE: MEDGUARD does not claim an ambulance has been dispatched unless a connected emergency provider explicitly confirms a booking.',
+              'SAFETY NOTE: MEDGUARD emergency calling initiates native tele-dispatch to emergency services. MEDGUARD does not claim an ambulance has arrived until confirmed directly by the operating provider.',
               style: TextStyle(fontSize: 11, color: AppTheme.textMuted, fontStyle: FontStyle.italic),
             ),
           ),
@@ -768,22 +994,4 @@ class _AmbulanceAssistancePageState extends State<AmbulanceAssistancePage> {
       ),
     );
   }
-}
-
-class _SimpleMapGridPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = Colors.grey.shade300
-      ..strokeWidth = 1.0;
-    for (double i = 0; i < size.width; i += 30) {
-      canvas.drawLine(Offset(i, 0), Offset(i, size.height), paint);
-    }
-    for (double i = 0; i < size.height; i += 30) {
-      canvas.drawLine(Offset(0, i), Offset(size.width, i), paint);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

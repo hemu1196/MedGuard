@@ -71,8 +71,15 @@ class _LoginPageState extends State<LoginPage> {
     } catch (e) {
       debugPrint('[AUTH ERROR] Login failed: $e');
       if (!mounted) return;
+      final raw = e is AppException ? e.message : e.toString().replaceAll('Exception: ', '');
+      final isConnecting = raw.toLowerCase().contains('connecting to mongodb') ||
+          raw.toLowerCase().contains('server is initializing') ||
+          e is ServerUnavailableException;
+
       setState(() {
-        _errorMessage = e is AppException ? e.message : e.toString();
+        _errorMessage = isConnecting
+            ? 'Server is connecting to MongoDB Atlas. Please tap Log In again in a few seconds.'
+            : raw;
         _isLoading = false;
       });
     } finally {

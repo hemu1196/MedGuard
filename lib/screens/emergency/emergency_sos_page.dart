@@ -758,7 +758,7 @@ class _EmergencySosPageState extends State<EmergencySosPage> {
                         color: AppTheme.primaryBlue,
                         onTap: () {
                           if (hasContact) {
-                            _makePhoneCall(primaryContact!.phone);
+                            _makePhoneCall(primaryContact!.dialablePhone);
                           } else {
                             _showNoContactDialog();
                           }

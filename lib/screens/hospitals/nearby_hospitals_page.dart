@@ -240,7 +240,13 @@ class _NearbyHospitalsPageState extends State<NearbyHospitalsPage> {
     }
   }
 
-  Future<void> _makePhoneCall(String phone) async {
+  Future<void> _makePhoneCall(String? phone) async {
+    if (phone == null || phone.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No valid phone number available for this facility.')),
+      );
+      return;
+    }
     final cleanPhone = phone.replaceAll(RegExp(r'[^\d+]'), '');
     if (cleanPhone.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -255,15 +261,37 @@ class _NearbyHospitalsPageState extends State<NearbyHospitalsPage> {
         await launchUrl(phoneUri);
       } else {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Calling $phone...')),
+          showDialog(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: const Text('Facility Phone Number'),
+              content: SelectableText(
+                'Phone: $phone\n\nDirect calling is not supported in this browser or device. You can copy the number and dial manually.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Close'),
+                ),
+              ],
+            ),
           );
         }
       }
     } catch (_) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Calling $phone...')),
+        showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Facility Phone Number'),
+            content: SelectableText('Phone: $phone'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Close'),
+              ),
+            ],
+          ),
         );
       }
     }
@@ -391,7 +419,7 @@ class _NearbyHospitalsPageState extends State<NearbyHospitalsPage> {
                 itemCount: _hospitals.length,
                 itemBuilder: (context, index) {
                   final h = _hospitals[index];
-                  final hasPhone = h.phone.trim().isNotEmpty && RegExp(r'\d').hasMatch(h.phone);
+                  final hasPhone = h.hasValidPhone;
 
                   return Card(
                     margin: const EdgeInsets.only(bottom: 12),
@@ -414,25 +442,55 @@ class _NearbyHospitalsPageState extends State<NearbyHospitalsPage> {
                                   ),
                                 ),
                               ),
-                              if (h.hasEmergencyServices)
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 4,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: Colors.red.shade50,
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: const Text(
-                                    '24/7 Emergency',
-                                    style: TextStyle(
-                                      color: AppTheme.accentRed,
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.bold,
+                              const SizedBox(width: 8),
+                              Wrap(
+                                spacing: 4,
+                                runSpacing: 4,
+                                alignment: WrapAlignment.end,
+                                children: [
+                                  // Category Badge
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 3,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: AppTheme.primaryTeal.withValues(alpha: 0.1),
+                                      borderRadius: BorderRadius.circular(6),
+                                      border: Border.all(color: AppTheme.primaryTeal.withValues(alpha: 0.3)),
+                                    ),
+                                    child: Text(
+                                      h.category.displayName,
+                                      style: const TextStyle(
+                                        color: AppTheme.primaryTeal,
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.bold,
+                                      ),
                                     ),
                                   ),
-                                ),
+                                  // 24/7 Emergency Badge: ONLY IF VERIFIED
+                                  if (h.emergencyServiceVerified)
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 3,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: Colors.red.shade50,
+                                        borderRadius: BorderRadius.circular(6),
+                                        border: Border.all(color: Colors.red.shade200),
+                                      ),
+                                      child: const Text(
+                                        '24/7 Emergency',
+                                        style: TextStyle(
+                                          color: AppTheme.accentRed,
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ),
                             ],
                           ),
                           const SizedBox(height: 6),
@@ -442,6 +500,24 @@ class _NearbyHospitalsPageState extends State<NearbyHospitalsPage> {
                               fontSize: 13,
                               color: onSurfaceVariant,
                             ),
+                          ),
+                          const SizedBox(height: 6),
+                          Row(
+                            children: [
+                              const Icon(
+                                Icons.access_time_outlined,
+                                size: 13,
+                                color: AppTheme.textMuted,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                h.openingHoursDisplay,
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  color: AppTheme.textMuted,
+                                ),
+                              ),
+                            ],
                           ),
                           const SizedBox(height: 8),
                           Row(
@@ -470,7 +546,7 @@ class _NearbyHospitalsPageState extends State<NearbyHospitalsPage> {
                                 const SizedBox(width: 4),
                                 Expanded(
                                   child: Text(
-                                    h.phone,
+                                    h.displayPhone,
                                     style: const TextStyle(
                                       fontWeight: FontWeight.bold,
                                       fontSize: 12,
@@ -503,7 +579,7 @@ class _NearbyHospitalsPageState extends State<NearbyHospitalsPage> {
                             children: [
                               if (hasPhone)
                                 ElevatedButton.icon(
-                                  onPressed: () => _makePhoneCall(h.phone),
+                                  onPressed: () => _makePhoneCall(h.dialablePhone),
                                   icon: const Icon(Icons.call, size: 16),
                                   label: const Text('CALL HOSPITAL'),
                                   style: ElevatedButton.styleFrom(

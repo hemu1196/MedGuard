@@ -127,17 +127,54 @@ class AuthRepository {
   }
 
   /// Sign In with MongoDB Node.js Backend & Optional Secondary Firebase Sync
+  /// Sign In with MongoDB Node.js Backend & Optional Secondary Firebase Sync
   Future<AuthSession> signIn(String email, String password) async {
-    final cleanEmail = email.trim();
+    final cleanEmail = email.trim().toLowerCase();
     if (cleanEmail.isEmpty || password.isEmpty) {
       throw AuthenticationException('Email and password are required.');
     }
 
     // 1. Authenticate with MongoDB Backend API
-    final res = await _apiClient.post('/auth/login', body: {
-      'email': cleanEmail,
-      'password': password,
-    });
+    Map<String, dynamic> res;
+    try {
+      res = await _apiClient.post('/auth/login', body: {
+        'email': cleanEmail,
+        'password': password,
+      });
+    } on AuthenticationException {
+      // If MongoDB rejected credentials, check if this is an existing Firebase user
+      // whose account has not yet synced their password to MongoDB Atlas.
+      if (_firebaseAuth != null) {
+        try {
+          debugPrint('[AUTH] Checking secondary Firebase Auth for legacy account: $cleanEmail');
+          final userCred = await _firebaseAuth!.signInWithEmailAndPassword(
+            email: cleanEmail,
+            password: password,
+          );
+          if (userCred.user != null) {
+            debugPrint('[AUTH] Firebase credentials verified! Syncing password to MongoDB Atlas...');
+            final syncRes = await _apiClient.post('/auth/firebase-migrate', body: {
+              'firebaseUid': userCred.user!.uid,
+              'email': cleanEmail,
+              'password': password,
+              'fullName': userCred.user!.displayName ?? cleanEmail.split('@')[0],
+            });
+            if (syncRes['success'] == true && (syncRes['token'] != null || syncRes['accessToken'] != null)) {
+              res = syncRes;
+            } else {
+              rethrow;
+            }
+          } else {
+            rethrow;
+          }
+        } catch (fbErr) {
+          debugPrint('[AUTH] Secondary Firebase check note: $fbErr');
+          rethrow;
+        }
+      } else {
+        rethrow;
+      }
+    }
 
     final token = res['token'] ?? res['accessToken'] ?? res['data']?['token'] ?? res['data']?['accessToken'];
     if (res['success'] == true && token != null) {
@@ -169,7 +206,7 @@ class AuthRepository {
         rawUser: userMap,
       );
     } else {
-      throw AuthenticationException(res['message'] ?? 'Invalid credentials.');
+      throw AuthenticationException(res['message'] ?? 'Invalid email or password.');
     }
   }
 
@@ -179,7 +216,7 @@ class AuthRepository {
     required String email,
     required String password,
   }) async {
-    final cleanEmail = email.trim();
+    final cleanEmail = email.trim().toLowerCase();
     final cleanName = name.trim();
     if (cleanEmail.isEmpty || password.isEmpty || cleanName.isEmpty) {
       throw AuthenticationException('All fields (Name, Email, Password) are required.');
@@ -227,8 +264,31 @@ class AuthRepository {
     }
   }
 
+  /// Reset Password in MongoDB Atlas (preserves user data, appointments, and records)
+  Future<void> resetPassword({
+    required String email,
+    required String newPassword,
+  }) async {
+    final cleanEmail = email.trim().toLowerCase();
+    if (cleanEmail.isEmpty || !cleanEmail.contains('@')) {
+      throw AuthenticationException('Please enter a valid email address.');
+    }
+    if (newPassword.length < 6) {
+      throw AuthenticationException('Password must be at least 6 characters.');
+    }
+
+    final res = await _apiClient.post('/auth/reset-password', body: {
+      'email': cleanEmail,
+      'newPassword': newPassword,
+    });
+
+    if (res['success'] != true) {
+      throw AuthenticationException(res['message'] ?? 'Failed to reset password.');
+    }
+  }
+
   Future<void> sendPasswordResetEmail(String email) async {
-    final cleanEmail = email.trim();
+    final cleanEmail = email.trim().toLowerCase();
     if (cleanEmail.isEmpty) {
       throw AuthenticationException('Please enter a valid email address.');
     }

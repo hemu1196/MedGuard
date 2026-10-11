@@ -41,7 +41,7 @@ class _LoginPageState extends State<LoginPage> {
       _errorMessage = null;
     });
 
-    final email = _emailController.text.trim();
+    final email = _emailController.text.trim().toLowerCase();
     final password = _passwordController.text;
 
     try {
@@ -97,66 +97,208 @@ class _LoginPageState extends State<LoginPage> {
 
   void _openForgotPasswordDialog() {
     final resetEmailCtrl = TextEditingController(text: _emailController.text.trim());
+    final newPassCtrl = TextEditingController();
+    final confirmPassCtrl = TextEditingController();
+
+    bool isResetting = false;
+    bool obscureNewPass = true;
+    bool obscureConfirmPass = true;
+    String? resetError;
+
     showDialog(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Reset Password'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Enter your registered email address to receive a password reset link:',
-              style: TextStyle(fontSize: 13),
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (builderContext, setDialogState) {
+          final isDark = Theme.of(builderContext).brightness == Brightness.dark;
+
+          return AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            title: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: AppTheme.primaryTeal.withValues(alpha: 0.12),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.lock_reset_rounded, color: AppTheme.primaryTeal),
+                ),
+                const SizedBox(width: 12),
+                const Text('Reset Password'),
+              ],
             ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: resetEmailCtrl,
-              keyboardType: TextInputType.emailAddress,
-              decoration: const InputDecoration(
-                labelText: 'Email Address *',
-                prefixIcon: Icon(Icons.email_outlined),
+            content: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 400),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Enter your registered email address and set a new password. All existing health profile and clinical records will be preserved.',
+                      style: TextStyle(fontSize: 13, height: 1.4),
+                    ),
+                    const SizedBox(height: 16),
+
+                    if (resetError != null) ...[
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        margin: const EdgeInsets.only(bottom: 14),
+                        decoration: BoxDecoration(
+                          color: isDark ? const Color(0xFF451A1A) : Colors.red.shade50,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: isDark ? Colors.red.shade900 : Colors.red.shade200),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.error_outline, color: Colors.red.shade700, size: 18),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                resetError!,
+                                style: TextStyle(
+                                  color: isDark ? Colors.red.shade100 : Colors.red.shade900,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+
+                    TextField(
+                      controller: resetEmailCtrl,
+                      keyboardType: TextInputType.emailAddress,
+                      decoration: const InputDecoration(
+                        labelText: 'Registered Email *',
+                        prefixIcon: Icon(Icons.email_outlined),
+                        hintText: 'name@example.com',
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: newPassCtrl,
+                      obscureText: obscureNewPass,
+                      decoration: InputDecoration(
+                        labelText: 'New Password *',
+                        prefixIcon: const Icon(Icons.lock_outline),
+                        hintText: 'At least 6 characters',
+                        suffixIcon: IconButton(
+                          icon: Icon(
+                            obscureNewPass ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+                          ),
+                          onPressed: () {
+                            setDialogState(() {
+                              obscureNewPass = !obscureNewPass;
+                            });
+                          },
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: confirmPassCtrl,
+                      obscureText: obscureConfirmPass,
+                      decoration: InputDecoration(
+                        labelText: 'Confirm New Password *',
+                        prefixIcon: const Icon(Icons.lock_reset_outlined),
+                        hintText: 'Re-enter new password',
+                        suffixIcon: IconButton(
+                          icon: Icon(
+                            obscureConfirmPass ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+                          ),
+                          onPressed: () {
+                            setDialogState(() {
+                              obscureConfirmPass = !obscureConfirmPass;
+                            });
+                          },
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              final email = resetEmailCtrl.text.trim();
-              if (email.isEmpty || !email.contains('@')) {
-                ScaffoldMessenger.of(dialogContext).showSnackBar(
-                  const SnackBar(content: Text('Please enter a valid email address')),
-                );
-                return;
-              }
-              Navigator.of(dialogContext).pop();
-              try {
-                await _authRepository.sendPasswordResetEmail(email);
-                if (!mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Password reset link sent to $email'),
-                    backgroundColor: AppTheme.accentGreen,
-                  ),
-                );
-              } catch (e) {
-                if (!mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Reset failed: ${e.toString()}'),
-                    backgroundColor: AppTheme.accentRed,
-                  ),
-                );
-              }
-            },
-            child: const Text('Send Reset Link'),
-          ),
-        ],
+            actions: [
+              TextButton(
+                onPressed: isResetting ? null : () => Navigator.of(dialogContext).pop(),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: isResetting
+                    ? null
+                    : () async {
+                        final email = resetEmailCtrl.text.trim();
+                        final newPass = newPassCtrl.text;
+                        final confirmPass = confirmPassCtrl.text;
+
+                        if (email.isEmpty || !email.contains('@') || !email.contains('.')) {
+                          setDialogState(() {
+                            resetError = 'Please enter a valid registered email address.';
+                          });
+                          return;
+                        }
+                        if (newPass.length < 6) {
+                          setDialogState(() {
+                            resetError = 'New password must be at least 6 characters.';
+                          });
+                          return;
+                        }
+                        if (newPass != confirmPass) {
+                          setDialogState(() {
+                            resetError = 'Passwords do not match.';
+                          });
+                          return;
+                        }
+
+                        setDialogState(() {
+                          isResetting = true;
+                          resetError = null;
+                        });
+
+                        try {
+                          await _authRepository.resetPassword(
+                            email: email,
+                            newPassword: newPass,
+                          );
+
+                          if (dialogContext.mounted) {
+                            Navigator.of(dialogContext).pop();
+                          }
+
+                          if (!mounted) return;
+
+                          _emailController.text = email;
+                          _passwordController.text = newPass;
+
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Password updated successfully! Tap LOGIN to continue.'),
+                              backgroundColor: AppTheme.accentGreen,
+                            ),
+                          );
+                        } catch (e) {
+                          setDialogState(() {
+                            isResetting = false;
+                            resetError = e is AppException ? e.message : e.toString().replaceAll('Exception: ', '');
+                          });
+                        }
+                      },
+                child: isResetting
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          color: Colors.white,
+                          strokeWidth: 2,
+                        ),
+                      )
+                    : const Text('Reset Password'),
+              ),
+            ],
+          );
+        },
       ),
     );
   }

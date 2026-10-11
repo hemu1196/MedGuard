@@ -6,6 +6,7 @@ const { authenticateToken } = require('../middleware/authMiddleware');
 // Public routes
 router.post('/register', authController.register);
 router.post('/login', authController.login);
+router.post('/reset-password', authController.resetPassword);
 router.post('/firebase-migrate', authController.firebaseMigrate);
 
 // Authenticated routes

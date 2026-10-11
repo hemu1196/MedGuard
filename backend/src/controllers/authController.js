@@ -10,7 +10,7 @@ const { generateToken } = require('../utils/jwt');
 const register = async (req, res) => {
   try {
     const { email, password, fullName, name, phoneNumber } = req.body;
-    const resolvedName = fullName || name;
+    const resolvedName = (fullName || name || '').trim();
 
     if (!email || !password || !resolvedName) {
       return res.status(400).json({
@@ -19,7 +19,22 @@ const register = async (req, res) => {
       });
     }
 
-    const existingUser = await User.findOne({ email: email.toLowerCase() });
+    const normalizedEmail = String(email).trim().toLowerCase();
+    if (!normalizedEmail.includes('@') || !normalizedEmail.includes('.')) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide a valid email address.',
+      });
+    }
+
+    if (String(password).length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password must be at least 6 characters long.',
+      });
+    }
+
+    const existingUser = await User.findOne({ email: normalizedEmail });
     if (existingUser) {
       return res.status(400).json({
         success: false,
@@ -28,10 +43,10 @@ const register = async (req, res) => {
     }
 
     const newUser = new User({
-      email,
-      password,
+      email: normalizedEmail,
+      password: String(password),
       fullName: resolvedName,
-      phoneNumber: phoneNumber || '',
+      phoneNumber: phoneNumber ? String(phoneNumber).trim() : '',
       lastLoginAt: new Date(),
     });
 
@@ -85,7 +100,8 @@ const login = async (req, res) => {
       });
     }
 
-    const user = await User.findOne({ email: email.toLowerCase() });
+    const normalizedEmail = String(email).trim().toLowerCase();
+    const user = await User.findOne({ email: normalizedEmail });
     if (!user) {
       return res.status(401).json({
         success: false,
@@ -93,7 +109,7 @@ const login = async (req, res) => {
       });
     }
 
-    const isMatch = await user.comparePassword(password);
+    const isMatch = await user.comparePassword(String(password));
     if (!isMatch) {
       return res.status(401).json({
         success: false,
@@ -108,8 +124,8 @@ const login = async (req, res) => {
       });
     }
 
-    user.lastLoginAt = new Date();
-    await user.save();
+    // Update lastLoginAt without triggering pre-save hooks
+    await User.updateOne({ _id: user._id }, { $set: { lastLoginAt: new Date() } });
 
     const token = generateToken({ userId: user._id, email: user.email, role: user.role });
 
@@ -374,37 +390,123 @@ const logout = async (req, res) => {
 };
 
 /**
+ * Reset password for existing account (e.g. forgot password or legacy Firebase migration)
+ * Preserves user profile, health records, appointments, and all associated data.
+ */
+const resetPassword = async (req, res) => {
+  try {
+    const { email, newPassword, password } = req.body;
+    const targetPassword = newPassword || password;
+
+    if (!email || !targetPassword) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email and new password are required.',
+      });
+    }
+
+    const normalizedEmail = String(email).trim().toLowerCase();
+    if (String(targetPassword).length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password must be at least 6 characters long.',
+      });
+    }
+
+    const user = await User.findOne({ email: normalizedEmail });
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'No registered account found with this email address.',
+      });
+    }
+
+    // Set new password - Mongoose pre('save') hashes via bcrypt with salt 10
+    user.password = String(targetPassword);
+    user.lastLoginAt = new Date();
+    await user.save();
+
+    await AuditEvent.create({
+      userId: user._id,
+      action: 'PASSWORD_RESET',
+      ipAddress: req.ip || '',
+      userAgent: req.headers['user-agent'] || '',
+    });
+
+    const token = generateToken({ userId: user._id, email: user.email, role: user.role });
+
+    await UserSession.create({
+      userId: user._id,
+      token,
+      ipAddress: req.ip || '',
+      deviceInfo: req.headers['user-agent'] || '',
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Password has been reset successfully. You can now log in with your new password.',
+      token,
+      accessToken: token,
+      user: user.toJSON(),
+      profileCompleted: user.profileCompleted,
+    });
+  } catch (error) {
+    console.error('Reset Password Error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to reset password. ' + error.message,
+    });
+  }
+};
+
+/**
  * Migrate or sync legacy Firebase user into MongoDB Atlas
  */
 const firebaseMigrate = async (req, res) => {
   try {
-    const { firebaseUid, email, fullName, name, phoneNumber } = req.body;
+    const { firebaseUid, email, password, fullName, name, phoneNumber } = req.body;
     if (!email) {
       return res.status(400).json({ success: false, message: 'Email is required.' });
     }
 
-    const resolvedName = fullName || name;
-    let user = await User.findOne({ email: email.toLowerCase() });
+    const normalizedEmail = String(email).trim().toLowerCase();
+    const resolvedName = (fullName || name || '').trim();
+    let user = await User.findOne({ email: normalizedEmail });
     if (!user) {
-      const randomPassword = Math.random().toString(36).slice(-10) + 'A1!';
+      const initialPassword = password && String(password).length >= 6
+        ? String(password)
+        : (Math.random().toString(36).slice(-10) + 'A1!');
       user = new User({
-        email,
-        password: randomPassword,
-        fullName: resolvedName || email.split('@')[0],
-        phoneNumber: phoneNumber || '',
+        email: normalizedEmail,
+        password: initialPassword,
+        fullName: resolvedName || normalizedEmail.split('@')[0],
+        phoneNumber: phoneNumber ? String(phoneNumber).trim() : '',
         firebaseUid: firebaseUid || null,
+        lastLoginAt: new Date(),
       });
       await user.save();
-    } else if (firebaseUid && !user.firebaseUid) {
-      user.firebaseUid = firebaseUid;
-      await user.save();
+    } else {
+      let updated = false;
+      if (firebaseUid && user.firebaseUid !== firebaseUid) {
+        user.firebaseUid = firebaseUid;
+        updated = true;
+      }
+      if (password && String(password).length >= 6) {
+        user.password = String(password);
+        updated = true;
+      }
+      if (updated) {
+        user.lastLoginAt = new Date();
+        await user.save();
+      }
     }
 
     const token = generateToken({ userId: user._id, email: user.email, role: user.role });
 
     return res.status(200).json({
       success: true,
-      message: 'Firebase user synced to MongoDB Atlas.',
+      message: 'Account successfully synchronized to MongoDB Atlas.',
       token,
       accessToken: token,
       user: user.toJSON(),
@@ -414,7 +516,7 @@ const firebaseMigrate = async (req, res) => {
     console.error('Firebase Migrate Error:', error);
     return res.status(500).json({
       success: false,
-      message: 'Firebase migration failed. ' + error.message,
+      message: 'Account synchronization failed. ' + error.message,
     });
   }
 };
@@ -454,6 +556,7 @@ const refreshToken = async (req, res) => {
 module.exports = {
   register,
   login,
+  resetPassword,
   getMe,
   updateProfile,
   logout,

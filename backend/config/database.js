@@ -53,6 +53,7 @@ async function connectDB(maxRetries = 8, retryDelayMs = 1500) {
     minPoolSize: 0,
     family: 4, // Prefer IPv4 resolution to prevent IPv6 TLS handshake timeouts
     retryWrites: true,
+    retryReads: true,
   };
 
   // Reuse active connection if already connected

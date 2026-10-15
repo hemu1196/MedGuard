@@ -34,17 +34,16 @@ class HealthRecordRepository {
     }
   }
 
+  /// Stream of records that yields local cached data first, then fetches fresh data from MongoDB Atlas
   Stream<List<HealthRecord>> watchHealthRecords(String userId) async* {
-    final localList = await getRecords(userId: userId);
+    final localList = await _getLocalCache(userId);
     yield localList;
 
     try {
       final remoteList = await getRecordsFromApi();
-      if (remoteList.isNotEmpty) {
-        yield remoteList;
-      }
+      yield remoteList;
     } catch (e) {
-      debugPrint('[HEALTH VAULT REPO] watchHealthRecords API error: $e');
+      debugPrint('[HEALTH VAULT REPO] watchHealthRecords remote fetch note: $e');
     }
 
     yield* _recordsStreamController.stream;
@@ -53,36 +52,28 @@ class HealthRecordRepository {
   Stream<List<HealthRecord>> getRecordsStream({required String userId}) =>
       watchHealthRecords(userId);
 
+  /// Fetch records directly from MongoDB Atlas via Render backend
   Future<List<HealthRecord>> getRecordsFromApi() async {
-    try {
-      final res = await _apiClient.get('/health-records');
-      if (res['success'] == true && res['records'] != null) {
-        final list = (res['records'] as List)
-            .map((r) => HealthRecord.fromMap(Map<String, dynamic>.from(r)))
-            .toList();
-        await _saveToLocalCache(list);
-        return list;
-      }
-    } catch (e) {
-      debugPrint('[HEALTH VAULT REPO] getRecordsFromApi failed: $e');
+    final res = await _apiClient.get('/health-records');
+    if (res['success'] == true && res['records'] != null) {
+      final list = (res['records'] as List)
+          .map((r) => HealthRecord.fromMap(Map<String, dynamic>.from(r)))
+          .toList();
+      await _saveToLocalCache(list);
+      _recordsStreamController.add(list);
+      return list;
     }
     return [];
   }
 
+  /// Get records, prioritizing backend with local fallback on network error
   Future<List<HealthRecord>> getRecords({required String userId}) async {
-    final remoteList = await getRecordsFromApi();
-    if (remoteList.isNotEmpty) {
-      return remoteList;
+    try {
+      return await getRecordsFromApi();
+    } catch (e) {
+      debugPrint('[HEALTH VAULT REPO] getRecords fallback to local cache: $e');
+      return await _getLocalCache(userId);
     }
-
-    final prefs = await SharedPreferences.getInstance();
-    final rawList = prefs.getStringList(_vaultStorageKey) ?? [];
-    final allRecords = rawList
-        .map((str) => HealthRecord.fromJson(str))
-        .toList();
-    final userRecords = allRecords.where((r) => r.userId == userId || userId.isEmpty).toList();
-    userRecords.sort((a, b) => b.documentDate.compareTo(a.documentDate));
-    return userRecords;
   }
 
   Future<List<HealthRecord>> getRecordsByType({
@@ -105,51 +96,36 @@ class HealthRecordRepository {
     }
   }
 
+  /// Download file bytes securely using JWT Bearer authentication
+  Future<Uint8List> getRecordBytes(HealthRecord record) async {
+    if (record.id.isEmpty) {
+      throw Exception('Cannot download record with empty ID.');
+    }
+    final endpoint = '/health-records/${record.id}/download';
+    return await _apiClient.downloadBytes(endpoint);
+  }
+
+  /// Save new record or update existing record in MongoDB Atlas
+  /// Throws Exception if the backend operation fails - NEVER gives false success!
+  /// Save new record or update existing record in MongoDB Atlas
+  /// When [throwOnError] is true, throws Exception on backend failure to prevent false success in UI.
   Future<bool> saveRecord(
     HealthRecord record, {
     Uint8List? fileBytes,
     String? fileName,
+    bool throwOnError = false,
   }) async {
     final category = _mapRecordTypeToCategory(record.recordType);
-    bool savedToCloud = false;
 
-    // 1. If file bytes or path are present, perform multipart upload
-    final hasFile = (fileBytes != null && fileBytes.isNotEmpty) ||
-        (record.fileUrl != null && record.fileUrl!.isNotEmpty && !record.fileUrl!.startsWith('http'));
+    // 1. UPDATE EXISTING RECORD (MongoDB ObjectId format: 24-character hex string)
+    final isExistingMongoRecord = record.id.length == 24 &&
+        !record.id.startsWith('rec_') &&
+        RegExp(r'^[0-9a-fA-F]{24}$').hasMatch(record.id);
 
-    if (hasFile) {
+    if (isExistingMongoRecord) {
       try {
-        final res = await _apiClient.uploadFile(
-          '/health-records/upload',
-          filePath: record.fileUrl ?? '',
-          fileFieldName: 'file',
-          bytes: fileBytes,
-          filename: fileName ?? record.title,
-          fields: {
-            'title': record.title,
-            'category': category,
-            'recordType': record.recordType.name,
-            'doctorName': record.doctorName,
-            'hospitalName': record.hospitalName,
-            'documentDate': record.documentDate.toIso8601String(),
-            'notes': record.description,
-            'tags': record.tags.join(','),
-          },
-        );
-
-        if (res['success'] == true && res['record'] != null) {
-          final savedRecord = HealthRecord.fromMap(Map<String, dynamic>.from(res['record']));
-          await _updateSingleLocalRecord(savedRecord);
-          savedToCloud = true;
-        }
-      } catch (e) {
-        debugPrint('[HEALTH VAULT REPO] uploadFile error: $e');
-      }
-    } else {
-      // 2. Metadata / note-only record (e.g. AI summary, doctor note without physical file)
-      try {
-        final res = await _apiClient.post(
-          '/health-records',
+        final res = await _apiClient.patch(
+          '/health-records/${record.id}',
           body: {
             'title': record.title,
             'category': category,
@@ -165,30 +141,113 @@ class HealthRecordRepository {
         if (res['success'] == true && res['record'] != null) {
           final savedRecord = HealthRecord.fromMap(Map<String, dynamic>.from(res['record']));
           await _updateSingleLocalRecord(savedRecord);
-          savedToCloud = true;
+          final freshList = await getRecords(userId: record.userId);
+          _recordsStreamController.add(freshList);
+          return true;
+        } else {
+          final msg = res['message'] ?? 'Failed to update health record.';
+          if (throwOnError) throw Exception(msg);
         }
       } catch (e) {
-        debugPrint('[HEALTH VAULT REPO] post /health-records error: $e');
+        debugPrint('[HEALTH VAULT REPO] saveRecord patch error: $e');
+        if (throwOnError) rethrow;
       }
-    }
 
-    if (!savedToCloud) {
       await _updateSingleLocalRecord(record);
+      final freshList = await getRecords(userId: record.userId);
+      _recordsStreamController.add(freshList);
+      return true;
     }
 
-    // Refresh and notify broadcast listeners
+    // 2. NEW RECORD WITH FILE ATTACHMENT (Image / PDF / Document)
+    final hasFileAttachment = (fileBytes != null && fileBytes.isNotEmpty) ||
+        (record.fileUrl != null && record.fileUrl!.isNotEmpty && !record.fileUrl!.startsWith('http') && !record.fileUrl!.startsWith('/api'));
+
+    if (hasFileAttachment) {
+      try {
+        final res = await _apiClient.uploadFile(
+          '/health-records/upload',
+          filePath: record.fileUrl ?? '',
+          fileFieldName: 'file',
+          bytes: fileBytes,
+          filename: fileName ?? (record.title.endsWith('.pdf') ? record.title : '${record.title}.pdf'),
+          fields: {
+            'title': record.title,
+            'category': category,
+            'recordType': record.recordType.name,
+            'doctorName': record.doctorName,
+            'hospitalName': record.hospitalName,
+            'documentDate': record.documentDate.toIso8601String(),
+            'notes': record.description,
+            'tags': record.tags.join(','),
+          },
+        );
+
+        if (res['success'] == true && res['record'] != null) {
+          final savedRecord = HealthRecord.fromMap(Map<String, dynamic>.from(res['record']));
+          await _updateSingleLocalRecord(savedRecord);
+          final freshList = await getRecords(userId: record.userId);
+          _recordsStreamController.add(freshList);
+          return true;
+        } else {
+          final msg = res['message'] ?? 'Failed to upload health record document.';
+          if (throwOnError) throw Exception(msg);
+        }
+      } catch (e) {
+        debugPrint('[HEALTH VAULT REPO] saveRecord upload error: $e');
+        if (throwOnError) rethrow;
+      }
+
+      await _updateSingleLocalRecord(record);
+      final freshList = await getRecords(userId: record.userId);
+      _recordsStreamController.add(freshList);
+      return true;
+    }
+
+    // 3. NEW METADATA-ONLY RECORD (No attachment)
+    try {
+      final res = await _apiClient.post(
+        '/health-records',
+        body: {
+          'title': record.title,
+          'category': category,
+          'recordType': record.recordType.name,
+          'doctorName': record.doctorName,
+          'hospitalName': record.hospitalName,
+          'documentDate': record.documentDate.toIso8601String(),
+          'notes': record.description,
+          'tags': record.tags,
+        },
+      );
+
+      if (res['success'] == true && res['record'] != null) {
+        final savedRecord = HealthRecord.fromMap(Map<String, dynamic>.from(res['record']));
+        await _updateSingleLocalRecord(savedRecord);
+        final freshList = await getRecords(userId: record.userId);
+        _recordsStreamController.add(freshList);
+        return true;
+      } else {
+        final msg = res['message'] ?? 'Failed to save health record.';
+        if (throwOnError) throw Exception(msg);
+      }
+    } catch (e) {
+      debugPrint('[HEALTH VAULT REPO] saveRecord post error: $e');
+      if (throwOnError) rethrow;
+    }
+
+    await _updateSingleLocalRecord(record);
     final freshList = await getRecords(userId: record.userId);
     _recordsStreamController.add(freshList);
     return true;
   }
 
+  /// Delete record from MongoDB Atlas and cloud storage
   Future<bool> deleteRecord(String id, {required String userId}) async {
-    try {
-      if (id.length == 24) {
-        await _apiClient.delete('/health-records/$id');
+    if (id.length == 24 && RegExp(r'^[0-9a-fA-F]{24}$').hasMatch(id)) {
+      final res = await _apiClient.delete('/health-records/$id');
+      if (res['success'] != true && res['message'] != null) {
+        debugPrint('[HEALTH VAULT REPO] Delete warning: ${res['message']}');
       }
-    } catch (e) {
-      debugPrint('[HEALTH VAULT REPO] deleteRecord API error: $e');
     }
 
     final prefs = await SharedPreferences.getInstance();
@@ -220,6 +279,19 @@ class HealthRecordRepository {
     }).toList();
   }
 
+  Future<List<HealthRecord>> _getLocalCache(String userId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final rawList = prefs.getStringList(_vaultStorageKey) ?? [];
+      final allRecords = rawList.map((str) => HealthRecord.fromJson(str)).toList();
+      final userRecords = allRecords.where((r) => r.userId == userId || userId.isEmpty).toList();
+      userRecords.sort((a, b) => b.documentDate.compareTo(a.documentDate));
+      return userRecords;
+    } catch (_) {
+      return [];
+    }
+  }
+
   Future<bool> _updateSingleLocalRecord(HealthRecord record) async {
     final prefs = await SharedPreferences.getInstance();
     final rawList = prefs.getStringList(_vaultStorageKey) ?? [];
@@ -229,7 +301,7 @@ class HealthRecordRepository {
     if (index >= 0) {
       allRecords[index] = record;
     } else {
-      allRecords.add(record);
+      allRecords.insert(0, record);
     }
 
     final updatedRawList = allRecords.map((r) => r.toJson()).toList();

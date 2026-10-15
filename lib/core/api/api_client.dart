@@ -220,6 +220,23 @@ class ApiClient {
     return _handleResponse(response);
   }
 
+  /// Download binary bytes with JWT Authorization header
+  Future<Uint8List> downloadBytes(String endpoint) async {
+    final uri = endpoint.startsWith('http://') || endpoint.startsWith('https://')
+        ? Uri.parse(endpoint)
+        : Uri.parse('$baseUrl$endpoint');
+    final headers = await _getHeaders();
+    final response = await http.get(uri, headers: headers).timeout(const Duration(seconds: 45));
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+      return response.bodyBytes;
+    } else if (response.statusCode == 401) {
+      _cachedToken = null;
+      throw AuthenticationException('Authentication required to access document.');
+    } else {
+      throw Exception('Failed to download document (HTTP ${response.statusCode})');
+    }
+  }
+
   /// Upload File Request (Multipart)
   Future<Map<String, dynamic>> uploadFile(
     String endpoint, {
@@ -251,7 +268,7 @@ class ApiClient {
       request.files.add(await http.MultipartFile.fromPath(fileFieldName, filePath));
     }
 
-    final streamedResponse = await request.send().timeout(const Duration(seconds: 30));
+    final streamedResponse = await request.send().timeout(const Duration(seconds: 45));
     final response = await http.Response.fromStream(streamedResponse);
     return _handleResponse(response);
   }

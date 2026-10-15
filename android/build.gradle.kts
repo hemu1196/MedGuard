@@ -16,7 +16,16 @@ subprojects {
     project.layout.buildDirectory.value(newSubprojectBuildDir)
 }
 subprojects {
+    if (project.name == "file_picker") {
+        apply(plugin = "org.jetbrains.kotlin.android")
+    }
     project.evaluationDependsOn(":app")
+
+    tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+        compilerOptions {
+            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+        }
+    }
 }
 
 tasks.register<Delete>("clean") {

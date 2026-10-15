@@ -1,7 +1,9 @@
 import 'dart:typed_data';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
+import 'package:printing/printing.dart';
 import '../../app/theme.dart';
 import '../../core/utils/image_helper.dart';
 import '../../models/health_record.dart';
@@ -387,14 +389,28 @@ class _HealthVaultPageState extends State<HealthVaultPage> {
                         child: OutlinedButton.icon(
                           onPressed: () async {
                             try {
-                              final file = await picker.pickImage(
-                                source: ImageSource.gallery,
-                                imageQuality: 85,
+                              final result = await FilePicker.pickFiles(
+                                type: FileType.custom,
+                                allowedExtensions: [
+                                  'pdf',
+                                  'png',
+                                  'jpg',
+                                  'jpeg',
+                                  'webp',
+                                  'doc',
+                                  'docx',
+                                  'txt',
+                                ],
+                                withData: true,
                               );
-                              if (file != null) {
-                                final bytes = await file.readAsBytes();
+                              if (result != null && result.files.isNotEmpty) {
+                                final file = result.files.first;
+                                Uint8List? bytes = file.bytes;
+                                if (bytes == null && file.path != null) {
+                                  bytes = await ImageHelper.loadBytes(file.path);
+                                }
                                 setDialogState(() {
-                                  attachedFilePath = file.path;
+                                  attachedFilePath = file.path ?? file.name;
                                   attachedFileBytes = bytes;
                                   attachedFileName = file.name;
                                 });
@@ -488,6 +504,7 @@ class _HealthVaultPageState extends State<HealthVaultPage> {
                             record,
                             fileBytes: attachedFileBytes,
                             fileName: attachedFileName,
+                            throwOnError: true,
                           );
 
                           if (mounted && dialogContext.mounted) {
@@ -508,7 +525,7 @@ class _HealthVaultPageState extends State<HealthVaultPage> {
                           if (dialogContext.mounted) {
                             setDialogState(() {
                               isSaving = false;
-                              dialogErrorText = 'Upload/save failed. Please try again.';
+                              dialogErrorText = 'Upload/save failed: ${e.toString().replaceAll("Exception:", "").trim()}';
                             });
                           }
                         }
@@ -536,25 +553,46 @@ class _HealthVaultPageState extends State<HealthVaultPage> {
   }
 
   Future<Uint8List> _resolveRecordPdfBytes(HealthRecord record) async {
-    final fileUrl = record.fileUrl;
-    if (fileUrl != null && fileUrl.isNotEmpty) {
-      final rawBytes = await ImageHelper.loadBytes(fileUrl);
-      if (rawBytes != null && rawBytes.isNotEmpty) {
-        // If file starts with %PDF-, it's already a valid PDF
-        if (rawBytes.length > 4 &&
-            rawBytes[0] == 0x25 && // %
-            rawBytes[1] == 0x50 && // P
-            rawBytes[2] == 0x44 && // D
-            rawBytes[3] == 0x46) { // F
-          return rawBytes;
+    if (record.hasFileAttachment) {
+      try {
+        final rawBytes = await _vaultRepository.getRecordBytes(record);
+        if (rawBytes.isNotEmpty) {
+          // If file starts with %PDF-, it's already a valid PDF
+          if (rawBytes.length > 4 &&
+              rawBytes[0] == 0x25 && // %
+              rawBytes[1] == 0x50 && // P
+              rawBytes[2] == 0x44 && // D
+              rawBytes[3] == 0x46) { // F
+            return rawBytes;
+          }
+          // Otherwise convert image bytes into formatted A4 PDF
+          return await PdfExportService().convertImageToPdf(
+            imageBytes: rawBytes,
+            title: record.title,
+            recordDate: DateFormat('MMM dd, yyyy').format(record.documentDate),
+            patientName: record.doctorName.isNotEmpty ? 'Prescribed by Dr. ${record.doctorName}' : null,
+          );
         }
-        // Otherwise convert image bytes into formatted A4 PDF
-        return await PdfExportService().convertImageToPdf(
-          imageBytes: rawBytes,
-          title: record.title,
-          recordDate: DateFormat('MMM dd, yyyy').format(record.documentDate),
-          patientName: record.doctorName.isNotEmpty ? 'Prescribed by Dr. ${record.doctorName}' : null,
-        );
+      } catch (e) {
+        debugPrint('[VAULT] _resolveRecordPdfBytes backend fetch note: $e');
+        if (record.fileUrl != null && record.fileUrl!.isNotEmpty) {
+          final localBytes = await ImageHelper.loadBytes(record.fileUrl);
+          if (localBytes != null && localBytes.isNotEmpty) {
+            if (localBytes.length > 4 &&
+                localBytes[0] == 0x25 &&
+                localBytes[1] == 0x50 &&
+                localBytes[2] == 0x44 &&
+                localBytes[3] == 0x46) {
+              return localBytes;
+            }
+            return await PdfExportService().convertImageToPdf(
+              imageBytes: localBytes,
+              title: record.title,
+              recordDate: DateFormat('MMM dd, yyyy').format(record.documentDate),
+              patientName: record.doctorName.isNotEmpty ? 'Prescribed by Dr. ${record.doctorName}' : null,
+            );
+          }
+        }
       }
     }
     // Summary PDF if no raw file attachment
@@ -612,68 +650,15 @@ class _HealthVaultPageState extends State<HealthVaultPage> {
   }
 
   void _viewDocumentFile(HealthRecord record) {
-    final url = record.fileUrl;
-    final isAvailable = url != null &&
-        url.isNotEmpty &&
-        (url.startsWith('http') ||
-            url.startsWith('blob:') ||
-            url.startsWith('data:') ||
-            ImageHelper.isLocalFile(url));
-
-    if (isAvailable) {
-      showDialog(
-        context: context,
-        builder: (context) => Dialog(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              AppBar(
-                title: Text(record.title),
-                leading: IconButton(
-                  icon: const Icon(Icons.close),
-                  onPressed: () => Navigator.pop(context),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: ImageHelper.buildImage(
-                  url,
-                  fit: BoxFit.contain,
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
-    } else {
-      showDialog(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: Text(record.title),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Record Type: ${record.typeDisplayName}'),
-              if (record.doctorName.isNotEmpty)
-                Text('Doctor: ${record.doctorName}'),
-              if (record.hospitalName.isNotEmpty)
-                Text('Facility: ${record.hospitalName}'),
-              const SizedBox(height: 12),
-              Text(
-                'Notes: ${record.description.isNotEmpty ? record.description : "No file attachment provided."}',
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Close'),
-            ),
-          ],
-        ),
-      );
-    }
+    showDialog(
+      context: context,
+      builder: (dialogCtx) => _HealthDocumentViewerDialog(
+        record: record,
+        vaultRepository: _vaultRepository,
+        onDownload: () => _downloadRecordPdf(record),
+        onShare: () => _shareRecordPdf(record),
+      ),
+    );
   }
 
   void _openRecordDetails(HealthRecord record) {
@@ -985,96 +970,230 @@ class _HealthVaultPageState extends State<HealthVaultPage> {
     final color = _getRecordColor(record.recordType);
 
     return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      child: ListTile(
+      margin: const EdgeInsets.only(bottom: 14),
+      elevation: 1.5,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(
+          color: color.withValues(alpha: 0.25),
+          width: 1,
+        ),
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
         onTap: () => _openRecordDetails(record),
-        leading: Container(
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.1),
-            borderRadius: BorderRadius.circular(10),
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Top Row: Category Icon, Title, and Date
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: color.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(
+                      _getRecordIcon(record.recordType),
+                      color: color,
+                      size: 24,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          record.title,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                            color: AppTheme.textDark,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: color.withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                record.typeDisplayName,
+                                style: TextStyle(
+                                  color: color,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              DateFormat('MMM dd, yyyy').format(record.documentDate),
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: AppColors.textSecondary,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+
+              // Metadata Row: Doctor, Facility, File Type & Size
+              if (record.doctorName.isNotEmpty ||
+                  record.hospitalName.isNotEmpty ||
+                  record.hasFileAttachment) ...[
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 6,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    if (record.doctorName.isNotEmpty)
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.person_outline, size: 14, color: AppColors.textSecondary),
+                          const SizedBox(width: 4),
+                          Text(
+                            'Dr. ${record.doctorName}',
+                            style: const TextStyle(fontSize: 12, color: AppColors.textPrimary),
+                          ),
+                        ],
+                      ),
+                    if (record.hospitalName.isNotEmpty)
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.local_hospital_outlined, size: 14, color: AppColors.textSecondary),
+                          const SizedBox(width: 4),
+                          Text(
+                            record.hospitalName,
+                            style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                          ),
+                        ],
+                      ),
+                    if (record.hasFileAttachment)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.blueGrey.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              record.isPdf ? Icons.picture_as_pdf : Icons.image_outlined,
+                              size: 13,
+                              color: record.isPdf ? Colors.red.shade700 : Colors.teal.shade700,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              record.fileFormatDisplayName +
+                                  (record.fileSizeFormatted.isNotEmpty ? ' • ${record.fileSizeFormatted}' : ''),
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w500,
+                                color: record.isPdf ? Colors.red.shade800 : Colors.teal.shade800,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
+              ],
+
+              // Description / Notes Snippet
+              if (record.description.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text(
+                  record.description,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ],
+
+              const SizedBox(height: 12),
+              const Divider(height: 1, color: Color(0xFFE2E8F0)),
+              const SizedBox(height: 10),
+
+              // Prominent Action Buttons Bar (View, Download PDF, Share, Edit, Delete)
+              Row(
+                children: [
+                  // 1. View Button
+                  ElevatedButton.icon(
+                    onPressed: () => _viewDocumentFile(record),
+                    icon: const Icon(Icons.visibility_outlined, size: 16),
+                    label: const Text('View', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppTheme.primaryTeal,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      minimumSize: const Size(0, 34),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+
+                  // 2. Download PDF Button
+                  OutlinedButton.icon(
+                    onPressed: () => _downloadRecordPdf(record),
+                    icon: const Icon(Icons.download_rounded, size: 16),
+                    label: const Text('Download PDF', style: TextStyle(fontSize: 12)),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppTheme.primaryTeal,
+                      side: const BorderSide(color: AppTheme.primaryTeal),
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      minimumSize: const Size(0, 34),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                  ),
+                  const Spacer(),
+
+                  // 3. Share Button
+                  IconButton(
+                    tooltip: 'Share PDF',
+                    icon: const Icon(Icons.share_outlined, size: 20, color: AppTheme.primaryTeal),
+                    visualDensity: VisualDensity.compact,
+                    onPressed: () => _shareRecordPdf(record),
+                  ),
+
+                  // 4. Edit Button
+                  IconButton(
+                    tooltip: 'Edit Record',
+                    icon: const Icon(Icons.edit_outlined, size: 20, color: AppColors.textSecondary),
+                    visualDensity: VisualDensity.compact,
+                    onPressed: () => _openAddEditRecordModal(recordToEdit: record),
+                  ),
+
+                  // 5. Delete Button
+                  IconButton(
+                    tooltip: 'Delete Record',
+                    icon: const Icon(Icons.delete_outline, size: 20, color: AppColors.emergency),
+                    visualDensity: VisualDensity.compact,
+                    onPressed: () => _deleteRecord(record.id),
+                  ),
+                ],
+              ),
+            ],
           ),
-          child: Icon(_getRecordIcon(record.recordType), color: color),
-        ),
-        title: Text(
-          record.title,
-          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-        ),
-        subtitle: Text(
-          [
-            if (record.doctorName.isNotEmpty) 'Dr. ${record.doctorName}',
-            if (record.hospitalName.isNotEmpty) record.hospitalName,
-            DateFormat('MMM dd, yyyy').format(record.documentDate),
-          ].join(' • '),
-          style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
-        ),
-        trailing: PopupMenuButton<String>(
-          icon: const Icon(Icons.more_vert),
-          onSelected: (val) {
-            if (val == 'view') {
-              _openRecordDetails(record);
-            } else if (val == 'download') {
-              _downloadRecordPdf(record);
-            } else if (val == 'share') {
-              _shareRecordPdf(record);
-            } else if (val == 'edit') {
-              _openAddEditRecordModal(recordToEdit: record);
-            } else if (val == 'delete') {
-              _deleteRecord(record.id);
-            }
-          },
-          itemBuilder: (context) => [
-            const PopupMenuItem(
-              value: 'view',
-              child: Row(
-                children: [
-                  Icon(Icons.visibility_outlined, size: 18),
-                  SizedBox(width: 8),
-                  Text('View Details'),
-                ],
-              ),
-            ),
-            const PopupMenuItem(
-              value: 'download',
-              child: Row(
-                children: [
-                  Icon(Icons.download_rounded, size: 18),
-                  SizedBox(width: 8),
-                  Text('Download PDF'),
-                ],
-              ),
-            ),
-            const PopupMenuItem(
-              value: 'share',
-              child: Row(
-                children: [
-                  Icon(Icons.share_rounded, size: 18),
-                  SizedBox(width: 8),
-                  Text('Share Document'),
-                ],
-              ),
-            ),
-            const PopupMenuItem(
-              value: 'edit',
-              child: Row(
-                children: [
-                  Icon(Icons.edit_outlined, size: 18),
-                  SizedBox(width: 8),
-                  Text('Edit Record'),
-                ],
-              ),
-            ),
-            const PopupMenuItem(
-              value: 'delete',
-              child: Row(
-                children: [
-                  Icon(Icons.delete_outline, color: AppColors.emergency, size: 18),
-                  SizedBox(width: 8),
-                  Text('Delete', style: TextStyle(color: AppColors.emergency)),
-                ],
-              ),
-            ),
-          ],
         ),
       ),
     );
@@ -1124,6 +1243,285 @@ class _HealthVaultPageState extends State<HealthVaultPage> {
       case HealthRecordType.other:
         return Icons.folder_rounded;
     }
+  }
+}
+
+class _HealthDocumentViewerDialog extends StatefulWidget {
+  final HealthRecord record;
+  final HealthRecordRepository vaultRepository;
+  final VoidCallback onDownload;
+  final VoidCallback onShare;
+
+  const _HealthDocumentViewerDialog({
+    required this.record,
+    required this.vaultRepository,
+    required this.onDownload,
+    required this.onShare,
+  });
+
+  @override
+  State<_HealthDocumentViewerDialog> createState() => _HealthDocumentViewerDialogState();
+}
+
+class _HealthDocumentViewerDialogState extends State<_HealthDocumentViewerDialog> {
+  Uint8List? _documentBytes;
+  bool _isLoading = false;
+  String? _errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.record.hasFileAttachment) {
+      _loadBytes();
+    }
+  }
+
+  Future<void> _loadBytes() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final bytes = await widget.vaultRepository.getRecordBytes(widget.record);
+      if (mounted) {
+        setState(() {
+          _documentBytes = bytes;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('[VIEWER] Load error: $e');
+      if (widget.record.fileUrl != null && widget.record.fileUrl!.isNotEmpty) {
+        final fallbackBytes = await ImageHelper.loadBytes(widget.record.fileUrl);
+        if (mounted) {
+          setState(() {
+            _documentBytes = fallbackBytes;
+            _isLoading = false;
+            if (fallbackBytes == null) {
+              _errorMessage = 'Could not load document: ${e.toString().replaceAll("Exception:", "").trim()}';
+            }
+          });
+          return;
+        }
+      }
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _errorMessage = 'Could not load document: ${e.toString().replaceAll("Exception:", "").trim()}';
+        });
+      }
+    }
+  }
+
+  bool _isPdfBytes(Uint8List? bytes) {
+    if (bytes == null || bytes.length < 4) return false;
+    return bytes[0] == 0x25 && // %
+        bytes[1] == 0x50 && // P
+        bytes[2] == 0x44 && // D
+        bytes[3] == 0x46; // F
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final record = widget.record;
+    final isPdf = _isPdfBytes(_documentBytes) || record.isPdf;
+
+    return Dialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 800, maxHeight: 750),
+        child: Column(
+          children: [
+            // Header
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: const BoxDecoration(
+                color: AppTheme.primaryTeal,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.description, color: Colors.white, size: 20),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          record.title,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 15,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        Text(
+                          '${record.typeDisplayName} • ${DateFormat("MMM dd, yyyy").format(record.documentDate)}',
+                          style: const TextStyle(color: Colors.white70, fontSize: 11),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close, color: Colors.white),
+                    onPressed: () => Navigator.of(context).pop(),
+                  ),
+                ],
+              ),
+            ),
+
+            // Content
+            Expanded(
+              child: record.hasFileAttachment
+                  ? _buildAttachmentView(isPdf)
+                  : _buildNotesOnlyView(),
+            ),
+
+            // Actions Footer
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: const BoxDecoration(
+                border: Border(top: BorderSide(color: Color(0xFFE2E8F0))),
+              ),
+              child: Row(
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: () {
+                      Navigator.of(context).pop();
+                      widget.onShare();
+                    },
+                    icon: const Icon(Icons.share_outlined, size: 16),
+                    label: const Text('Share PDF'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppTheme.primaryTeal,
+                      side: const BorderSide(color: AppTheme.primaryTeal),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  ElevatedButton.icon(
+                    onPressed: () {
+                      Navigator.of(context).pop();
+                      widget.onDownload();
+                    },
+                    icon: const Icon(Icons.download_rounded, size: 16),
+                    label: const Text('Download PDF'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppTheme.primaryTeal,
+                      foregroundColor: Colors.white,
+                    ),
+                  ),
+                  const Spacer(),
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text('Close'),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAttachmentView(bool isPdf) {
+    if (_isLoading) {
+      return const Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircularProgressIndicator(color: AppTheme.primaryTeal),
+            SizedBox(height: 12),
+            Text('Loading secure document from vault...', style: TextStyle(fontSize: 13, color: AppColors.textSecondary)),
+          ],
+        ),
+      );
+    }
+
+    if (_errorMessage != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.error_outline, size: 48, color: AppColors.emergency),
+              const SizedBox(height: 12),
+              Text(
+                _errorMessage!,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 13, color: AppColors.emergency),
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton.icon(
+                onPressed: _loadBytes,
+                icon: const Icon(Icons.refresh),
+                label: const Text('Retry'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (_documentBytes == null || _documentBytes!.isEmpty) {
+      return const Center(
+        child: Text('Document data is not available.'),
+      );
+    }
+
+    if (isPdf) {
+      return PdfPreview(
+        build: (format) => _documentBytes!,
+        canChangeOrientation: false,
+        canChangePageFormat: false,
+        canDebug: false,
+        maxPageWidth: 700,
+      );
+    }
+
+    return InteractiveViewer(
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(12.0),
+          child: Image.memory(
+            _documentBytes!,
+            fit: BoxFit.contain,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNotesOnlyView() {
+    final record = widget.record;
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (record.doctorName.isNotEmpty) ...[
+            Text('Doctor: Dr. ${record.doctorName}', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 4),
+          ],
+          if (record.hospitalName.isNotEmpty) ...[
+            Text('Medical Facility: ${record.hospitalName}', style: const TextStyle(fontSize: 14, color: AppColors.textSecondary)),
+            const SizedBox(height: 12),
+          ],
+          const Divider(),
+          const SizedBox(height: 8),
+          const Text('Clinical Notes & Summary:', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 6),
+          Text(
+            record.description.isNotEmpty ? record.description : 'No clinical notes provided.',
+            style: const TextStyle(fontSize: 14, height: 1.4),
+          ),
+        ],
+      ),
+    );
   }
 }
 

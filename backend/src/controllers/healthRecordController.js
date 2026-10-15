@@ -1,22 +1,32 @@
-const fs = require('fs');
-const path = require('path');
+const mongoose = require('mongoose');
 const HealthRecord = require('../models/HealthRecord');
+const { uploadToVault, getDownloadStream, deleteFromVault } = require('../services/storageService');
 
+/**
+ * Get all health records for authenticated user
+ */
 const getRecords = async (req, res) => {
   try {
-    const { category } = req.query;
+    const { category, type } = req.query;
     const filter = { userId: req.userId };
-    if (category) {
-      filter.category = category;
+
+    const targetCategory = category || type;
+    if (targetCategory && targetCategory !== 'all') {
+      filter.$or = [
+        { category: targetCategory },
+        { recordType: targetCategory },
+      ];
     }
 
-    const records = await HealthRecord.find(filter).sort({ createdAt: -1 });
+    const records = await HealthRecord.find(filter).sort({ documentDate: -1, createdAt: -1 });
+
     return res.status(200).json({
       success: true,
-      records,
+      count: records.length,
+      records: records.map((r) => r.toJSON()),
     });
   } catch (error) {
-    console.error('Get Health Records Error:', error);
+    console.error('[HEALTH RECORD CONTROLLER] Get Records Error:', error);
     return res.status(500).json({
       success: false,
       message: 'Failed to fetch health records.',
@@ -24,6 +34,43 @@ const getRecords = async (req, res) => {
   }
 };
 
+/**
+ * Get single health record by ID
+ */
+const getRecordById = async (req, res) => {
+  try {
+    const { recordId } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(recordId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid health record ID format.',
+      });
+    }
+
+    const record = await HealthRecord.findOne({ _id: recordId, userId: req.userId });
+    if (!record) {
+      return res.status(404).json({
+        success: false,
+        message: 'Health record not found or unauthorized.',
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      record: record.toJSON(),
+    });
+  } catch (error) {
+    console.error('[HEALTH RECORD CONTROLLER] Get Record By ID Error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to retrieve health record.',
+    });
+  }
+};
+
+/**
+ * Create a new metadata/note-only health record (without file attachment)
+ */
 const createRecord = async (req, res) => {
   try {
     const { title, category, recordType, doctorName, hospitalName, documentDate, tags, notes } = req.body;
@@ -37,7 +84,7 @@ const createRecord = async (req, res) => {
 
     let tagList = [];
     if (tags) {
-      tagList = Array.isArray(tags) ? tags : tags.split(',').map((t) => t.trim());
+      tagList = Array.isArray(tags) ? tags : String(tags).split(',').map((t) => t.trim()).filter(Boolean);
     }
 
     const record = new HealthRecord({
@@ -45,11 +92,17 @@ const createRecord = async (req, res) => {
       title: title.trim(),
       category: category || 'other',
       recordType: recordType || category || 'other',
-      doctorName: doctorName || '',
-      hospitalName: hospitalName || '',
+      doctorName: doctorName ? String(doctorName).trim() : '',
+      hospitalName: hospitalName ? String(hospitalName).trim() : '',
       documentDate: documentDate ? new Date(documentDate) : new Date(),
+      storageType: 'none',
+      storageKey: null,
+      filePath: null,
+      fileName: '',
+      mimeType: '',
+      fileSizeBytes: 0,
       tags: tagList,
-      notes: notes || '',
+      notes: notes ? String(notes).trim() : '',
     });
 
     await record.save();
@@ -57,10 +110,10 @@ const createRecord = async (req, res) => {
     return res.status(201).json({
       success: true,
       message: 'Health record created successfully.',
-      record,
+      record: record.toJSON(),
     });
   } catch (error) {
-    console.error('Create Health Record Error:', error);
+    console.error('[HEALTH RECORD CONTROLLER] Create Record Error:', error);
     return res.status(500).json({
       success: false,
       message: 'Failed to create health record: ' + error.message,
@@ -68,113 +121,223 @@ const createRecord = async (req, res) => {
   }
 };
 
+/**
+ * Upload and persist health record with document/image attachment to MongoDB GridFS
+ */
 const uploadRecord = async (req, res) => {
+  let uploadedStorage = null;
+
   try {
     if (!req.file) {
       return res.status(400).json({
         success: false,
-        message: 'No file uploaded.',
+        message: 'No file attachment was provided in the upload request.',
       });
     }
 
     const { title, category, recordType, doctorName, hospitalName, documentDate, tags, notes } = req.body;
+
+    const resolvedTitle = (title || req.file.originalname || 'Medical Document').trim();
+
+    // 1. Persist file into permanent private storage (MongoDB Atlas GridFS)
+    uploadedStorage = await uploadToVault({
+      file: req.file,
+      userId: req.userId,
+      title: resolvedTitle,
+    });
+
     let tagList = [];
     if (tags) {
-      tagList = Array.isArray(tags) ? tags : tags.split(',').map((t) => t.trim());
+      tagList = Array.isArray(tags) ? tags : String(tags).split(',').map((t) => t.trim()).filter(Boolean);
     }
 
+    // 2. Persist record document into MongoDB Atlas
     const record = new HealthRecord({
       userId: req.userId,
-      title: title || req.file.originalname,
+      title: resolvedTitle,
       category: category || 'other',
       recordType: recordType || category || 'other',
-      doctorName: doctorName || '',
-      hospitalName: hospitalName || '',
+      doctorName: doctorName ? String(doctorName).trim() : '',
+      hospitalName: hospitalName ? String(hospitalName).trim() : '',
       documentDate: documentDate ? new Date(documentDate) : new Date(),
-      filePath: req.file.path,
-      fileName: req.file.originalname,
-      mimeType: req.file.mimetype,
-      fileSizeBytes: req.file.size,
+      storageKey: uploadedStorage.storageKey,
+      storageType: uploadedStorage.storageType,
+      fileName: uploadedStorage.fileName,
+      mimeType: uploadedStorage.mimeType,
+      fileSizeBytes: uploadedStorage.fileSizeBytes,
       tags: tagList,
-      notes: notes || '',
+      notes: notes ? String(notes).trim() : '',
     });
 
     await record.save();
 
     return res.status(201).json({
       success: true,
-      message: 'Health record uploaded successfully.',
-      record,
+      message: 'Health record and document uploaded successfully.',
+      record: record.toJSON(),
     });
   } catch (error) {
-    console.error('Upload Health Record Error:', error);
+    console.error('[HEALTH RECORD CONTROLLER] Upload Record Error:', error);
+
+    // Rollback orphaned file if MongoDB document creation failed
+    if (uploadedStorage && uploadedStorage.storageKey) {
+      await deleteFromVault({
+        storageKey: uploadedStorage.storageKey,
+        storageType: uploadedStorage.storageType,
+      }).catch((cleanupErr) => {
+        console.warn('[STORAGE CLEANUP] Rollback error:', cleanupErr.message);
+      });
+    }
+
     return res.status(500).json({
       success: false,
-      message: 'Failed to upload health record. ' + error.message,
+      message: 'Failed to upload health record: ' + error.message,
     });
   }
 };
 
+/**
+ * Update an existing health record metadata
+ */
+const updateRecord = async (req, res) => {
+  try {
+    const { recordId } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(recordId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid health record ID format.',
+      });
+    }
+
+    const record = await HealthRecord.findOne({ _id: recordId, userId: req.userId });
+    if (!record) {
+      return res.status(404).json({
+        success: false,
+        message: 'Health record not found or unauthorized.',
+      });
+    }
+
+    const { title, category, recordType, doctorName, hospitalName, documentDate, tags, notes } = req.body;
+
+    if (title !== undefined && title.trim().length > 0) record.title = title.trim();
+    if (category !== undefined) record.category = category;
+    if (recordType !== undefined) record.recordType = recordType;
+    if (doctorName !== undefined) record.doctorName = String(doctorName).trim();
+    if (hospitalName !== undefined) record.hospitalName = String(hospitalName).trim();
+    if (documentDate !== undefined) record.documentDate = new Date(documentDate);
+    if (notes !== undefined) record.notes = String(notes).trim();
+
+    if (tags !== undefined) {
+      record.tags = Array.isArray(tags)
+        ? tags
+        : String(tags).split(',').map((t) => t.trim()).filter(Boolean);
+    }
+
+    await record.save();
+
+    return res.status(200).json({
+      success: true,
+      message: 'Health record updated successfully.',
+      record: record.toJSON(),
+    });
+  } catch (error) {
+    console.error('[HEALTH RECORD CONTROLLER] Update Record Error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to update health record: ' + error.message,
+    });
+  }
+};
+
+/**
+ * Download/view authenticated medical file stream
+ */
 const downloadRecord = async (req, res) => {
   try {
     const { recordId } = req.params;
-    const record = await HealthRecord.findOne({ _id: recordId, userId: req.userId });
+    if (!mongoose.Types.ObjectId.isValid(recordId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid health record ID.',
+      });
+    }
 
+    const record = await HealthRecord.findOne({ _id: recordId, userId: req.userId });
     if (!record) {
       return res.status(404).json({
         success: false,
-        message: 'Health record not found.',
+        message: 'Health record not found or unauthorized.',
       });
     }
 
-    if (!fs.existsSync(record.filePath)) {
+    if (!record.storageKey && !record.filePath) {
       return res.status(404).json({
         success: false,
-        message: 'File content missing from server storage.',
+        message: 'This health record does not contain an attached document file.',
       });
     }
 
-    res.setHeader('Content-Type', record.mimeType);
-    res.setHeader('Content-Disposition', `inline; filename="${record.fileName}"`);
-    const fileStream = fs.createReadStream(record.filePath);
-    fileStream.pipe(res);
+    const { stream, mimeType, fileName, fileSizeBytes } = await getDownloadStream(record);
+
+    res.setHeader('Content-Type', mimeType);
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename="${encodeURIComponent(fileName || 'document.pdf')}"`
+    );
+    if (fileSizeBytes > 0) {
+      res.setHeader('Content-Length', fileSizeBytes);
+    }
+
+    stream.on('error', (streamErr) => {
+      console.error('[STREAM ERROR] Download stream interrupted:', streamErr.message);
+      if (!res.headersSent) {
+        res.status(500).json({ success: false, message: 'Stream error reading file.' });
+      }
+    });
+
+    stream.pipe(res);
   } catch (error) {
-    console.error('Download Health Record Error:', error);
+    console.error('[HEALTH RECORD CONTROLLER] Download Record Error:', error);
     return res.status(500).json({
       success: false,
-      message: 'Failed to download health record.',
+      message: 'Failed to download health record file: ' + error.message,
     });
   }
 };
 
+/**
+ * Delete a health record and its associated private file from cloud storage
+ */
 const deleteRecord = async (req, res) => {
   try {
     const { recordId } = req.params;
-    const record = await HealthRecord.findOne({ _id: recordId, userId: req.userId });
-
-    if (!record) {
-      return res.status(404).json({
+    if (!mongoose.Types.ObjectId.isValid(recordId)) {
+      return res.status(400).json({
         success: false,
-        message: 'Health record not found.',
+        message: 'Invalid health record ID.',
       });
     }
 
-    // Unlink physical file
-    if (fs.existsSync(record.filePath)) {
-      try {
-        fs.unlinkSync(record.filePath);
-      } catch (err) {
-        console.warn('Could not unlink physical file:', err.message);
-      }
+    const record = await HealthRecord.findOne({ _id: recordId, userId: req.userId });
+    if (!record) {
+      return res.status(404).json({
+        success: false,
+        message: 'Health record not found or unauthorized.',
+      });
     }
 
+    // 1. Delete physical/GridFS file
+    await deleteFromVault(record);
+
+    // 2. Delete MongoDB metadata document
     await HealthRecord.deleteOne({ _id: recordId });
 
     return res.status(200).json({
       success: true,
-      message: 'Health record deleted successfully.',
+      message: 'Health record and associated document deleted successfully.',
     });
   } catch (error) {
+    console.error('[HEALTH RECORD CONTROLLER] Delete Record Error:', error);
     return res.status(500).json({
       success: false,
       message: 'Failed to delete health record.',
@@ -184,8 +347,10 @@ const deleteRecord = async (req, res) => {
 
 module.exports = {
   getRecords,
+  getRecordById,
   createRecord,
   uploadRecord,
+  updateRecord,
   downloadRecord,
   deleteRecord,
 };

@@ -165,49 +165,80 @@ class _MainNavigationFrameState extends State<MainNavigationFrame> {
 
     return Scaffold(
       body: IndexedStack(index: _currentIndex, children: pages),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _currentIndex,
-        onDestinationSelected: _onTabTapped,
-        indicatorColor: AppTheme.primaryTeal.withValues(alpha: 0.15),
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.home_outlined),
-            selectedIcon: Icon(Icons.home_rounded, color: AppTheme.primaryTeal),
-            label: 'Home',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.smart_toy_outlined),
-            selectedIcon: Icon(
-              Icons.smart_toy_rounded,
-              color: AppTheme.primaryTeal,
+      bottomNavigationBar: Container(
+        decoration: const BoxDecoration(
+          color: Color(0xFF102B3B),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black38,
+              blurRadius: 10,
+              offset: Offset(0, -2),
             ),
-            label: 'AI',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.folder_outlined),
-            selectedIcon: Icon(
-              Icons.folder_rounded,
-              color: AppTheme.primaryTeal,
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          child: NavigationBarTheme(
+            data: NavigationBarThemeData(
+              backgroundColor: const Color(0xFF102B3B),
+              indicatorColor: const Color(0xFF00BFA5).withValues(alpha: 0.22),
+              iconTheme: WidgetStateProperty.resolveWith((states) {
+                if (states.contains(WidgetState.selected)) {
+                  return const IconThemeData(color: Color(0xFF00BFA5), size: 24);
+                }
+                return const IconThemeData(color: Color(0xFF859BA8), size: 24);
+              }),
+              labelTextStyle: WidgetStateProperty.resolveWith((states) {
+                if (states.contains(WidgetState.selected)) {
+                  return const TextStyle(
+                    color: Color(0xFF00BFA5),
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                  );
+                }
+                return const TextStyle(
+                  color: Color(0xFF859BA8),
+                  fontSize: 11,
+                  fontWeight: FontWeight.normal,
+                );
+              }),
             ),
-            label: 'Vault',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.medication_outlined),
-            selectedIcon: Icon(
-              Icons.medication_rounded,
-              color: AppTheme.primaryTeal,
+            child: NavigationBar(
+              selectedIndex: _currentIndex,
+              onDestinationSelected: _onTabTapped,
+              backgroundColor: const Color(0xFF102B3B),
+              height: 68,
+              destinations: const [
+                NavigationDestination(
+                  icon: Icon(Icons.home_outlined),
+                  selectedIcon: Icon(Icons.home_rounded),
+                  label: 'Home',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.smart_toy_outlined),
+                  selectedIcon: Icon(Icons.smart_toy_rounded),
+                  label: 'AI',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.folder_outlined),
+                  selectedIcon: Icon(Icons.folder_rounded),
+                  label: 'Vault',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.medication_outlined),
+                  selectedIcon: Icon(Icons.medication_rounded),
+                  label: 'Medicines',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.person_outline),
+                  selectedIcon: Icon(Icons.person_rounded),
+                  label: 'Profile',
+                ),
+              ],
             ),
-            label: 'Medicines',
           ),
-          NavigationDestination(
-            icon: Icon(Icons.person_outline),
-            selectedIcon: Icon(
-              Icons.person_rounded,
-              color: AppTheme.primaryTeal,
-            ),
-            label: 'Profile',
-          ),
-        ],
+        ),
       ),
     );
   }

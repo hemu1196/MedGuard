@@ -94,6 +94,7 @@ flutter:
 
   assets:
     - assets/icon/app_icon.png
+    - assets/images/scenic_mountain_bg.jpg
 
   # To add assets to your application, add an assets section, like this:
   # assets:

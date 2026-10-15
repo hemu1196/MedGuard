@@ -142,6 +142,10 @@ function isEmergencyQuery(norm) {
     'stroke',
     'facial drooping',
     'slurred speech',
+    'cannot speak',
+    'cant speak',
+    'speak clearly',
+    'speech difficulty',
     'severe bleeding',
     'coughing blood',
     'blue lips',
@@ -196,6 +200,29 @@ const getClinicalTopicGuidance = (query) => {
       followUpQuestions: [
         'How do I update my height and weight in profile?',
         'What is a healthy target BMI?',
+      ],
+      isEmergency: false,
+    };
+  }
+
+  // 2b. BLOOD GROUP & COMPATIBILITY
+  if (norm.includes('blood group') || norm.includes('blood type')) {
+    return {
+      intent: 'education',
+      reply:
+        "**Blood Groups & Clinical Compatibility:**\n\n" +
+        "• **ABO System:** Categorizes blood into Types A, B, AB, and O based on inherited antigens on red blood cell membranes.\n" +
+        "• **Rh Factor:** Indicates presence (+) or absence (-) of the RhD protein.\n" +
+        "• **Transfusion Compatibility:**\n" +
+        "  - **O Negative (O-):** Universal red blood cell donor in emergency trauma situations.\n" +
+        "  - **AB Positive (AB+):** Universal red blood cell recipient.\n" +
+        "• **Importance:** Vital during medical emergencies, surgical procedures, and pregnancy (monitoring Rh incompatibility).\n" +
+        "You can securely record your blood group in your **MEDGUARD Profile** for instant SOS emergency retrieval.",
+      recommendedCare: null,
+      warningSigns: [],
+      followUpQuestions: [
+        'Have you recorded your blood group in your MEDGUARD Profile?',
+        'What is your known blood type?',
       ],
       isEmergency: false,
     };
@@ -272,7 +299,7 @@ const getClinicalTopicGuidance = (query) => {
   }
 
   // 6. APP HELP: MEDICINE REMINDERS
-  if (norm.includes('reminder') || norm.includes('pill tracker') || norm.includes('medicines')) {
+  if (norm.includes('reminder') || norm.includes('pill tracker') || norm.includes('medicines') || norm.includes('add medicine')) {
     return {
       intent: 'app_help',
       reply:

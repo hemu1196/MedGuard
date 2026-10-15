@@ -102,6 +102,78 @@ void main() {
       expect(res.recommendedCare!.clinicianType, contains('Emergency Department'));
       expect(res.recommendedCare!.clinicianType, contains('108'));
     });
+
+    test('Stroke warning query ("I suddenly cannot speak clearly") triggers immediate emergency escalation', () {
+      final res = fallback.generateFallback('I suddenly cannot speak clearly');
+      expect(res.intent, equals('emergency'));
+      expect(res.isEmergencyCase, isTrue);
+      expect(res.recommendedCare, isNotNull);
+      expect(res.recommendedCare!.clinicianType, contains('Emergency Department'));
+      expect(res.recommendedCare!.clinicianType, contains('108'));
+    });
+
+    test('Prolonged fever query ("I have a fever for three days") returns prompt clinical evaluation', () {
+      final res = fallback.generateFallback('I have a fever for three days');
+      expect(res.intent, equals('symptom'));
+      expect(res.isSymptom, isTrue);
+      expect(res.recommendedCare, isNotNull);
+      expect(res.recommendedCare!.clinicianType, contains('General Physician'));
+      expect(res.recommendedCare!.urgency, equals('prompt'));
+      expect(res.recommendedCare!.reason, contains('3 or more days'));
+    });
+
+    test('Water intake feature query ("How does water intake work?") returns intent: app_help', () {
+      final res = fallback.generateFallback('How does water intake work?');
+      expect(res.intent, equals('app_help'));
+      expect(res.isAppHelp, isTrue);
+      expect(res.category, contains('Water Tracker'));
+      expect(res.text, contains('250 mL'));
+    });
+
+    test('Add medicines query ("How do I add medicines in MEDGUARD?") returns intent: app_help', () {
+      final res = fallback.generateFallback('How do I add medicines in MEDGUARD?');
+      expect(res.intent, equals('app_help'));
+      expect(res.isAppHelp, isTrue);
+      expect(res.category, contains('Medicine Reminders'));
+      expect(res.text, contains('Medicines icon'));
+    });
+
+    test('Ear pain query ("Who should I see for persistent ear pain?") returns ENT specialist recommendation', () {
+      final res = fallback.generateFallback('Who should I see for persistent ear pain?');
+      expect(res.intent, equals('symptom'));
+      expect(res.isSymptom, isTrue);
+      expect(res.recommendedCare, isNotNull);
+      expect(res.recommendedCare!.clinicianType, contains('ENT Specialist'));
+      expect(res.recommendedCare!.reason, contains('otoscopic examination'));
+    });
+
+    test('Blood group query ("What does my blood group mean?") returns educational explanation', () {
+      final res = fallback.generateFallback('What does my blood group mean?');
+      expect(res.intent, equals('education'));
+      expect(res.isEducation, isTrue);
+      expect(res.category, contains('Blood Group'));
+      expect(res.text, contains('ABO'));
+      expect(res.text, contains('Rh factor'));
+    });
+
+    test('Fatigue query ("I\'m feeling tired") returns cautious primary care guidance without overdiagnosis', () {
+      final res = fallback.generateFallback('I am feeling tired and exhausted');
+      expect(res.intent, equals('symptom'));
+      expect(res.isSymptom, isTrue);
+      expect(res.recommendedCare, isNotNull);
+      expect(res.recommendedCare!.clinicianType, contains('Primary-Care Physician'));
+      expect(res.text, contains('sleep'));
+      expect(res.text, contains('water'));
+    });
+
+    test('Antibiotics for cold query ("Should I take antibiotics for a cold?") warns against viral antibiotic use', () {
+      final res = fallback.generateFallback('Should I take antibiotics for a cold?');
+      expect(res.intent, equals('medicine'));
+      expect(res.isMedicine, isTrue);
+      expect(res.recommendedCare, isNotNull);
+      expect(res.text, contains('bacteria'));
+      expect(res.text, contains('ineffective against viral'));
+    });
   });
 
   group('Web Dashboard Quick Actions Desktop Grid Tests', () {
@@ -189,6 +261,42 @@ void main() {
       final cardSize = tester.getSize(cardFinder);
       expect(cardSize.height, equals(130.0));
       expect(cardSize.height, lessThan(160.0));
+    });
+
+    test('Responsive breakpoint logic applies 4 cols on desktop, 3 cols on medium tablet, 4 on phone, 2 on narrow display', () {
+      int getColumns(double width) {
+        return width >= 800
+            ? 4
+            : (width >= 560 && width < 800
+                ? 3
+                : (width < 340 ? 2 : 4));
+      }
+
+      double getExtent(double width) {
+        final isWideDesktop = width >= 800;
+        final isTablet = width >= 500 && width < 800;
+        return isWideDesktop ? 130.0 : (isTablet ? 114.0 : 96.0);
+      }
+
+      // Wide Desktop (1280px)
+      expect(getColumns(1280), equals(4));
+      expect(getExtent(1280), equals(130.0));
+
+      // Standard Desktop (900px)
+      expect(getColumns(900), equals(4));
+      expect(getExtent(900), equals(130.0));
+
+      // Medium Tablet / Split Web (700px)
+      expect(getColumns(700), equals(3));
+      expect(getExtent(700), equals(114.0));
+
+      // Standard Phone (390px iPhone / Android)
+      expect(getColumns(390), equals(4));
+      expect(getExtent(390), equals(96.0));
+
+      // Ultra-narrow display (320px fold screen)
+      expect(getColumns(320), equals(2));
+      expect(getExtent(320), equals(96.0));
     });
   });
 }

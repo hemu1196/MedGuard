@@ -582,11 +582,22 @@ class DarkScenicHeroHeader extends StatelessWidget {
         final double iconSize = isWideDesktop ? 26.0 : (isTablet ? 22.0 : 20.0);
         final double labelFontSize = isWideDesktop ? 13.0 : (isTablet ? 12.0 : 11.0);
 
+        // Determine responsive column count
+        // Wide desktop: 4 columns
+        // Medium tablet / web when 4 would be cramped: 3 columns
+        // Standard mobile: 4 columns (the classic 2x4 grid from reference screenshot)
+        // Very narrow screen (< 340): 2 columns
+        final int crossAxisCount = width >= 800
+            ? 4
+            : (width >= 560 && width < 800
+                ? 3
+                : (width < 340 ? 2 : 4));
+
         return GridView.builder(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 4,
+            crossAxisCount: crossAxisCount,
             mainAxisSpacing: isWideDesktop ? 14 : 10,
             crossAxisSpacing: isWideDesktop ? 14 : 10,
             mainAxisExtent: mainAxisExtent,
@@ -599,7 +610,7 @@ class DarkScenicHeroHeader extends StatelessWidget {
               iconBoxSize: iconBoxSize,
               iconSize: iconSize,
               labelFontSize: labelFontSize,
-              showSubtitle: isWideDesktop,
+              showSubtitle: isWideDesktop || (width >= 560),
             );
           },
         );

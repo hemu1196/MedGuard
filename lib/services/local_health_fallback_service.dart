@@ -63,6 +63,10 @@ class LocalHealthFallbackService {
         clean.contains('paralysis') ||
         clean.contains('weakness on one side') ||
         clean.contains('slurred speech') ||
+        clean.contains('cannot speak') ||
+        clean.contains('cant speak') ||
+        clean.contains('speak clearly') ||
+        clean.contains('speech difficulty') ||
         clean.contains('stroke') ||
         clean.contains('heart attack') ||
         clean.contains('unconscious') ||
@@ -181,11 +185,16 @@ class LocalHealthFallbackService {
       );
     }
 
-    // 13. APP FEATURE: MEDICINE REMINDERS
+    // 13. APP FEATURE: MEDICINE REMINDERS & INVENTORY
     if (clean.contains('medicine reminder') ||
         clean.contains('pill reminder') ||
         clean.contains('how do medicine reminders work') ||
-        clean.contains('reminder work')) {
+        clean.contains('reminder work') ||
+        clean.contains('add medicine') ||
+        clean.contains('add medicines') ||
+        clean.contains('add medication') ||
+        clean.contains('how to add medicine') ||
+        clean.contains('how do i add medicine')) {
       return _buildResponse(
         query: userQuery,
         category: 'MedGuard Feature: Medicine Reminders',
@@ -382,6 +391,7 @@ class LocalHealthFallbackService {
         category: 'MedGuard Feature: Water Tracker',
         urgency: HealthUrgency.green,
         isEmergency: false,
+        intent: 'app_help',
         understanding: 'Daily hydration guidance and MEDGUARD Water Tracker.',
         followUpQuestions: [
           'How many glasses of water have you logged today?',
@@ -399,6 +409,156 @@ class LocalHealthFallbackService {
         ],
         whenToSeekMedicalHelp:
             'Seek clinical care if severe dehydration occurs with persistent vomiting or diarrhea.',
+      );
+    }
+
+    // BLOOD GROUP & RH FACTOR EDUCATION
+    if (clean.contains('blood group') || clean.contains('blood type')) {
+      return _buildResponse(
+        query: userQuery,
+        category: 'Hematology: Blood Group & Compatibility',
+        urgency: HealthUrgency.green,
+        isEmergency: false,
+        intent: 'education',
+        understanding: 'Understanding blood group systems (ABO & Rh factor) and clinical compatibility.',
+        followUpQuestions: [
+          'What is your known blood group (e.g., O+, A-, B+)?',
+          'Have you recorded your blood type in your MEDGUARD Health Profile?',
+        ],
+        considerations: [
+          'The ABO system categorizes blood into A, B, AB, and O based on antigens on red blood cells.',
+          'The Rh factor indicates whether the RhD antigen is present (+) or absent (-).',
+          'Compatibility: Type O- is the universal red cell donor; AB+ is the universal recipient.',
+          'Knowing your blood group is essential during trauma emergencies, surgeries, blood donation, and pregnancy (to monitor Rh incompatibility).',
+        ],
+        whatYouCanDoNow: [
+          'Verify your blood group from a hospital lab report or blood donor card.',
+          'Save your blood group in your MEDGUARD Profile for instant display during emergency SOS.',
+        ],
+        warningSigns: [
+          'Any transfusion reaction: chills, fever, back pain, or dark urine during or following transfusion.',
+        ],
+        whenToSeekMedicalHelp:
+            'Consult your physician or blood bank specialist for detailed antibody screening or pre-pregnancy compatibility testing.',
+      );
+    }
+
+    // TIREDNESS & FATIGUE
+    if (clean.contains('tired') ||
+        clean.contains('fatigue') ||
+        clean.contains('exhausted') ||
+        clean.contains('feeling tired') ||
+        clean.contains('low energy')) {
+      return _buildResponse(
+        query: userQuery,
+        category: 'General Wellness: Fatigue & Low Energy',
+        urgency: HealthUrgency.green,
+        isEmergency: false,
+        intent: 'symptom',
+        recommendedCare: RecommendedCare(
+          clinicianType: 'Primary-Care Physician / General Doctor',
+          urgency: 'routine',
+          urgencyLabel: 'Routine Wellness & Bloodwork Review',
+          reason: 'To evaluate complete blood count (CBC for anemia), thyroid stimulating hormone (TSH), and essential vitamin levels (D/B12).',
+        ),
+        understanding: 'You mentioned feeling tired or experiencing low energy.',
+        followUpQuestions: [
+          'How many hours of sleep do you average per night, and do you feel rested upon waking?',
+          'Have you noticed other symptoms such as cold sensitivity, hair loss, or unexplained weight shifts?',
+        ],
+        considerations: [
+          'Common everyday causes include inadequate sleep, chronic mental or physical stress, dehydration, or nutritional deficiencies.',
+          'Underlying clinical possibilities include mild anemia, thyroid dysfunction (hypothyroidism), or post-viral recovery.',
+          'Do not assume severe medical conditions without a basic clinical history and simple blood tests.',
+        ],
+        whatYouCanDoNow: [
+          'Maintain a consistent 7–9 hour sleep schedule in a dark, quiet, screen-free bedroom.',
+          'Drink 2–2.5L of water daily and consume balanced meals rich in iron, protein, and vegetables.',
+          'Take gentle outdoor walks to support circadian rhythms with natural daylight.',
+        ],
+        warningSigns: [
+          'Fatigue accompanied by chest pain, shortness of breath, or irregular heartbeats.',
+          'Sudden severe muscle weakness, fainting spells, or inability to perform basic daily activities.',
+        ],
+        whenToSeekMedicalHelp:
+            'Schedule a routine evaluation with a primary-care physician if fatigue persists for more than two weeks despite proper rest.',
+      );
+    }
+
+    // ANTIBIOTICS SPECIFIC GUIDANCE
+    if (clean.contains('antibiotic') || clean.contains('antibiotics') || clean.contains('amoxicillin')) {
+      return _buildResponse(
+        query: userQuery,
+        category: 'Medication: Antibiotic Stewardship',
+        urgency: HealthUrgency.yellow,
+        isEmergency: false,
+        intent: 'medicine',
+        recommendedCare: RecommendedCare(
+          clinicianType: 'Prescribing Physician / Pharmacist',
+          urgency: 'routine',
+          urgencyLabel: 'Prescription Medical Guidance',
+          reason: 'Antibiotics are prescription-only medications requiring clinical diagnosis of bacterial infection.',
+        ),
+        understanding: 'Clinical guidance regarding antibiotic usage, efficacy, and bacterial vs viral distinctions.',
+        followUpQuestions: [
+          'What condition or symptom are you considering antibiotics for?',
+          'Were these antibiotics recently prescribed to you by a licensed doctor for this specific episode?',
+        ],
+        considerations: [
+          'Antibiotics only kill bacteria; they are completely ineffective against viral illnesses such as the common cold, flu, viral bronchitis, or viral sore throats.',
+          'Taking antibiotics for viral colds exposes you to unnecessary side effects (rash, diarrhea, allergic reactions) without speeding recovery.',
+          'Misuse and overuse of antibiotics lead to dangerous antimicrobial resistance (superbugs).',
+          'If prescribed antibiotics for a confirmed bacterial infection, always complete the entire prescribed course even if symptoms improve early.',
+        ],
+        whatYouCanDoNow: [
+          'For colds and flu, focus on proven symptomatic relief: hydration, rest, warm salt-water gargles, and honey for coughs.',
+          'Never take leftover antibiotics or medications prescribed for someone else.',
+          'Consult a doctor if symptoms worsen or persist beyond 10 days.',
+        ],
+        warningSigns: [
+          'Severe drug reactions: widespread blistering rash, swelling of throat or tongue, difficulty breathing.',
+          'Severe watery diarrhea during or following antibiotic therapy (C. diff risk).',
+        ],
+        whenToSeekMedicalHelp:
+            'Consult a physician or pharmacist to determine whether an infection is bacterial before taking any antibiotic.',
+      );
+    }
+
+    // EAR PAIN & ENT SPECIALIST
+    if (clean.contains('ear') || clean.contains('ear pain') || clean.contains('earache') || clean.contains('hearing')) {
+      return _buildResponse(
+        query: userQuery,
+        category: 'ENT: Ear Pain & Infection',
+        urgency: HealthUrgency.yellow,
+        isEmergency: false,
+        intent: 'symptom',
+        recommendedCare: RecommendedCare(
+          clinicianType: 'ENT Specialist (Otolaryngologist) / Primary-Care Physician',
+          urgency: 'routine',
+          urgencyLabel: 'ENT / Primary Care Consultation',
+          reason: 'Persistent ear pain requires otoscopic examination of the tympanic membrane to differentiate middle ear infection (otitis media), outer ear canal infection, or referred pain from the temporomandibular joint (TMJ) or teeth.',
+        ),
+        understanding: 'You mentioned experiencing ear pain or hearing discomfort.',
+        followUpQuestions: [
+          'How many days have you had the ear pain?',
+          'Is there any discharge, fluid drainage, ringing (tinnitus), or reduced hearing?',
+        ],
+        considerations: [
+          'Ear pain can stem from middle ear infection (otitis media), outer ear canal irritation (swimmer\'s ear), earwax impaction, or referred pain from dental and jaw issues.',
+          'Avoid inserting cotton swabs, hairpins, or objects into the ear canal, as this risks eardrum perforation.',
+        ],
+        whatYouCanDoNow: [
+          'Apply a warm, dry compress to the outside of the ear for comfort.',
+          'Keep the ear dry and avoid swimming until evaluated by a clinician.',
+          'Take over-the-counter paracetamol or ibuprofen if appropriate for pain.',
+        ],
+        warningSigns: [
+          'Fluid, pus, or bloody discharge draining from the ear.',
+          'High fever, dizziness, or swelling and redness behind the ear (mastoid area).',
+          'Sudden severe hearing loss.',
+        ],
+        whenToSeekMedicalHelp:
+            'Seek medical evaluation by a primary-care doctor or ENT specialist if ear pain persists beyond 48 hours or is accompanied by discharge or fever.',
       );
     }
 
@@ -673,19 +833,28 @@ class LocalHealthFallbackService {
         clean.contains('temperature') ||
         clean.contains('chills') ||
         clean.contains('feeling hot')) {
+      final isProlonged = clean.contains('three days') ||
+          clean.contains('3 days') ||
+          clean.contains('week') ||
+          clean.contains('several days');
+
       return _buildResponse(
         query: userQuery,
         category: 'Fever',
-        urgency: HealthUrgency.yellow,
+        urgency: isProlonged ? HealthUrgency.orange : HealthUrgency.yellow,
         isEmergency: false,
         intent: 'symptom',
         recommendedCare: RecommendedCare(
           clinicianType: 'General Physician / Internal Medicine',
-          urgency: 'prompt',
-          urgencyLabel: 'Prompt Medical Consultation',
-          reason: 'Fever persisting over 48 hours or accompanied by severe fatigue requires clinical workup to rule out bacterial or viral infection.',
+          urgency: isProlonged ? 'prompt' : 'routine',
+          urgencyLabel: isProlonged ? 'Prompt Medical Evaluation Required' : 'Prompt Medical Consultation',
+          reason: isProlonged
+              ? 'Fever persisting for 3 or more days requires clinical physical examination, CBC/CRP blood work, and evaluation to identify bacterial or atypical infection sources.'
+              : 'Fever persisting over 48 hours or accompanied by severe fatigue requires clinical workup to rule out bacterial or viral infection.',
         ),
-        understanding: 'Elevated body temperature or feverish symptoms.',
+        understanding: isProlonged
+            ? 'Prolonged fever reported (persisting for 3 or more days).'
+            : 'Elevated body temperature or feverish symptoms.',
         followUpQuestions: [
           'What is your recorded body temperature reading?',
           'How many days have you experienced this fever?',

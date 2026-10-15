@@ -138,15 +138,27 @@ flutter test
   - Emergency query returns `intent: emergency` with 108 ambulance prompt ✓
   - Quick Actions Grid applies `mainAxisExtent: 130.0` on desktop viewport ✓
 
+### 4.1 Automated Flutter Test Suite
+```bash
+flutter test
+```
+**Results:** `All 102 tests passed!` — 0 failures, 100% success rate across all repository suites:
+- Intent Classification & Doctor Recommendations (19 tests)
+- Emergency Contact & SOS Location Dispatch
+- Water Intake Real-Time State & Persistence
+- Appointments Multi-Reminder Model & Repository
+- API Configuration & Cloud Backend Default
+- Widget Basic Launch Smoke Test
+
 ### 4.2 Static Analysis (`flutter analyze`)
 ```bash
 flutter analyze lib/ test/
 ```
-**Results:** `No issues found! (ran in 2.4s)` — 0 errors, 0 warnings.
+**Results:** `No issues found! (ran in 2.5s)` — 0 errors, 0 warnings.
 
 ### 4.3 Node.js Backend Verification
 ```bash
-node -c src/controllers/aiAssistantController.js && node -c index.js
+node -c backend/src/controllers/aiAssistantController.js && node -c backend/index.js
 ```
 **Results:** Node.js syntax validated successfully with 0 errors.
 
@@ -156,13 +168,13 @@ node -c src/controllers/aiAssistantController.js && node -c index.js
 ```bash
 flutter build web --release --dart-define=API_BASE_URL=https://medguard-cqmw.onrender.com
 ```
-**Status:** `✓ Built build/web` (25.1s)
+**Status:** `✓ Built build/web` (26.9s)
 
 #### Android Release APK Build
 ```bash
 flutter build apk --release --dart-define=API_BASE_URL=https://medguard-cqmw.onrender.com
 ```
-**Status:** `✓ Built build/app/outputs/flutter-apk/app-release.apk (76.1MB)` (25.8s)
+**Status:** `✓ Built build/app/outputs/flutter-apk/app-release.apk (76.1MB)` (27.0s)
 
 ---
 
@@ -170,12 +182,13 @@ flutter build apk --release --dart-define=API_BASE_URL=https://medguard-cqmw.onr
 
 | File | Changes Made |
 | :--- | :--- |
-| `lib/widgets/dashboard/dark_scenic_hero_header.dart` | Replaced rigid aspect ratio with responsive `mainAxisExtent` (130px desktop, 112px tablet, 96px mobile); added `_QuickActionCardTile` with hover animation and desktop subtitles. |
-| `lib/models/ai_response.dart` | Added `RecommendedCare` model, `intent` field, and intent helper getters (`isGreeting`, `isEmergencyCase`, `isSymptom`, etc.). |
+| `lib/widgets/dashboard/dark_scenic_hero_header.dart` | Replaced rigid aspect ratio with responsive `mainAxisExtent` (130px desktop, 114px tablet, 96px mobile) and dynamic responsive column breakpoints (4 cols wide desktop, 3 cols medium tablet `560-800px`, 4 cols standard mobile `340-560px`, 2 cols ultra-narrow `<340px`); added `_QuickActionCardTile` with hover animation and desktop subtitles. |
+| `lib/screens/main_navigation_frame.dart` | Refined desktop `NavigationRail` sidebar: fixed width `minExtendedWidth: 240px` (230–260px standard), extended mode at `>=1000px`, crisp white background with active `#00BFA5` teal indicator, and responsive Emergency SOS pill button in the sidebar. |
+| `lib/models/ai_response.dart` | Added `RecommendedCare` model, `intent` field, and intent helper getters (`isGreeting`, `isEmergencyCase`, `isSymptom`, `isEducation`, `isAppHelp`, `isMedicine`). |
 | `lib/services/health_safety_filter.dart` | Preserved `intent` and `recommendedCare`; avoided clinical boilerplate for greetings. |
-| `lib/services/local_health_fallback_service.dart` | Added greeting detection at step 0; added `RecommendedCare` to all symptom fallbacks (dentist, dermatologist, orthopedic, physician, emergency). |
+| `lib/services/local_health_fallback_service.dart` | Added greeting detection at step 0; added `RecommendedCare` to all symptom fallbacks (dentist, dermatologist, orthopedic, physician, ENT specialist, emergency); added duration-aware prolonged fever triage, stroke/speech emergency triggers, blood group education, fatigue self-care, and viral cold antibiotic stewardship. |
 | `lib/services/ai_health_service.dart` | Added `intent` and `recommendedCare` to `AiHealthResponse` model; updated structured JSON prompt and parser. |
 | `lib/services/medguard_ai_service.dart` | Mapped cloud and direct responses with correct intent and recommended care without hardcoding `'symptom'`. |
 | `lib/screens/ai/ai_assistant_page.dart` | Redesigned AI response UI into 4 specialized card types (`_buildGreetingResponseCard`, `_buildEmergencyResponseCard`, `_buildEducationalResponseCard`, `_buildSymptomGuidanceCard`); added Recommended Care Card, responsive question `Wrap`, phone calling, and desktop 1000px max-width constraints. |
-| `backend/src/controllers/aiAssistantController.js` | Added intent classification, structured Gemini prompt, and offline fallback with doctor recommendations. |
-| `test/ai_intent_and_desktop_grid_test.dart` | Added 10 automated unit and widget tests covering intent classification, doctor recommendations, and desktop grid sizing. |
+| `backend/src/controllers/aiAssistantController.js` | Added intent classification (`isGreetingQuery`, `isEmergencyQuery` with speech/stroke red flags), structured Gemini prompt, and offline fallback with doctor recommendations, blood group education, and app help. |
+| `test/ai_intent_and_desktop_grid_test.dart` | Expanded test suite to 19 comprehensive automated unit and widget tests covering intent classification, doctor recommendations, prolonged fever, stroke warnings, blood group education, and responsive grid breakpoints (4, 3, and 2 columns). |

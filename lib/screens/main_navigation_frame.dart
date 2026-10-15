@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import '../app/routes.dart';
-import '../app/theme.dart';
 import 'dashboard/dashboard_page.dart';
 import 'ai/ai_assistant_page.dart';
 import 'vault/health_vault_page.dart';
@@ -64,13 +63,30 @@ class _MainNavigationFrameState extends State<MainNavigationFrame> {
     ];
 
     if (isDesktop) {
+      final isExtended = MediaQuery.of(context).size.width >= 1000;
       return Scaffold(
         body: Row(
           children: [
             NavigationRail(
               selectedIndex: _currentIndex,
               onDestinationSelected: _onTabTapped,
-              extended: MediaQuery.of(context).size.width >= 1200,
+              extended: isExtended,
+              minExtendedWidth: 240,
+              minWidth: 72,
+              backgroundColor: Colors.white,
+              indicatorColor: const Color(0xFF00BFA5).withValues(alpha: 0.15),
+              selectedIconTheme: const IconThemeData(color: Color(0xFF00BFA5), size: 24),
+              unselectedIconTheme: const IconThemeData(color: Color(0xFF64748B), size: 24),
+              selectedLabelTextStyle: const TextStyle(
+                color: Color(0xFF00BFA5),
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
+              ),
+              unselectedLabelTextStyle: const TextStyle(
+                color: Color(0xFF64748B),
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+              ),
               leading: Padding(
                 padding: const EdgeInsets.symmetric(vertical: 16.0, horizontal: 12.0),
                 child: Row(
@@ -79,16 +95,16 @@ class _MainNavigationFrameState extends State<MainNavigationFrame> {
                     Container(
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
-                        color: AppTheme.primaryTeal.withValues(alpha: 0.12),
+                        color: const Color(0xFF00BFA5).withValues(alpha: 0.12),
                         shape: BoxShape.circle,
                       ),
                       child: const Icon(
                         Icons.health_and_safety_rounded,
-                        color: AppTheme.primaryTeal,
+                        color: Color(0xFF00BFA5),
                         size: 28,
                       ),
                     ),
-                    if (MediaQuery.of(context).size.width >= 1200) ...[
+                    if (isExtended) ...[
                       const SizedBox(width: 12),
                       const Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -98,12 +114,12 @@ class _MainNavigationFrameState extends State<MainNavigationFrame> {
                             style: TextStyle(
                               fontWeight: FontWeight.bold,
                               fontSize: 16,
-                              color: AppTheme.primaryTeal,
+                              color: Color(0xFF07212F),
                             ),
                           ),
                           Text(
                             'Health & Emergency',
-                            style: TextStyle(fontSize: 11, color: AppColors.textSecondary),
+                            style: TextStyle(fontSize: 11, color: Color(0xFF64748B)),
                           ),
                         ],
                       ),
@@ -114,27 +130,27 @@ class _MainNavigationFrameState extends State<MainNavigationFrame> {
               destinations: const [
                 NavigationRailDestination(
                   icon: Icon(Icons.home_outlined),
-                  selectedIcon: Icon(Icons.home_rounded, color: AppTheme.primaryTeal),
+                  selectedIcon: Icon(Icons.home_rounded),
                   label: Text('Home'),
                 ),
                 NavigationRailDestination(
                   icon: Icon(Icons.smart_toy_outlined),
-                  selectedIcon: Icon(Icons.smart_toy_rounded, color: AppTheme.primaryTeal),
+                  selectedIcon: Icon(Icons.smart_toy_rounded),
                   label: Text('AI Assistant'),
                 ),
                 NavigationRailDestination(
                   icon: Icon(Icons.folder_outlined),
-                  selectedIcon: Icon(Icons.folder_rounded, color: AppTheme.primaryTeal),
+                  selectedIcon: Icon(Icons.folder_rounded),
                   label: Text('Health Vault'),
                 ),
                 NavigationRailDestination(
                   icon: Icon(Icons.medication_outlined),
-                  selectedIcon: Icon(Icons.medication_rounded, color: AppTheme.primaryTeal),
+                  selectedIcon: Icon(Icons.medication_rounded),
                   label: Text('Medicines'),
                 ),
                 NavigationRailDestination(
                   icon: Icon(Icons.person_outline),
-                  selectedIcon: Icon(Icons.person_rounded, color: AppTheme.primaryTeal),
+                  selectedIcon: Icon(Icons.person_rounded),
                   label: Text('Profile'),
                 ),
               ],
@@ -143,18 +159,35 @@ class _MainNavigationFrameState extends State<MainNavigationFrame> {
                   alignment: Alignment.bottomCenter,
                   child: Padding(
                     padding: const EdgeInsets.only(bottom: 20.0),
-                    child: IconButton(
-                      icon: const Icon(Icons.emergency_outlined, color: AppColors.emergency),
-                      tooltip: 'Emergency SOS',
-                      onPressed: () {
-                        Navigator.of(context).pushNamed(AppRoutes.emergency);
-                      },
-                    ),
+                    child: isExtended
+                        ? OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: const Color(0xFFDC2626),
+                              side: const BorderSide(color: Color(0xFFDC2626), width: 1.2),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                            ),
+                            icon: const Icon(Icons.emergency_rounded, size: 18),
+                            label: const Text(
+                              'Emergency SOS',
+                              style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                            ),
+                            onPressed: () {
+                              Navigator.of(context).pushNamed(AppRoutes.emergency);
+                            },
+                          )
+                        : IconButton(
+                            icon: const Icon(Icons.emergency_rounded, color: Color(0xFFDC2626)),
+                            tooltip: 'Emergency SOS',
+                            onPressed: () {
+                              Navigator.of(context).pushNamed(AppRoutes.emergency);
+                            },
+                          ),
                   ),
                 ),
               ),
             ),
-            const VerticalDivider(thickness: 1, width: 1),
+            const VerticalDivider(thickness: 1, width: 1, color: Color(0xFFE2E8F0)),
             Expanded(
               child: IndexedStack(index: _currentIndex, children: pages),
             ),

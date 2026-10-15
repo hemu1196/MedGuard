@@ -12,6 +12,8 @@ import '../../models/user_profile.dart';
 import '../../repositories/auth_repository.dart';
 import '../../repositories/emergency_contact_repository.dart';
 import '../../repositories/profile_repository.dart';
+import '../../services/user_state_service.dart';
+import '../../widgets/app_header.dart';
 
 class HealthProfilePage extends StatefulWidget {
   const HealthProfilePage({super.key});
@@ -269,6 +271,7 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
         throw Exception('Failed to persist profile data to database');
       }
       debugPrint('PROFILE: profile save completed');
+      await ProfileStateManager.instance.loadProfile(force: true);
 
       // Also save emergency contact to repository if phone is provided
       if (phoneText.isNotEmpty) {
@@ -462,9 +465,11 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Complete Your Health Profile')),
-      body: SafeArea(
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: AppTheme.lightPageOverlay,
+      child: Scaffold(
+        appBar: const AppHeader(title: 'Complete Your Health Profile'),
+        body: SafeArea(
         child: Stepper(
           type: StepperType.horizontal,
           currentStep: _currentStep,
@@ -826,8 +831,9 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
           ],
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 
   Widget _buildReviewRow(String label, String value, IconData icon) {
     final onSurface = Theme.of(context).colorScheme.onSurface;

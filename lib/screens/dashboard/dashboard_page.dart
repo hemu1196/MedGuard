@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../app/theme.dart';
 import '../../controllers/dashboard_controller.dart';
 import '../../widgets/dashboard/ask_ai_banner_card.dart';
 import '../../widgets/dashboard/dark_scenic_hero_header.dart';
@@ -40,11 +41,7 @@ class _DashboardPageState extends State<DashboardPage> {
   @override
   Widget build(BuildContext context) {
     return AnnotatedRegion<SystemUiOverlayStyle>(
-      value: const SystemUiOverlayStyle(
-        statusBarColor: Colors.transparent,
-        statusBarIconBrightness: Brightness.light,
-        statusBarBrightness: Brightness.dark,
-      ),
+      value: AppTheme.darkDashboardOverlay,
       child: ListenableBuilder(
         listenable: _controller,
         builder: (context, _) {

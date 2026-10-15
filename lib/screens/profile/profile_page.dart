@@ -1,23 +1,22 @@
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../../app/routes.dart';
 import '../../app/theme.dart';
 import '../../core/utils/bmi_calculator.dart';
-import '../../core/utils/image_helper.dart';
 import '../../models/user_profile.dart';
 import '../../models/water_intake.dart';
 import '../../repositories/auth_repository.dart';
 import '../../repositories/emergency_contact_repository.dart';
 import '../../repositories/health_record_repository.dart';
 import '../../repositories/medicine_repository.dart';
-import '../../repositories/profile_repository.dart';
 import '../../repositories/water_repository.dart';
 import '../../widgets/app_header.dart';
 import '../../widgets/emergency_contact_dialog.dart';
 import '../../widgets/loading_view.dart';
+import '../../widgets/medguard_avatar.dart';
 import '../../models/emergency_contact.dart';
+import '../../services/user_state_service.dart';
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
@@ -27,7 +26,6 @@ class ProfilePage extends StatefulWidget {
 }
 
 class _ProfilePageState extends State<ProfilePage> {
-  final ProfileRepository _profileRepository = ProfileRepository();
   final AuthRepository _authRepository = AuthRepository();
   final WaterRepository _waterRepository = WaterRepository();
   final MedicineRepository _medicineRepository = MedicineRepository();
@@ -46,17 +44,32 @@ class _ProfilePageState extends State<ProfilePage> {
   @override
   void initState() {
     super.initState();
+    ProfileStateManager.instance.addListener(_onProfileStateManagerChanged);
+    _userProfile = ProfileStateManager.instance.currentProfile;
+    _profileImagePath = ProfileStateManager.instance.profileImagePath;
     _loadProfile();
+  }
+
+  void _onProfileStateManagerChanged() {
+    if (mounted) {
+      setState(() {
+        _userProfile = ProfileStateManager.instance.currentProfile;
+        _profileImagePath = ProfileStateManager.instance.profileImagePath;
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    ProfileStateManager.instance.removeListener(_onProfileStateManagerChanged);
+    super.dispose();
   }
 
   Future<void> _loadProfile() async {
     try {
       final userId = await _authRepository.getCurrentUserId();
-      final p = await _profileRepository.getProfile(userId: userId);
+      final p = await ProfileStateManager.instance.loadProfile();
       final email = _authRepository.currentUser?.email ?? '';
-
-      final prefs = await SharedPreferences.getInstance();
-      final savedPath = prefs.getString('user_profile_image_$userId');
 
       DailyWaterIntake? water;
       int medsCount = 0;
@@ -77,7 +90,7 @@ class _ProfilePageState extends State<ProfilePage> {
           _currentUserId = userId;
           _userProfile = p;
           _userEmail = email;
-          _profileImagePath = savedPath ?? p?.profileImagePath;
+          _profileImagePath = p?.profileImagePath;
           _todayWaterIntake = water;
           _activeMedsCount = medsCount;
           _healthRecordsCount = recordsCount;
@@ -95,6 +108,10 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   void _pickProfileImage() {
+    final hasExistingPhoto = (ProfileStateManager.instance.profileImagePath != null &&
+            ProfileStateManager.instance.profileImagePath!.trim().isNotEmpty) ||
+        (_profileImagePath != null && _profileImagePath!.trim().isNotEmpty);
+
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(
@@ -126,35 +143,16 @@ class _ProfilePageState extends State<ProfilePage> {
                 _getImage(ImageSource.gallery);
               },
             ),
-            if (_profileImagePath != null)
+            if (hasExistingPhoto)
               ListTile(
-                leading: const Icon(Icons.delete, color: AppTheme.accentRed),
-                title: const Text('Remove Photo'),
+                leading: const Icon(Icons.delete_outline, color: AppTheme.accentRed),
+                title: const Text(
+                  'Remove Photo',
+                  style: TextStyle(color: AppTheme.accentRed, fontWeight: FontWeight.w600),
+                ),
                 onTap: () async {
                   Navigator.pop(context);
-                  final userId = await _authRepository.getCurrentUserId();
-                  final prefs = await SharedPreferences.getInstance();
-                  await prefs.remove('user_profile_image_$userId');
-                  if (_userProfile != null) {
-                    final updated = UserProfile(
-                      name: _userProfile!.name,
-                      dateOfBirth: _userProfile!.dateOfBirth,
-                      gender: _userProfile!.gender,
-                      bloodGroup: _userProfile!.bloodGroup,
-                      height: _userProfile!.height,
-                      weight: _userProfile!.weight,
-                      allergies: _userProfile!.allergies,
-                      existingConditions: _userProfile!.existingConditions,
-                      currentMedications: _userProfile!.currentMedications,
-                      emergencyContactName: _userProfile!.emergencyContactName,
-                      emergencyCountryCode: _userProfile!.emergencyCountryCode,
-                      emergencyPhone: _userProfile!.emergencyPhone,
-                      emergencyRelationship: _userProfile!.emergencyRelationship,
-                      profileImagePath: null,
-                    );
-                    await _profileRepository.saveProfile(updated, userId: userId);
-                  }
-                  setState(() => _profileImagePath = null);
+                  _confirmAndRemovePhoto();
                 },
               ),
           ],
@@ -163,47 +161,83 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
+  Future<void> _confirmAndRemovePhoto() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Remove Profile Photo'),
+        content: const Text(
+          'Are you sure you want to remove your profile photo? Your avatar will immediately revert to your name initial.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.accentRed,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      try {
+        await ProfileStateManager.instance.removeAvatar();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Profile photo removed successfully.'),
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Failed to remove photo: $e'),
+              backgroundColor: AppTheme.accentRed,
+            ),
+          );
+        }
+      }
+    }
+  }
+
   void _getImage(ImageSource source) async {
     try {
       final picker = ImagePicker();
-      final pickedFile = await picker.pickImage(source: source, imageQuality: 80);
+      final pickedFile = await picker.pickImage(source: source, imageQuality: 85);
       if (pickedFile != null) {
-        final userId = await _authRepository.getCurrentUserId();
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('user_profile_image_$userId', pickedFile.path);
-
-        if (_userProfile != null) {
-          final updated = UserProfile(
-            name: _userProfile!.name,
-            dateOfBirth: _userProfile!.dateOfBirth,
-            gender: _userProfile!.gender,
-            bloodGroup: _userProfile!.bloodGroup,
-            height: _userProfile!.height,
-            weight: _userProfile!.weight,
-            allergies: _userProfile!.allergies,
-            existingConditions: _userProfile!.existingConditions,
-            currentMedications: _userProfile!.currentMedications,
-            emergencyContactName: _userProfile!.emergencyContactName,
-            emergencyCountryCode: _userProfile!.emergencyCountryCode,
-            emergencyPhone: _userProfile!.emergencyPhone,
-            emergencyRelationship: _userProfile!.emergencyRelationship,
-            profileImagePath: pickedFile.path,
-          );
-          await _profileRepository.saveProfile(updated, userId: userId);
-        }
+        final bytes = await pickedFile.readAsBytes();
+        await ProfileStateManager.instance.uploadAvatar(
+          bytes: bytes,
+          filename: pickedFile.name,
+          filePath: pickedFile.path,
+        );
 
         if (mounted) {
-          setState(() {
-            _profileImagePath = pickedFile.path;
-          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Profile photo updated successfully.'),
+              duration: Duration(seconds: 2),
+            ),
+          );
         }
       }
     } catch (e) {
       debugPrint('[PROFILE] Pick image error: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Unable to update profile image. Please try again.'),
+          SnackBar(
+            content: Text('Unable to update profile image: $e'),
             backgroundColor: AppTheme.accentRed,
           ),
         );
@@ -214,6 +248,7 @@ class _ProfilePageState extends State<ProfilePage> {
   void _editProfile() async {
     final updated = await Navigator.of(context).pushNamed(AppRoutes.profileSetup);
     if (updated == true || mounted) {
+      await ProfileStateManager.instance.loadProfile(force: true);
       _loadProfile();
     }
   }
@@ -283,45 +318,11 @@ class _ProfilePageState extends State<ProfilePage> {
                               padding: const EdgeInsets.all(20.0),
                               child: Column(
                                 children: [
-                                  Stack(
-                                    children: [
-                                      CircleAvatar(
-                                        radius: 44,
-                                        backgroundColor: AppTheme.primaryTeal.withValues(alpha: 0.1),
-                                        backgroundImage: ImageHelper.getImageProvider(_profileImagePath),
-                                        child: ImageHelper.getImageProvider(_profileImagePath) == null
-                                            ? Text(
-                                                _userProfile?.name.isNotEmpty == true
-                                                    ? _userProfile!.name[0].toUpperCase()
-                                                    : 'U',
-                                                style: const TextStyle(
-                                                  fontSize: 36,
-                                                  fontWeight: FontWeight.bold,
-                                                  color: AppTheme.primaryTeal,
-                                                ),
-                                              )
-                                            : null,
-                                      ),
-                                      Positioned(
-                                        bottom: 0,
-                                        right: 0,
-                                        child: InkWell(
-                                          onTap: _pickProfileImage,
-                                          child: Container(
-                                            padding: const EdgeInsets.all(6),
-                                            decoration: const BoxDecoration(
-                                              color: AppTheme.primaryTeal,
-                                              shape: BoxShape.circle,
-                                            ),
-                                            child: const Icon(
-                                              Icons.camera_alt,
-                                              color: Colors.white,
-                                              size: 16,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                    ],
+                                  MedGuardAvatar(
+                                    radius: 46,
+                                    showEditBadge: true,
+                                    onTap: _pickProfileImage,
+                                    onEditTap: _pickProfileImage,
                                   ),
                                   const SizedBox(height: 12),
                                   Text(

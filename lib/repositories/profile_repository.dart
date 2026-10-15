@@ -113,6 +113,75 @@ class ProfileRepository {
     final profile = await getProfile(userId: userId);
     return profile != null && profile.profileCompleted;
   }
+
+  /// Upload user profile picture to MongoDB Atlas backend
+  Future<UserProfile> uploadAvatar({
+    required String userId,
+    required Uint8List bytes,
+    required String filename,
+    String? filePath,
+  }) async {
+    Map<String, dynamic> res;
+    try {
+      res = await _apiClient.uploadFile(
+        '/users/me/avatar',
+        fileFieldName: 'avatar',
+        filePath: filePath ?? '',
+        bytes: bytes,
+        filename: filename,
+      );
+    } catch (_) {
+      res = await _apiClient.uploadFile(
+        '/auth/me/avatar',
+        fileFieldName: 'avatar',
+        filePath: filePath ?? '',
+        bytes: bytes,
+        filename: filename,
+      );
+    }
+
+    if (res['success'] == true && res['user'] != null) {
+      final updatedProfile = UserProfile.fromMap(Map<String, dynamic>.from(res['user']));
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('$_profileStoragePrefix$userId', updatedProfile.toJson());
+      if (updatedProfile.profileImagePath != null) {
+        await prefs.setString('user_profile_image_$userId', updatedProfile.profileImagePath!);
+      }
+
+      final currentToken = await _apiClient.getToken();
+      if (currentToken != null && currentToken.isNotEmpty) {
+        await _apiClient.saveAuthSession(currentToken, Map<String, dynamic>.from(res['user']));
+      }
+      return updatedProfile;
+    } else {
+      throw Exception(res['message'] ?? 'Failed to upload profile photo');
+    }
+  }
+
+  /// Remove user profile picture from MongoDB Atlas backend
+  Future<UserProfile> removeAvatar({required String userId}) async {
+    Map<String, dynamic> res;
+    try {
+      res = await _apiClient.delete('/users/me/avatar');
+    } catch (_) {
+      res = await _apiClient.delete('/auth/me/avatar');
+    }
+
+    if (res['success'] == true && res['user'] != null) {
+      final updatedProfile = UserProfile.fromMap(Map<String, dynamic>.from(res['user']));
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('$_profileStoragePrefix$userId', updatedProfile.toJson());
+      await prefs.remove('user_profile_image_$userId');
+
+      final currentToken = await _apiClient.getToken();
+      if (currentToken != null && currentToken.isNotEmpty) {
+        await _apiClient.saveAuthSession(currentToken, Map<String, dynamic>.from(res['user']));
+      }
+      return updatedProfile;
+    } else {
+      throw Exception(res['message'] ?? 'Failed to remove profile photo');
+    }
+  }
 }
 
 extension IterableExtension<E> on Iterable<E> {

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../app/routes.dart';
 import '../../controllers/dashboard_controller.dart';
+import '../medguard_avatar.dart';
 
 class QuickActionData {
   final String label;
@@ -310,41 +311,19 @@ class DarkScenicHeroHeader extends StatelessWidget {
         ),
 
         // User Profile Avatar
-        GestureDetector(
-          onTap: () {
-            if (onNavigateTab != null) {
-              onNavigateTab!(4);
-            } else {
-              Navigator.of(context).pushNamed(AppRoutes.profile);
-            }
-          },
-          child: Container(
-            margin: const EdgeInsets.only(left: 4),
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(color: Colors.white.withValues(alpha: 0.8), width: 1.5),
-            ),
-            child: CircleAvatar(
-              radius: 17,
-              backgroundColor: const Color(0xFF1E3A8A),
-              backgroundImage: (controller.userProfile?.profileImagePath != null &&
-                      controller.userProfile!.profileImagePath!.isNotEmpty)
-                  ? NetworkImage(controller.userProfile!.profileImagePath!)
-                  : null,
-              child: (controller.userProfile?.profileImagePath == null ||
-                      controller.userProfile!.profileImagePath!.isEmpty)
-                  ? Text(
-                      controller.firstName.isNotEmpty
-                          ? controller.firstName[0].toUpperCase()
-                          : 'U',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 14,
-                      ),
-                    )
-                  : null,
-            ),
+        Padding(
+          padding: const EdgeInsets.only(left: 4),
+          child: MedGuardAvatar(
+            radius: 17,
+            borderWidth: 1.5,
+            borderColor: Colors.white.withValues(alpha: 0.8),
+            onTap: () {
+              if (onNavigateTab != null) {
+                onNavigateTab!(4);
+              } else {
+                Navigator.of(context).pushNamed(AppRoutes.profile);
+              }
+            },
           ),
         ),
       ],

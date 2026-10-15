@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../app/routes.dart';
+import '../app/theme.dart';
 import 'dashboard/dashboard_page.dart';
 import 'ai/ai_assistant_page.dart';
 import 'vault/health_vault_page.dart';
@@ -62,10 +64,16 @@ class _MainNavigationFrameState extends State<MainNavigationFrame> {
       const ProfilePage(),
     ];
 
+    final overlayStyle = _currentIndex == 0 ? AppTheme.darkDashboardOverlay : AppTheme.lightPageOverlay;
+    final scaffoldBg = _currentIndex == 0 ? const Color(0xFF102B3B) : const Color(0xFFE8F5F3);
+
     if (isDesktop) {
       final isExtended = MediaQuery.of(context).size.width >= 1000;
-      return Scaffold(
-        body: Row(
+      return AnnotatedRegion<SystemUiOverlayStyle>(
+        value: overlayStyle,
+        child: Scaffold(
+          backgroundColor: scaffoldBg,
+          body: Row(
           children: [
             NavigationRail(
               selectedIndex: _currentIndex,
@@ -193,10 +201,14 @@ class _MainNavigationFrameState extends State<MainNavigationFrame> {
             ),
           ],
         ),
-      );
-    }
+      ),
+    );
+  }
 
-    return Scaffold(
+  return AnnotatedRegion<SystemUiOverlayStyle>(
+    value: overlayStyle,
+    child: Scaffold(
+      backgroundColor: scaffoldBg,
       body: IndexedStack(index: _currentIndex, children: pages),
       bottomNavigationBar: Container(
         decoration: const BoxDecoration(
@@ -273,6 +285,7 @@ class _MainNavigationFrameState extends State<MainNavigationFrame> {
           ),
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 }

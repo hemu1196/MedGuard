@@ -210,6 +210,84 @@ async function deleteFromVault(record) {
   }
 }
 
+/**
+ * Uploads user profile avatar to permanent private storage in MongoDB Atlas GridFS
+ */
+async function uploadAvatarToGridFS({ file, userId }) {
+  if (!file || !file.buffer) {
+    throw new Error('No valid file payload received for avatar upload.');
+  }
+
+  const mimeType = resolveMimeType(file);
+  const ext = path.extname(file.originalname || '') || (mimeType.includes('png') ? '.png' : '.jpg');
+  const storedFileName = `avatar_${userId}_${uuidv4().substring(0, 8)}${ext}`;
+
+  const bucket = new mongoose.mongo.GridFSBucket(mongoose.connection.db, {
+    bucketName: 'avatars',
+  });
+
+  const uploadStream = bucket.openUploadStream(storedFileName, {
+    contentType: mimeType,
+    metadata: {
+      userId: userId ? userId.toString() : null,
+      uploadedAt: new Date(),
+    },
+  });
+
+  const readStream = Readable.from(file.buffer);
+
+  await new Promise((resolve, reject) => {
+    readStream.pipe(uploadStream).on('finish', resolve).on('error', reject);
+  });
+
+  return {
+    fileId: uploadStream.id,
+    storedFileName,
+    mimeType,
+  };
+}
+
+/**
+ * Permanently deletes user avatar from GridFS
+ */
+async function deleteAvatarFromGridFS(fileId) {
+  if (!fileId) return;
+  try {
+    const bucket = new mongoose.mongo.GridFSBucket(mongoose.connection.db, {
+      bucketName: 'avatars',
+    });
+    const objectId = typeof fileId === 'string' ? new mongoose.Types.ObjectId(fileId) : fileId;
+    await bucket.delete(objectId);
+  } catch (err) {
+    console.warn('[STORAGE] Avatar GridFS delete note:', err.message);
+  }
+}
+
+/**
+ * Retrieves a download stream for user profile avatar from GridFS
+ */
+async function getAvatarStream(fileId) {
+  if (!mongoose.connection.db) {
+    throw new Error('Database connection is not ready.');
+  }
+  const bucket = new mongoose.mongo.GridFSBucket(mongoose.connection.db, {
+    bucketName: 'avatars',
+  });
+  const objectId = typeof fileId === 'string' ? new mongoose.Types.ObjectId(fileId) : fileId;
+
+  const files = await bucket.find({ _id: objectId }).toArray();
+  if (!files || files.length === 0) {
+    return null;
+  }
+
+  const stream = bucket.openDownloadStream(objectId);
+  return {
+    stream,
+    mimeType: files[0].contentType || 'image/jpeg',
+    length: files[0].length,
+  };
+}
+
 module.exports = {
   UPLOADS_DIR,
   VAULT_DIR,
@@ -220,4 +298,7 @@ module.exports = {
   deleteFromVault,
   resolveMimeType,
   getGridFSBucket,
+  uploadAvatarToGridFS,
+  deleteAvatarFromGridFS,
+  getAvatarStream,
 };

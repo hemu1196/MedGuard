@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 class AppColors {
   // Primary Healthcare Palette
@@ -34,6 +35,24 @@ class AppTheme {
   static const Color surfaceWhite = AppColors.surface;
   static const Color textDark = AppColors.textPrimary;
   static const Color textMuted = AppColors.textSecondary;
+  static const Color softMedicalTeal = Color(0xFFE8F5F3);
+  static const Color darkTealNavy = Color(0xFF102B3B);
+
+  static const SystemUiOverlayStyle lightPageOverlay = SystemUiOverlayStyle(
+    statusBarColor: Color(0xFFE8F5F3),
+    statusBarIconBrightness: Brightness.dark,
+    statusBarBrightness: Brightness.light,
+    systemNavigationBarColor: Colors.white,
+    systemNavigationBarIconBrightness: Brightness.dark,
+  );
+
+  static const SystemUiOverlayStyle darkDashboardOverlay = SystemUiOverlayStyle(
+    statusBarColor: Color(0xFF102B3B),
+    statusBarIconBrightness: Brightness.light,
+    statusBarBrightness: Brightness.dark,
+    systemNavigationBarColor: Color(0xFF102B3B),
+    systemNavigationBarIconBrightness: Brightness.light,
+  );
 
   static ThemeData get lightTheme {
     return ThemeData(
@@ -47,10 +66,11 @@ class AppTheme {
       ),
       scaffoldBackgroundColor: AppColors.background,
       appBarTheme: const AppBarTheme(
-        backgroundColor: AppColors.surface,
+        backgroundColor: Color(0xFFE8F5F3),
         foregroundColor: AppColors.textPrimary,
         elevation: 0,
         centerTitle: false,
+        systemOverlayStyle: lightPageOverlay,
         titleTextStyle: TextStyle(
           color: AppColors.textPrimary,
           fontSize: 18,

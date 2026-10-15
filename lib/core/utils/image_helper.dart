@@ -3,8 +3,19 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import '../config/api_config.dart';
 
 class ImageHelper {
+  /// Safely resolves a path or URL. If it starts with '/', prepends ApiConfig.baseUrl.
+  static String? resolveUrl(String? pathOrUrl) {
+    if (pathOrUrl == null || pathOrUrl.trim().isEmpty) return null;
+    final trimmed = pathOrUrl.trim();
+    if (trimmed.startsWith('/')) {
+      return '${ApiConfig.baseUrl}$trimmed';
+    }
+    return trimmed;
+  }
+
   /// Safely checks if a local file exists without throwing UnsupportedError on Web
   static bool isLocalFile(String? path) {
     if (path == null || path.isEmpty) return false;
@@ -25,16 +36,17 @@ class ImageHelper {
     Widget? placeholder,
     Widget? errorWidget,
   }) {
-    if (pathOrUrl == null || pathOrUrl.isEmpty) {
+    final resolved = resolveUrl(pathOrUrl);
+    if (resolved == null || resolved.isEmpty) {
       return placeholder ?? const Icon(Icons.image_not_supported);
     }
 
-    if (pathOrUrl.startsWith('http://') ||
-        pathOrUrl.startsWith('https://') ||
-        pathOrUrl.startsWith('blob:') ||
-        pathOrUrl.startsWith('data:image')) {
+    if (resolved.startsWith('http://') ||
+        resolved.startsWith('https://') ||
+        resolved.startsWith('blob:') ||
+        resolved.startsWith('data:image')) {
       return Image.network(
-        pathOrUrl,
+        resolved,
         width: width,
         height: height,
         fit: fit,
@@ -43,9 +55,9 @@ class ImageHelper {
       );
     }
 
-    if (!kIsWeb && isLocalFile(pathOrUrl)) {
+    if (!kIsWeb && isLocalFile(resolved)) {
       return Image.file(
-        File(pathOrUrl),
+        File(resolved),
         width: width,
         height: height,
         fit: fit,
@@ -59,17 +71,18 @@ class ImageHelper {
 
   /// Returns an ImageProvider safely for CircleAvatar or BoxDecoration without dart:io errors on Web.
   static ImageProvider? getImageProvider(String? pathOrUrl) {
-    if (pathOrUrl == null || pathOrUrl.isEmpty) return null;
+    final resolved = resolveUrl(pathOrUrl);
+    if (resolved == null || resolved.isEmpty) return null;
 
-    if (pathOrUrl.startsWith('http://') ||
-        pathOrUrl.startsWith('https://') ||
-        pathOrUrl.startsWith('blob:') ||
-        pathOrUrl.startsWith('data:image')) {
-      return NetworkImage(pathOrUrl);
+    if (resolved.startsWith('http://') ||
+        resolved.startsWith('https://') ||
+        resolved.startsWith('blob:') ||
+        resolved.startsWith('data:image')) {
+      return NetworkImage(resolved);
     }
 
-    if (!kIsWeb && isLocalFile(pathOrUrl)) {
-      return FileImage(File(pathOrUrl));
+    if (!kIsWeb && isLocalFile(resolved)) {
+      return FileImage(File(resolved));
     }
 
     return null;
@@ -77,29 +90,30 @@ class ImageHelper {
 
   /// Loads raw file/image bytes safely across Web and native Android
   static Future<Uint8List?> loadBytes(String? pathOrUrl) async {
-    if (pathOrUrl == null || pathOrUrl.isEmpty) return null;
+    final resolved = resolveUrl(pathOrUrl);
+    if (resolved == null || resolved.isEmpty) return null;
 
     try {
-      if (pathOrUrl.startsWith('data:')) {
-        final commaIdx = pathOrUrl.indexOf(',');
+      if (resolved.startsWith('data:')) {
+        final commaIdx = resolved.indexOf(',');
         if (commaIdx != -1) {
-          final b64 = pathOrUrl.substring(commaIdx + 1);
+          final b64 = resolved.substring(commaIdx + 1);
           return base64Decode(b64);
         }
       }
 
-      if (pathOrUrl.startsWith('http://') || pathOrUrl.startsWith('https://')) {
-        final res = await http.get(Uri.parse(pathOrUrl));
+      if (resolved.startsWith('http://') || resolved.startsWith('https://')) {
+        final res = await http.get(Uri.parse(resolved));
         if (res.statusCode == 200) {
           return res.bodyBytes;
         }
       }
 
-      if (!kIsWeb && isLocalFile(pathOrUrl)) {
-        return await File(pathOrUrl).readAsBytes();
+      if (!kIsWeb && isLocalFile(resolved)) {
+        return await File(resolved).readAsBytes();
       }
     } catch (e) {
-      debugPrint('[IMAGE HELPER] loadBytes failed for $pathOrUrl: $e');
+      debugPrint('[IMAGE HELPER] loadBytes failed for $resolved: $e');
     }
     return null;
   }

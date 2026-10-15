@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import '../core/utils/bmi_calculator.dart';
@@ -14,14 +13,13 @@ import '../repositories/appointment_repository.dart';
 import '../repositories/auth_repository.dart';
 import '../repositories/health_record_repository.dart';
 import '../repositories/medicine_repository.dart';
-import '../repositories/profile_repository.dart';
 import '../repositories/water_repository.dart';
 import '../services/hospital_service.dart';
 import '../services/location_service.dart';
+import '../services/user_state_service.dart';
 
 class DashboardController extends ChangeNotifier {
   final AuthRepository _authRepository = AuthRepository();
-  final ProfileRepository _profileRepository = ProfileRepository();
   final MedicineRepository _medicineRepository = MedicineRepository();
   final HealthRecordRepository _healthRecordRepository = HealthRecordRepository();
   final WaterRepository _waterRepository = WaterRepository();
@@ -56,7 +54,15 @@ class DashboardController extends ChangeNotifier {
   StreamSubscription? _recordsSub;
 
   DashboardController() {
+    ProfileStateManager.instance.addListener(_onProfileStateChanged);
+    userProfile = ProfileStateManager.instance.currentProfile;
     init();
+  }
+
+  void _onProfileStateChanged() {
+    userProfile = ProfileStateManager.instance.currentProfile;
+    isLoadingProfile = ProfileStateManager.instance.isLoading;
+    notifyListeners();
   }
 
   Future<void> init() async {
@@ -64,6 +70,7 @@ class DashboardController extends ChangeNotifier {
       final userId = await _authRepository.getCurrentUserId();
       _subscribeToRealtimeData(userId);
       await Future.wait([
+        ProfileStateManager.instance.loadProfile(),
         loadHospitals(),
         loadWater(userId),
         loadAppointments(userId),
@@ -82,33 +89,13 @@ class DashboardController extends ChangeNotifier {
   }
 
   void _subscribeToRealtimeData(String userId) {
-    isLoadingProfile = true;
     isLoadingMedicines = true;
     isLoadingRecords = true;
     notifyListeners();
 
-    // 1. Profile Stream
-    _profileSub?.cancel();
-    _profileSub = FirebaseFirestore.instance
-        .collection('users')
-        .doc(userId)
-        .collection('profile')
-        .doc('main')
-        .snapshots()
-        .listen((doc) {
-      if (doc.exists && doc.data() != null) {
-        userProfile = UserProfile.fromMap(doc.data()!);
-        profileError = null;
-      } else {
-        // Fallback to repository cache
-        _loadProfileFallback(userId);
-      }
-      isLoadingProfile = false;
-      notifyListeners();
-    }, onError: (e) {
-      debugPrint('[DASHBOARD] Profile stream error: $e');
-      _loadProfileFallback(userId);
-    });
+    // 1. Profile via centralized ProfileStateManager
+    userProfile = ProfileStateManager.instance.currentProfile;
+    isLoadingProfile = ProfileStateManager.instance.isLoading;
 
     // 2. Medicines Stream
     _medsSub?.cancel();
@@ -133,17 +120,6 @@ class DashboardController extends ChangeNotifier {
       debugPrint('[DASHBOARD] Records stream error: $e');
       _loadRecordsFallback(userId);
     });
-  }
-
-  Future<void> _loadProfileFallback(String userId) async {
-    try {
-      userProfile = await _profileRepository.getProfile(userId: userId);
-    } catch (e) {
-      profileError = 'Failed to load profile';
-    } finally {
-      isLoadingProfile = false;
-      notifyListeners();
-    }
   }
 
   Future<void> _loadMedicinesFallback(String userId) async {
@@ -243,14 +219,15 @@ class DashboardController extends ChangeNotifier {
   }
 
   String get firstName {
-    if (userProfile == null || userProfile!.name.trim().isEmpty) {
-      final email = FirebaseAuth.instance.currentUser?.email;
+    final profile = userProfile ?? ProfileStateManager.instance.currentProfile;
+    if (profile == null || profile.name.trim().isEmpty) {
+      final email = _authRepository.currentUser?.email ?? FirebaseAuth.instance.currentUser?.email;
       if (email != null && email.contains('@')) {
         return email.split('@').first;
       }
       return 'User';
     }
-    return userProfile!.name.trim().split(' ').first;
+    return profile.name.trim().split(' ').first;
   }
 
   double get bmi {
@@ -327,6 +304,7 @@ class DashboardController extends ChangeNotifier {
 
   @override
   void dispose() {
+    ProfileStateManager.instance.removeListener(_onProfileStateChanged);
     _profileSub?.cancel();
     _medsSub?.cancel();
     _recordsSub?.cancel();

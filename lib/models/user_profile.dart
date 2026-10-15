@@ -54,6 +54,7 @@ class UserProfile {
     String? emergencyPhone,
     String? emergencyRelationship,
     String? profileImagePath,
+    bool clearProfileImagePath = false,
     bool? profileCompleted,
   }) {
     return UserProfile(
@@ -71,7 +72,7 @@ class UserProfile {
       emergencyCountryCode: emergencyCountryCode ?? this.emergencyCountryCode,
       emergencyPhone: emergencyPhone ?? this.emergencyPhone,
       emergencyRelationship: emergencyRelationship ?? this.emergencyRelationship,
-      profileImagePath: profileImagePath ?? this.profileImagePath,
+      profileImagePath: clearProfileImagePath ? null : (profileImagePath ?? this.profileImagePath),
       profileCompleted: profileCompleted ?? this.profileCompleted,
     );
   }

@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import '../app/theme.dart';
 
 class AppHeader extends StatelessWidget implements PreferredSizeWidget {
   final String title;
@@ -6,6 +8,8 @@ class AppHeader extends StatelessWidget implements PreferredSizeWidget {
   final List<Widget>? actions;
   final Widget? leading;
   final bool showBack;
+  final Color? backgroundColor;
+  final SystemUiOverlayStyle? systemOverlayStyle;
 
   const AppHeader({
     super.key,
@@ -14,13 +18,16 @@ class AppHeader extends StatelessWidget implements PreferredSizeWidget {
     this.actions,
     this.leading,
     this.showBack = false,
+    this.backgroundColor,
+    this.systemOverlayStyle,
   });
 
   @override
   Widget build(BuildContext context) {
     return AppBar(
       elevation: 0,
-      backgroundColor: Colors.transparent,
+      backgroundColor: backgroundColor ?? AppTheme.softMedicalTeal,
+      systemOverlayStyle: systemOverlayStyle ?? AppTheme.lightPageOverlay,
       leading: showBack
           ? IconButton(
               icon: const Icon(Icons.arrow_back_ios_new, size: 20),

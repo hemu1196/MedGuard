@@ -1,7 +1,9 @@
+const mongoose = require('mongoose');
 const User = require('../models/User');
 const UserSession = require('../models/UserSession');
 const AuditEvent = require('../models/AuditEvent');
 const EmergencyContact = require('../models/EmergencyContact');
+const storageService = require('../services/storageService');
 const { generateToken } = require('../utils/jwt');
 
 /**
@@ -304,8 +306,16 @@ const updateProfile = async (req, res) => {
     }
 
     const resolvedPhoto = profilePictureUrl !== undefined ? profilePictureUrl : profileImagePath;
-    if (resolvedPhoto !== undefined && resolvedPhoto !== null) {
-      currentUser.profilePictureUrl = String(resolvedPhoto);
+    if (resolvedPhoto !== undefined) {
+      if (!resolvedPhoto) {
+        if (currentUser.avatarGridFSId) {
+          await storageService.deleteAvatarFromGridFS(currentUser.avatarGridFSId);
+          currentUser.avatarGridFSId = null;
+        }
+        currentUser.profilePictureUrl = '';
+      } else {
+        currentUser.profilePictureUrl = String(resolvedPhoto).trim();
+      }
     }
 
     await currentUser.save();
@@ -553,6 +563,170 @@ const refreshToken = async (req, res) => {
   }
 };
 
+/**
+ * Upload avatar image for authenticated user
+ */
+const uploadAvatar = async (req, res) => {
+  try {
+    const currentUser = await User.findById(req.userId);
+    if (!currentUser) {
+      return res.status(404).json({
+        success: false,
+        message: 'User account not found.',
+      });
+    }
+
+    let file = req.file || (req.files && (req.files.avatar?.[0] || req.files.file?.[0] || req.files.image?.[0]));
+
+    // Check if base64 data URI was sent in JSON body
+    if (!file && req.body && (req.body.profilePictureUrl || req.body.avatar || req.body.image)) {
+      const dataUri = req.body.profilePictureUrl || req.body.avatar || req.body.image;
+      if (typeof dataUri === 'string' && dataUri.startsWith('data:image/')) {
+        const matches = dataUri.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+        if (matches && matches.length === 3) {
+          const mimeType = matches[1];
+          const buffer = Buffer.from(matches[2], 'base64');
+          file = {
+            buffer,
+            mimetype: mimeType,
+            originalname: `avatar_${currentUser._id}.${mimeType.split('/')[1] || 'png'}`,
+            size: buffer.length,
+          };
+        }
+      }
+    }
+
+    if (!file || !file.buffer) {
+      return res.status(400).json({
+        success: false,
+        message: 'No image file or image data provided.',
+      });
+    }
+
+    // Upload to GridFS
+    const uploadResult = await storageService.uploadAvatarToGridFS({
+      file,
+      userId: currentUser._id,
+    });
+
+    // Clean up previous avatar from GridFS if one existed
+    if (currentUser.avatarGridFSId) {
+      await storageService.deleteAvatarFromGridFS(currentUser.avatarGridFSId);
+    }
+
+    currentUser.avatarGridFSId = uploadResult.fileId;
+    currentUser.profilePictureUrl = `/api/users/${currentUser._id}/avatar`;
+    await currentUser.save();
+
+    return res.status(200).json({
+      success: true,
+      message: 'Profile photo uploaded successfully.',
+      user: currentUser.toJSON(),
+      profilePictureUrl: currentUser.profilePictureUrl,
+    });
+  } catch (error) {
+    console.error('Upload Avatar Error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to upload profile photo: ' + error.message,
+    });
+  }
+};
+
+/**
+ * Remove avatar image for authenticated user
+ */
+const removeAvatar = async (req, res) => {
+  try {
+    const currentUser = await User.findById(req.userId);
+    if (!currentUser) {
+      return res.status(404).json({
+        success: false,
+        message: 'User account not found.',
+      });
+    }
+
+    if (currentUser.avatarGridFSId) {
+      await storageService.deleteAvatarFromGridFS(currentUser.avatarGridFSId);
+      currentUser.avatarGridFSId = null;
+    }
+    currentUser.profilePictureUrl = '';
+    await currentUser.save();
+
+    return res.status(200).json({
+      success: true,
+      message: 'Profile photo removed successfully.',
+      user: currentUser.toJSON(),
+      profilePictureUrl: '',
+    });
+  } catch (error) {
+    console.error('Remove Avatar Error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to remove profile photo: ' + error.message,
+    });
+  }
+};
+
+/**
+ * Public streaming endpoint to get user avatar
+ */
+const getAvatar = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid user ID format.',
+      });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User account not found.',
+      });
+    }
+
+    if (user.avatarGridFSId) {
+      const avatarData = await storageService.getAvatarStream(user.avatarGridFSId);
+      if (avatarData && avatarData.stream) {
+        res.set('Content-Type', avatarData.mimeType);
+        res.set('Cache-Control', 'public, max-age=86400');
+        return avatarData.stream.pipe(res);
+      }
+    }
+
+    if (user.profilePictureUrl) {
+      if (user.profilePictureUrl.startsWith('data:image/')) {
+        const matches = user.profilePictureUrl.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+        if (matches && matches.length === 3) {
+          const mimeType = matches[1];
+          const buffer = Buffer.from(matches[2], 'base64');
+          res.set('Content-Type', mimeType);
+          res.set('Cache-Control', 'public, max-age=86400');
+          return res.send(buffer);
+        }
+      }
+      if (user.profilePictureUrl.startsWith('http://') || user.profilePictureUrl.startsWith('https://')) {
+        return res.redirect(user.profilePictureUrl);
+      }
+    }
+
+    return res.status(404).json({
+      success: false,
+      message: 'No profile avatar set for this user.',
+    });
+  } catch (error) {
+    console.error('Get Avatar Error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to stream profile avatar: ' + error.message,
+    });
+  }
+};
+
 module.exports = {
   register,
   login,
@@ -562,4 +736,7 @@ module.exports = {
   logout,
   firebaseMigrate,
   refreshToken,
+  uploadAvatar,
+  removeAvatar,
+  getAvatar,
 };

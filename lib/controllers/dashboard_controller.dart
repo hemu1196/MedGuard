@@ -12,9 +12,9 @@ import '../models/water_intake.dart';
 import '../repositories/appointment_repository.dart';
 import '../repositories/auth_repository.dart';
 import '../repositories/health_record_repository.dart';
+import '../repositories/hospital_repository.dart';
 import '../repositories/medicine_repository.dart';
 import '../repositories/water_repository.dart';
-import '../services/hospital_service.dart';
 import '../services/location_service.dart';
 import '../services/user_state_service.dart';
 
@@ -24,7 +24,7 @@ class DashboardController extends ChangeNotifier {
   final HealthRecordRepository _healthRecordRepository = HealthRecordRepository();
   final WaterRepository _waterRepository = WaterRepository();
   final AppointmentRepository _appointmentRepository = AppointmentRepository();
-  final HospitalService _hospitalService = HospitalService();
+  final HospitalRepository _hospitalRepository = HospitalRepository.instance;
   final LocationService _locationService = LocationService();
 
   UserProfile? userProfile;
@@ -151,10 +151,15 @@ class DashboardController extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final SelectedLocation loc = await _locationService.ensureLocationLoaded();
-      currentCity = loc.displayTitle;
-      final result = await _hospitalService.searchHospitalsForLocation(loc);
-      nearbyHospitals = result.hospitals;
+      if (_hospitalRepository.hospitals.isNotEmpty) {
+        nearbyHospitals = _hospitalRepository.hospitals;
+        currentCity = _hospitalRepository.selectedLocation?.displayTitle ?? 'Current Location';
+      } else {
+        final SelectedLocation loc = await _locationService.ensureLocationLoaded();
+        currentCity = loc.displayTitle;
+        final result = await _hospitalRepository.searchHospitalsForLocation(loc);
+        nearbyHospitals = result.hospitals;
+      }
     } catch (e) {
       debugPrint('[DASHBOARD] Hospital fetch error: $e');
       hospitalsError = 'Unable to load nearby healthcare facilities.';

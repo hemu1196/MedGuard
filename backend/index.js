@@ -15,6 +15,7 @@ const appointmentRoutes = require("./src/routes/appointmentRoutes");
 const emergencyRoutes = require("./src/routes/emergencyRoutes");
 const wellnessRoutes = require("./src/routes/wellnessRoutes");
 const aiAssistantRoutes = require("./src/routes/aiAssistantRoutes");
+const hospitalRoutes = require("./src/routes/hospitalRoutes");
 
 const app = express();
 
@@ -124,7 +125,11 @@ app.get("/api/health/ready", async (req, res) => {
 
 // Database connection readiness check middleware for /api routes
 app.use("/api", async (req, res, next) => {
-  if (req.path === "/health" || req.path === "/health/ready") {
+  if (
+    req.path === "/health" ||
+    req.path === "/health/ready" ||
+    req.path.startsWith("/hospitals")
+  ) {
     return next();
   }
 
@@ -155,6 +160,7 @@ app.use("/api/appointments", appointmentRoutes);
 app.use("/api/emergency", emergencyRoutes);
 app.use("/api/wellness", wellnessRoutes);
 app.use("/api/ai", aiAssistantRoutes);
+app.use("/api/hospitals", hospitalRoutes);
 
 // Global 404 Handler
 app.use((req, res) => {

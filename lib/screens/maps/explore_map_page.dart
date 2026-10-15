@@ -4,8 +4,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../app/theme.dart';
 import '../../models/hospital.dart';
-import '../../models/selected_location.dart';
-import '../../services/hospital_service.dart';
+import '../../repositories/hospital_repository.dart';
 import '../../services/location_service.dart';
 import '../../widgets/app_header.dart';
 import '../../widgets/loading_view.dart';
@@ -18,91 +17,75 @@ class ExploreMapPage extends StatefulWidget {
 }
 
 class _ExploreMapPageState extends State<ExploreMapPage> {
-  final HospitalService _hospitalService = HospitalService();
+  final HospitalRepository _repository = HospitalRepository.instance;
   final LocationService _locationService = LocationService();
   final MapController _mapController = MapController();
   final TextEditingController _citySearchController = TextEditingController();
 
-  List<Hospital> _hospitals = [];
-  Hospital? _selectedHospital;
-  SelectedLocation? _selectedLocation;
-  bool _isLoading = true;
-  String? _errorMessage;
   double _currentZoom = 13.5;
+  String? _errorMessage;
 
   @override
   void initState() {
     super.initState();
-    _loadMapData();
+    _repository.addListener(_onRepositoryUpdated);
+    if (_repository.hospitals.isEmpty && !_repository.isLoading) {
+      _loadMapData();
+    } else {
+      _centerMapOnSelected();
+    }
   }
 
   @override
   void dispose() {
+    _repository.removeListener(_onRepositoryUpdated);
     _citySearchController.dispose();
     super.dispose();
+  }
+
+  void _onRepositoryUpdated() {
+    if (!mounted) return;
+    setState(() {
+      _errorMessage = _repository.errorMessage;
+    });
+    _centerMapOnSelected();
+  }
+
+  void _centerMapOnSelected() {
+    final selLoc = _repository.selectedLocation ?? _locationService.selectedLocation;
+    if (selLoc != null && selLoc.latitude != 0.0) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        try {
+          _mapController.move(
+            LatLng(selLoc.latitude, selLoc.longitude),
+            _currentZoom,
+          );
+        } catch (_) {}
+      });
+    }
   }
 
   Future<void> _loadMapData({bool forceGpsReset = false}) async {
     if (!mounted) return;
     setState(() {
-      _isLoading = true;
       _errorMessage = null;
     });
 
     try {
       if (forceGpsReset) {
-        _selectedLocation = await _locationService.getCurrentGpsLocation();
+        await _repository.useCurrentGpsLocation(forceRefresh: true);
       } else {
-        _selectedLocation = await _locationService.ensureLocationLoaded();
-      }
-
-      final loc = _selectedLocation ?? await _locationService.getCurrentGpsLocation();
-      _selectedLocation = loc;
-
-      final result = await _hospitalService
-          .searchHospitalsForLocation(loc)
-          .timeout(
-            const Duration(seconds: 25),
-            onTimeout: () => HospitalSearchResult(
-              hospitals: [],
-              maxRadiusMeters: 50000,
-              statusMessage: 'Search timeout',
-              location: loc,
-              searchSource: loc.isGps ? 'gps' : 'city',
-            ),
-          );
-
-      if (mounted) {
-        setState(() {
-          _hospitals = result.hospitals;
-          _selectedLocation = result.location;
-          if (_hospitals.isNotEmpty) {
-            _selectedHospital = _hospitals.first;
-          } else {
-            _selectedHospital = null;
-          }
-        });
-
-        // Center map to current position
-        if (_selectedLocation != null && _selectedLocation!.latitude != 0.0) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            _mapController.move(
-              LatLng(_selectedLocation!.latitude, _selectedLocation!.longitude),
-              _currentZoom,
-            );
-          });
+        final selLoc = _repository.selectedLocation ?? _locationService.selectedLocation;
+        if (selLoc != null && selLoc.latitude != 0.0) {
+          await _repository.searchHospitalsForLocation(selLoc);
+        } else {
+          await _repository.useCurrentGpsLocation();
         }
       }
     } catch (e) {
       if (mounted) {
         setState(() {
-          _errorMessage = 'Failed to load map data. Please check connection.';
-        });
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
+          _errorMessage = e.toString().replaceAll('Exception: ', '').replaceAll('AppException: ', '');
         });
       }
     }
@@ -113,40 +96,15 @@ class _ExploreMapPageState extends State<ExploreMapPage> {
     if (query.isEmpty) return;
 
     setState(() {
-      _isLoading = true;
       _errorMessage = null;
     });
 
     try {
-      final loc = await _locationService.geocodeCity(query);
-      if (loc == null) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Could not find location for "$query". Please check spelling.')),
-          );
-          setState(() {
-            _isLoading = false;
-          });
-        }
-        return;
-      }
-
-      final result = await _hospitalService.searchHospitalsForLocation(loc);
-
-      if (mounted) {
-        setState(() {
-          _selectedLocation = result.location;
-          _hospitals = result.hospitals;
-          if (_hospitals.isNotEmpty) {
-            _selectedHospital = _hospitals.first;
-          } else {
-            _selectedHospital = null;
-          }
-        });
-
+      final result = await _repository.searchByCity(query);
+      if (mounted && result.location.latitude != 0.0) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           _mapController.move(
-            LatLng(loc.latitude, loc.longitude),
+            LatLng(result.location.latitude, result.location.longitude),
             _currentZoom,
           );
         });
@@ -154,20 +112,14 @@ class _ExploreMapPageState extends State<ExploreMapPage> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error searching city: $e')),
+          SnackBar(content: Text('Could not find hospitals for "$query": $e')),
         );
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
       }
     }
   }
 
   void _showCitySearchDialog() {
-    _citySearchController.text = '';
+    _citySearchController.text = _repository.selectedLocation?.cityName ?? '';
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -177,7 +129,7 @@ class _ExploreMapPageState extends State<ExploreMapPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Enter a city name to explore nearby hospitals in that area:',
+              'Enter a city name to explore nearby hospitals on the map:',
               style: TextStyle(fontSize: 13, color: AppTheme.textMuted),
             ),
             const SizedBox(height: 12),
@@ -186,7 +138,7 @@ class _ExploreMapPageState extends State<ExploreMapPage> {
               autofocus: true,
               decoration: const InputDecoration(
                 labelText: 'City Name',
-                hintText: 'e.g. Hyderabad, Mumbai, Bangalore',
+                hintText: 'e.g. Hyderabad, Mumbai, Bengaluru',
                 prefixIcon: Icon(Icons.location_city),
                 border: OutlineInputBorder(),
               ),
@@ -271,7 +223,7 @@ class _ExploreMapPageState extends State<ExploreMapPage> {
             builder: (ctx) => AlertDialog(
               title: const Text('Facility Phone Number'),
               content: SelectableText(
-                'Phone: $phoneNumber\n\nDirect calling is not supported in this browser or device. You can copy the number and dial manually.',
+                'Phone: $phoneNumber\n\nDirect calling is not supported on this platform. You can copy the number and dial manually.',
               ),
               actions: [
                 TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close')),
@@ -311,9 +263,10 @@ class _ExploreMapPageState extends State<ExploreMapPage> {
   }
 
   void _recenterOnUser() {
-    if (_selectedLocation != null && _selectedLocation!.latitude != 0.0) {
+    final selLoc = _repository.selectedLocation ?? _locationService.selectedLocation;
+    if (selLoc != null && selLoc.latitude != 0.0) {
       _mapController.move(
-        LatLng(_selectedLocation!.latitude, _selectedLocation!.longitude),
+        LatLng(selLoc.latitude, selLoc.longitude),
         _currentZoom,
       );
     }
@@ -333,18 +286,18 @@ class _ExploreMapPageState extends State<ExploreMapPage> {
   }
 
   Widget _buildBodyContent() {
-    if (_isLoading) {
-      return const LoadingView(message: 'Loading interactive map & nearby facilities...');
+    if (_repository.isLoading && _repository.hospitals.isEmpty) {
+      return LoadingView(message: _repository.loadingStatus);
     }
 
-    if (_errorMessage != null) {
+    if (_errorMessage != null && _repository.hospitals.isEmpty) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24.0),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.error_outline_rounded, color: AppColors.emergency, size: 48),
+              const Icon(Icons.error_outline_rounded, color: AppTheme.accentRed, size: 48),
               const SizedBox(height: 12),
               Text(
                 _errorMessage!,
@@ -352,11 +305,22 @@ class _ExploreMapPageState extends State<ExploreMapPage> {
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 16),
-              ElevatedButton.icon(
-                onPressed: _loadMapData,
-                icon: const Icon(Icons.refresh),
-                label: const Text('Retry Map Search'),
-                style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryTeal),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  ElevatedButton.icon(
+                    onPressed: () => _loadMapData(forceGpsReset: true),
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Retry GPS'),
+                    style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryTeal),
+                  ),
+                  const SizedBox(width: 12),
+                  OutlinedButton.icon(
+                    onPressed: _showCitySearchDialog,
+                    icon: const Icon(Icons.location_city),
+                    label: const Text('Search by City'),
+                  ),
+                ],
               ),
             ],
           ),
@@ -364,10 +328,13 @@ class _ExploreMapPageState extends State<ExploreMapPage> {
       );
     }
 
-    final isCitySearch = _selectedLocation?.isCitySearch ?? false;
-    final badgeText = _selectedLocation?.badgeText ?? 'Using your current location';
-    final centerLat = _selectedLocation?.latitude ?? 17.3850;
-    final centerLng = _selectedLocation?.longitude ?? 78.4867;
+    final selLoc = _repository.selectedLocation ?? _locationService.selectedLocation;
+    final isCitySearch = selLoc?.isCitySearch ?? false;
+    final badgeText = selLoc?.sourceBadgeText ?? 'Using your current location';
+    final centerLat = selLoc?.latitude ?? 17.3850;
+    final centerLng = selLoc?.longitude ?? 78.4867;
+    final hospitals = _repository.hospitals;
+    final selectedH = _repository.selectedHospital ?? (hospitals.isNotEmpty ? hospitals.first : null);
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16.0),
@@ -426,7 +393,7 @@ class _ExploreMapPageState extends State<ExploreMapPage> {
                       icon: const Icon(Icons.refresh_rounded, size: 20),
                       color: AppTheme.primaryTeal,
                       tooltip: 'Refresh Location & Facilities',
-                      onPressed: () => _loadMapData(),
+                      onPressed: () => _loadMapData(forceGpsReset: !isCitySearch),
                     ),
                   ],
                 ),
@@ -496,8 +463,8 @@ class _ExploreMapPageState extends State<ExploreMapPage> {
                             ),
                           ),
                           // Facility Markers
-                          ..._hospitals.map((h) {
-                            final isSelected = _selectedHospital?.id == h.id;
+                          ...hospitals.map((h) {
+                            final isSelected = selectedH?.id == h.id;
                             final isEmergency = h.emergencyServiceVerified;
                             final markerColor = isEmergency
                                 ? AppTheme.accentRed
@@ -513,35 +480,30 @@ class _ExploreMapPageState extends State<ExploreMapPage> {
                               height: isSelected ? 48 : 36,
                               child: GestureDetector(
                                 onTap: () {
-                                  setState(() {
-                                    _selectedHospital = h;
-                                  });
+                                  _repository.selectHospital(h);
                                   _mapController.move(LatLng(h.latitude, h.longitude), 14.5);
                                 },
-                                child: Container(
+                                child: AnimatedContainer(
+                                  duration: const Duration(milliseconds: 200),
                                   decoration: BoxDecoration(
-                                    color: isSelected ? markerColor : Colors.white,
+                                    color: markerColor,
                                     shape: BoxShape.circle,
                                     border: Border.all(
-                                      color: markerColor,
-                                      width: isSelected ? 3 : 2,
+                                      color: isSelected ? Colors.yellowAccent : Colors.white,
+                                      width: isSelected ? 3.0 : 1.5,
                                     ),
                                     boxShadow: [
                                       BoxShadow(
-                                        color: markerColor.withValues(alpha: isSelected ? 0.4 : 0.2),
+                                        color: isSelected ? Colors.black45 : Colors.black26,
                                         blurRadius: isSelected ? 8 : 4,
                                         offset: const Offset(0, 2),
                                       ),
                                     ],
                                   ),
                                   child: Icon(
-                                    isEmergency
-                                        ? Icons.emergency
-                                        : (h.category == HealthcareCategory.pharmacy
-                                            ? Icons.local_pharmacy
-                                            : Icons.local_hospital),
+                                    isEmergency ? Icons.emergency : Icons.local_hospital,
+                                    color: Colors.white,
                                     size: isSelected ? 24 : 18,
-                                    color: isSelected ? Colors.white : markerColor,
                                   ),
                                 ),
                               ),
@@ -552,43 +514,10 @@ class _ExploreMapPageState extends State<ExploreMapPage> {
                     ],
                   ),
 
-                  // Floating Map Action Controls
-                  Positioned(
-                    right: 12,
-                    top: 12,
-                    child: Column(
-                      children: [
-                        FloatingActionButton.small(
-                          heroTag: 'map_zoom_in',
-                          backgroundColor: Colors.white,
-                          foregroundColor: AppTheme.textDark,
-                          onPressed: _zoomIn,
-                          child: const Icon(Icons.add),
-                        ),
-                        const SizedBox(height: 6),
-                        FloatingActionButton.small(
-                          heroTag: 'map_zoom_out',
-                          backgroundColor: Colors.white,
-                          foregroundColor: AppTheme.textDark,
-                          onPressed: _zoomOut,
-                          child: const Icon(Icons.remove),
-                        ),
-                        const SizedBox(height: 6),
-                        FloatingActionButton.small(
-                          heroTag: 'map_recenter',
-                          backgroundColor: AppTheme.primaryTeal,
-                          foregroundColor: Colors.white,
-                          onPressed: _recenterOnUser,
-                          child: const Icon(Icons.my_location),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  // Map Attribution Badge
+                  // OpenStreetMap Attribution badge
                   Positioned(
                     left: 8,
-                    bottom: 6,
+                    bottom: 8,
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                       decoration: BoxDecoration(
@@ -597,8 +526,42 @@ class _ExploreMapPageState extends State<ExploreMapPage> {
                       ),
                       child: const Text(
                         '© OpenStreetMap contributors',
-                        style: TextStyle(fontSize: 9, color: Colors.black87),
+                        style: TextStyle(fontSize: 10, color: Colors.black87),
                       ),
+                    ),
+                  ),
+
+                  // Map Floating Controls (Recenter, Zoom In, Zoom Out)
+                  Positioned(
+                    right: 12,
+                    bottom: 12,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        FloatingActionButton.small(
+                          heroTag: 'recenter_btn',
+                          onPressed: _recenterOnUser,
+                          backgroundColor: Colors.white,
+                          foregroundColor: AppTheme.primaryTeal,
+                          child: const Icon(Icons.my_location, size: 20),
+                        ),
+                        const SizedBox(height: 8),
+                        FloatingActionButton.small(
+                          heroTag: 'zoom_in_btn',
+                          onPressed: _zoomIn,
+                          backgroundColor: Colors.white,
+                          foregroundColor: AppTheme.textDark,
+                          child: const Icon(Icons.add, size: 20),
+                        ),
+                        const SizedBox(height: 8),
+                        FloatingActionButton.small(
+                          heroTag: 'zoom_out_btn',
+                          onPressed: _zoomOut,
+                          backgroundColor: Colors.white,
+                          foregroundColor: AppTheme.textDark,
+                          child: const Icon(Icons.remove, size: 20),
+                        ),
+                      ],
                     ),
                   ),
                 ],
@@ -607,184 +570,167 @@ class _ExploreMapPageState extends State<ExploreMapPage> {
           ),
           const SizedBox(height: 16),
 
-          // Selected Hospital Detail Card
-          if (_selectedHospital != null) ...[
-            Builder(
-              builder: (context) {
-                final h = _selectedHospital!;
-                final hasPhone = h.hasValidPhone;
-
-                return Card(
-                  elevation: 2,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                  child: Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Column(
+          // Detail Section for Selected Facility
+          if (selectedH != null)
+            Card(
+              elevation: 2,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                        Expanded(
+                          child: Text(
+                            selectedH.name,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 17,
+                              color: AppTheme.textDark,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Wrap(
+                          spacing: 4,
                           children: [
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    h.name,
-                                    style: const TextStyle(
-                                      fontSize: 17,
-                                      fontWeight: FontWeight.bold,
-                                      color: AppTheme.textDark,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    h.address,
-                                    style: const TextStyle(fontSize: 13, color: AppTheme.textMuted),
-                                  ),
-                                ],
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: AppTheme.primaryTeal.withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                selectedH.category.displayName,
+                                style: const TextStyle(
+                                  color: AppTheme.primaryTeal,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 11,
+                                ),
                               ),
                             ),
-                            const SizedBox(width: 8),
-                            Wrap(
-                              spacing: 4,
-                              runSpacing: 4,
-                              alignment: WrapAlignment.end,
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                                  decoration: BoxDecoration(
-                                    color: AppTheme.primaryTeal.withValues(alpha: 0.1),
-                                    borderRadius: BorderRadius.circular(6),
-                                  ),
-                                  child: Text(
-                                    h.category.displayName,
-                                    style: const TextStyle(
-                                      color: AppTheme.primaryTeal,
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.bold,
-                                    ),
+                            if (selectedH.emergencyServiceVerified)
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: Colors.red.shade50,
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: const Text(
+                                  '24/7',
+                                  style: TextStyle(
+                                    color: AppTheme.accentRed,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 11,
                                   ),
                                 ),
-                                if (h.emergencyServiceVerified)
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                                    decoration: BoxDecoration(
-                                      color: Colors.red.shade50,
-                                      borderRadius: BorderRadius.circular(6),
-                                    ),
-                                    child: const Text(
-                                      '24/7 Emergency',
-                                      style: TextStyle(
-                                        color: AppTheme.accentRed,
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: _buildInfoChip(
-                                Icons.near_me_outlined,
-                                'Distance',
-                                '${h.distanceKm.toStringAsFixed(1)} km',
                               ),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: _buildInfoChip(
-                                hasPhone ? Icons.call_outlined : Icons.phone_disabled_outlined,
-                                'Phone',
-                                h.displayPhone,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            const Icon(Icons.access_time_outlined, size: 14, color: AppTheme.textMuted),
-                            const SizedBox(width: 4),
-                            Text(
-                              h.openingHoursDisplay,
-                              style: const TextStyle(fontSize: 12, color: AppTheme.textMuted),
-                            ),
-                          ],
-                        ),
-                        const Divider(height: 24),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: OutlinedButton.icon(
-                                onPressed: hasPhone ? () => _launchPhoneCall(h.dialablePhone) : null,
-                                icon: Icon(
-                                  hasPhone ? Icons.call : Icons.phone_disabled,
-                                  size: 16,
-                                ),
-                                label: Text(hasPhone ? 'Call Hospital' : 'Phone Unavailable'),
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: ElevatedButton.icon(
-                                onPressed: () => _launchMapsNavigation(h),
-                                icon: const Icon(Icons.navigation, size: 16),
-                                label: const Text('Start Route'),
-                                style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryTeal),
-                              ),
-                            ),
                           ],
                         ),
                       ],
                     ),
-                  ),
-                );
-              },
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Widget _buildInfoChip(IconData icon, String label, String value) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-        color: AppTheme.primaryTeal.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, size: 16, color: AppTheme.primaryTeal),
-          const SizedBox(width: 6),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label,
-                  style: const TextStyle(fontSize: 10, color: AppTheme.textMuted),
+                    const SizedBox(height: 8),
+                    Text(
+                      selectedH.address,
+                      style: const TextStyle(fontSize: 13, color: AppTheme.textMuted),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        const Icon(Icons.near_me, size: 14, color: AppTheme.primaryTeal),
+                        const SizedBox(width: 4),
+                        Text(
+                          '${selectedH.distanceKm.toStringAsFixed(1)} km away',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: AppTheme.primaryTeal,
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Icon(
+                          selectedH.hasValidPhone ? Icons.phone : Icons.phone_disabled,
+                          size: 14,
+                          color: selectedH.hasValidPhone ? AppTheme.secondaryBlue : AppColors.textDisabled,
+                        ),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            selectedH.hasValidPhone ? selectedH.displayPhone : 'Phone unavailable',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: selectedH.hasValidPhone ? AppTheme.secondaryBlue : AppColors.textDisabled,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const Divider(height: 24),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppTheme.secondaryBlue,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            ),
+                            onPressed: selectedH.hasValidPhone
+                                ? () => _launchPhoneCall(selectedH.dialablePhone)
+                                : null,
+                            icon: const Icon(Icons.call, size: 16),
+                            label: Text(selectedH.hasValidPhone ? 'Call Facility' : 'Phone Unavailable'),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppTheme.primaryTeal,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            ),
+                            onPressed: () => _launchMapsNavigation(selectedH),
+                            icon: const Icon(Icons.navigation, size: 16),
+                            label: const Text('Directions'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
-                Text(
-                  value,
-                  style: const TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
-                    color: AppTheme.primaryTeal,
-                  ),
-                  overflow: TextOverflow.ellipsis,
+              ),
+            )
+          else if (hospitals.isEmpty)
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(20.0),
+                child: Column(
+                  children: [
+                    const Icon(Icons.search_off_rounded, size: 40, color: AppTheme.textMuted),
+                    const SizedBox(height: 8),
+                    Text(
+                      'No hospitals found near ${selLoc?.cityName ?? "this area"}.',
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                    ),
+                    const SizedBox(height: 12),
+                    ElevatedButton.icon(
+                      onPressed: _showCitySearchDialog,
+                      icon: const Icon(Icons.location_city, size: 16),
+                      label: const Text('Search by City'),
+                      style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryTeal),
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
-          ),
         ],
       ),
     );

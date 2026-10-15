@@ -8,7 +8,7 @@ import '../../models/hospital.dart';
 import '../../models/selected_location.dart';
 import '../../repositories/auth_repository.dart';
 import '../../repositories/emergency_contact_repository.dart';
-import '../../services/hospital_service.dart';
+import '../../repositories/hospital_repository.dart';
 import '../../services/location_service.dart';
 import '../../widgets/app_header.dart';
 import '../../widgets/emergency_contact_dialog.dart';
@@ -23,7 +23,7 @@ class AmbulanceAssistancePage extends StatefulWidget {
 
 class _AmbulanceAssistancePageState extends State<AmbulanceAssistancePage> {
   final LocationService _locationService = LocationService();
-  final HospitalService _hospitalService = HospitalService();
+  final HospitalRepository _hospitalRepository = HospitalRepository.instance;
   final EmergencyContactRepository _contactRepository = EmergencyContactRepository();
   final AuthRepository _authRepository = AuthRepository();
   final TextEditingController _citySearchController = TextEditingController();
@@ -37,13 +37,25 @@ class _AmbulanceAssistancePageState extends State<AmbulanceAssistancePage> {
   @override
   void initState() {
     super.initState();
+    _hospitalRepository.addListener(_onHospitalRepositoryUpdated);
     _initData();
   }
 
   @override
   void dispose() {
+    _hospitalRepository.removeListener(_onHospitalRepositoryUpdated);
     _citySearchController.dispose();
     super.dispose();
+  }
+
+  void _onHospitalRepositoryUpdated() {
+    if (!mounted) return;
+    setState(() {
+      _nearbyFacilities = _hospitalRepository.hospitals;
+      _selectedLocation = _hospitalRepository.selectedLocation ?? _locationService.selectedLocation;
+      _isLoadingFacilities = _hospitalRepository.isLoading && _nearbyFacilities.isEmpty;
+      _facilityError = _hospitalRepository.errorMessage;
+    });
   }
 
   Future<void> _initData() async {
@@ -63,37 +75,22 @@ class _AmbulanceAssistancePageState extends State<AmbulanceAssistancePage> {
   Future<void> _fetchLocationAndFacilities({bool forceGpsReset = false}) async {
     if (!mounted) return;
     setState(() {
-      _isLoadingFacilities = true;
+      _isLoadingFacilities = _hospitalRepository.hospitals.isEmpty;
       _facilityError = null;
     });
 
     try {
       if (forceGpsReset) {
-        _selectedLocation = await _locationService.getCurrentGpsLocation();
+        await _hospitalRepository.useCurrentGpsLocation(forceRefresh: true);
       } else {
-        _selectedLocation = await _locationService.ensureLocationLoaded();
+        final loc = _hospitalRepository.selectedLocation ?? await _locationService.ensureLocationLoaded();
+        await _hospitalRepository.searchHospitalsForLocation(loc);
       }
-
-      final loc = _selectedLocation ?? await _locationService.getCurrentGpsLocation();
-      _selectedLocation = loc;
-
-      final result = await _hospitalService
-          .searchHospitalsForLocation(loc)
-          .timeout(
-            const Duration(seconds: 25),
-            onTimeout: () => HospitalSearchResult(
-              hospitals: [],
-              maxRadiusMeters: 50000,
-              statusMessage: 'Search timeout',
-              location: loc,
-              searchSource: loc.isGps ? 'gps' : 'city',
-            ),
-          );
 
       if (mounted) {
         setState(() {
-          _nearbyFacilities = result.hospitals;
-          _selectedLocation = result.location;
+          _nearbyFacilities = _hospitalRepository.hospitals;
+          _selectedLocation = _hospitalRepository.selectedLocation ?? _locationService.selectedLocation;
         });
       }
     } catch (e) {
@@ -121,25 +118,11 @@ class _AmbulanceAssistancePageState extends State<AmbulanceAssistancePage> {
     });
 
     try {
-      final loc = await _locationService.geocodeCity(query);
-      if (loc == null) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Could not find location for "$query". Please check spelling.')),
-          );
-          setState(() {
-            _isLoadingFacilities = false;
-          });
-        }
-        return;
-      }
-
-      final result = await _hospitalService.searchHospitalsForLocation(loc);
-
+      await _hospitalRepository.searchByCity(query);
       if (mounted) {
         setState(() {
-          _selectedLocation = result.location;
-          _nearbyFacilities = result.hospitals;
+          _selectedLocation = _hospitalRepository.selectedLocation;
+          _nearbyFacilities = _hospitalRepository.hospitals;
         });
       }
     } catch (e) {

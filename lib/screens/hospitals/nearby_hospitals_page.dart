@@ -3,7 +3,6 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../app/theme.dart';
 import '../../models/hospital.dart';
 import '../../repositories/hospital_repository.dart';
-import '../../services/hospital_service.dart';
 import '../../services/location_service.dart';
 import '../../widgets/app_header.dart';
 import '../../widgets/empty_state.dart';
@@ -19,30 +18,53 @@ class NearbyHospitalsPage extends StatefulWidget {
 enum HospitalSearchState { initial, loading, loaded, empty, permissionDenied, gpsDisabled, error }
 
 class _NearbyHospitalsPageState extends State<NearbyHospitalsPage> {
-  HospitalSearchState _state = HospitalSearchState.initial;
+  final HospitalRepository _repository = HospitalRepository.instance;
   final LocationService _locationService = LocationService();
-  final HospitalRepository _hospitalRepository = HospitalRepository();
   final TextEditingController _citySearchController = TextEditingController();
 
-  List<Hospital> _hospitals = [];
+  HospitalSearchState _state = HospitalSearchState.initial;
   String? _errorMessage;
-  String _loadingStatus = 'Getting your location...';
-  int _maxRadiusMeters = 5000;
 
   @override
   void initState() {
     super.initState();
-    _loadInitialLocationAndHospitals();
+    _repository.addListener(_onRepositoryUpdated);
+    _syncFromRepository();
+    if (_repository.hospitals.isEmpty && !_repository.isLoading) {
+      _loadInitialLocationAndHospitals();
+    }
   }
 
   @override
   void dispose() {
+    _repository.removeListener(_onRepositoryUpdated);
     _citySearchController.dispose();
     super.dispose();
   }
 
+  void _onRepositoryUpdated() {
+    if (!mounted) return;
+    _syncFromRepository();
+  }
+
+  void _syncFromRepository() {
+    setState(() {
+      if (_repository.isLoading) {
+        _state = HospitalSearchState.loading;
+      } else if (_repository.errorMessage != null && _repository.hospitals.isEmpty) {
+        _errorMessage = _repository.errorMessage;
+        _state = HospitalSearchState.error;
+      } else if (_repository.hospitals.isEmpty) {
+        _state = HospitalSearchState.empty;
+      } else {
+        _state = HospitalSearchState.loaded;
+      }
+    });
+  }
+
   void _loadInitialLocationAndHospitals() async {
-    if (_locationService.selectedLocation != null) {
+    final selLoc = _repository.selectedLocation ?? _locationService.selectedLocation;
+    if (selLoc != null && selLoc.latitude != 0.0) {
       _searchHospitalsForCurrentSelectedLocation();
     } else {
       _useMyLocation();
@@ -52,13 +74,12 @@ class _NearbyHospitalsPageState extends State<NearbyHospitalsPage> {
   void _useMyLocation() async {
     setState(() {
       _state = HospitalSearchState.loading;
-      _loadingStatus = 'Getting your location...';
       _errorMessage = null;
     });
 
     try {
       final loc = await _locationService.requestLocation().timeout(
-        const Duration(seconds: 10),
+        const Duration(seconds: 12),
         onTimeout: () => null,
       );
 
@@ -72,18 +93,18 @@ class _NearbyHospitalsPageState extends State<NearbyHospitalsPage> {
           setState(() => _state = HospitalSearchState.permissionDenied);
         } else {
           setState(() {
-            _errorMessage = 'Unable to determine your current location. Please try again.';
+            _errorMessage = 'Unable to determine GPS location. Please check settings or search by city.';
             _state = HospitalSearchState.error;
           });
         }
         return;
       }
 
-      _searchHospitalsForCurrentSelectedLocation();
+      await _repository.useCurrentGpsLocation(forceRefresh: true);
     } catch (e) {
       if (mounted) {
         setState(() {
-          _errorMessage = 'Unable to search nearby hospitals. Please verify network and location settings.';
+          _errorMessage = e.toString().replaceAll('Exception: ', '').replaceAll('AppException: ', '');
           _state = HospitalSearchState.error;
         });
       }
@@ -91,53 +112,18 @@ class _NearbyHospitalsPageState extends State<NearbyHospitalsPage> {
   }
 
   void _searchHospitalsForCurrentSelectedLocation({bool forceRefresh = false}) async {
-    final selLoc = _locationService.selectedLocation;
-    if (selLoc == null) {
+    final selLoc = _repository.selectedLocation ?? _locationService.selectedLocation;
+    if (selLoc == null || (selLoc.latitude == 0.0 && selLoc.longitude == 0.0 && (selLoc.cityName == null || selLoc.cityName!.isEmpty))) {
       _useMyLocation();
       return;
     }
 
-    setState(() {
-      _state = HospitalSearchState.loading;
-      _loadingStatus = selLoc.isGps
-          ? 'Finding nearby hospitals...'
-          : 'Searching hospitals near ${selLoc.cityName ?? "location"}...';
-      _errorMessage = null;
-    });
-
     try {
-      final HospitalSearchResult result = await _hospitalRepository.searchHospitalsForLocation(
-        selLoc,
-        forceRefresh: forceRefresh,
-        onProgress: (status) {
-          if (mounted) {
-            setState(() {
-              _loadingStatus = status;
-            });
-          }
-        },
-      ).timeout(
-        const Duration(seconds: 30),
-        onTimeout: () => HospitalSearchResult(
-          hospitals: [],
-          maxRadiusMeters: 50000,
-          statusMessage: 'Location search timed out.',
-          location: selLoc,
-          searchSource: selLoc.isGps ? 'gps' : 'city',
-        ),
-      );
-
-      if (!mounted) return;
-
-      setState(() {
-        _hospitals = result.hospitals;
-        _maxRadiusMeters = result.maxRadiusMeters;
-        _state = result.hospitals.isEmpty ? HospitalSearchState.empty : HospitalSearchState.loaded;
-      });
+      await _repository.searchHospitalsForLocation(selLoc, forceRefresh: forceRefresh);
     } catch (e) {
       if (mounted) {
         setState(() {
-          _errorMessage = 'Unable to load hospitals. Please try again.';
+          _errorMessage = e.toString().replaceAll('Exception: ', '').replaceAll('AppException: ', '');
           _state = HospitalSearchState.error;
         });
       }
@@ -150,26 +136,15 @@ class _NearbyHospitalsPageState extends State<NearbyHospitalsPage> {
 
     setState(() {
       _state = HospitalSearchState.loading;
-      _loadingStatus = 'Geocoding $query...';
       _errorMessage = null;
     });
 
     try {
-      final selLoc = await _locationService.geocodeCity(query);
-      if (!mounted) return;
-
-      if (selLoc != null) {
-        _searchHospitalsForCurrentSelectedLocation();
-      } else {
-        setState(() {
-          _errorMessage = 'Location not found. Please enter a valid city or location.';
-          _state = HospitalSearchState.error;
-        });
-      }
+      await _repository.searchByCity(query);
     } catch (e) {
       if (mounted) {
         setState(() {
-          _errorMessage = e.toString().replaceAll('Exception: ', '');
+          _errorMessage = e.toString().replaceAll('Exception: ', '').replaceAll('AppException: ', '');
           _state = HospitalSearchState.error;
         });
       }
@@ -177,7 +152,7 @@ class _NearbyHospitalsPageState extends State<NearbyHospitalsPage> {
   }
 
   void _showCitySearchModal() {
-    _citySearchController.text = _locationService.selectedLocation?.cityName ?? '';
+    _citySearchController.text = _repository.selectedLocation?.cityName ?? '';
     showDialog(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -186,7 +161,7 @@ class _NearbyHospitalsPageState extends State<NearbyHospitalsPage> {
           controller: _citySearchController,
           autofocus: true,
           decoration: const InputDecoration(
-            hintText: 'e.g. Hyderabad, Chennai, Chicago',
+            hintText: 'e.g. Hyderabad, Bengaluru, Mumbai',
             prefixIcon: Icon(Icons.location_city),
           ),
           onSubmitted: (val) {
@@ -200,6 +175,7 @@ class _NearbyHospitalsPageState extends State<NearbyHospitalsPage> {
             child: const Text('Cancel'),
           ),
           ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryTeal),
             onPressed: () {
               final val = _citySearchController.text.trim();
               Navigator.of(dialogContext).pop();
@@ -266,7 +242,7 @@ class _NearbyHospitalsPageState extends State<NearbyHospitalsPage> {
             builder: (ctx) => AlertDialog(
               title: const Text('Facility Phone Number'),
               content: SelectableText(
-                'Phone: $phone\n\nDirect calling is not supported in this browser or device. You can copy the number and dial manually.',
+                'Phone: $phone\n\nDirect calling is not supported on this platform. You can copy the number and dial manually.',
               ),
               actions: [
                 TextButton(
@@ -314,10 +290,11 @@ class _NearbyHospitalsPageState extends State<NearbyHospitalsPage> {
   }
 
   Widget _buildLocationBadgeHeader() {
-    final selLoc = _locationService.selectedLocation;
+    final selLoc = _repository.selectedLocation ?? _locationService.selectedLocation;
     final isGps = selLoc?.isGps ?? true;
     final titleText = selLoc?.sourceBadgeText ?? 'Using your current location';
-    final radiusKm = _maxRadiusMeters ~/ 1000;
+    final radiusKm = _repository.maxRadiusMeters ~/ 1000;
+    final count = _repository.hospitals.length;
 
     return Container(
       padding: const EdgeInsets.all(12),
@@ -350,7 +327,7 @@ class _NearbyHospitalsPageState extends State<NearbyHospitalsPage> {
                       ),
                     ),
                     Text(
-                      'Showing ${_hospitals.length} hospital(s) within $radiusKm km',
+                      'Showing $count hospital(s) within $radiusKm km',
                       style: const TextStyle(
                         fontSize: 11,
                         color: AppTheme.textMuted,
@@ -400,12 +377,13 @@ class _NearbyHospitalsPageState extends State<NearbyHospitalsPage> {
   Widget _buildBody() {
     final onSurface = Theme.of(context).colorScheme.onSurface;
     final onSurfaceVariant = Theme.of(context).colorScheme.onSurfaceVariant;
+    final hospitals = _repository.hospitals;
 
     switch (_state) {
       case HospitalSearchState.initial:
       case HospitalSearchState.loading:
         return LoadingView(
-          message: _loadingStatus,
+          message: _repository.loadingStatus,
         );
 
       case HospitalSearchState.loaded:
@@ -416,9 +394,9 @@ class _NearbyHospitalsPageState extends State<NearbyHospitalsPage> {
             const SizedBox(height: 14),
             Expanded(
               child: ListView.builder(
-                itemCount: _hospitals.length,
+                itemCount: hospitals.length,
                 itemBuilder: (context, index) {
-                  final h = _hospitals[index];
+                  final h = hospitals[index];
                   final hasPhone = h.hasValidPhone;
 
                   return Card(

@@ -30,7 +30,7 @@ class HealthSafetyFilter {
 
     // 3. Medication Safeguard Check
     List<String> considerations = List<String>.from(response.considerations);
-    if (_isMedicationRequest(lowerQuery)) {
+    if (!response.isGreeting && _isMedicationRequest(lowerQuery)) {
       const safeguardText =
           'I can provide general health information, but medication choice and dosage should follow your doctor\'s or pharmacist\'s advice.';
       if (!considerations.any((c) => c.contains('pharmacist') || c.contains('doctor\'s or pharmacist\'s advice'))) {
@@ -38,11 +38,13 @@ class HealthSafetyFilter {
       }
     }
 
-    // 4. Disclaimer Check
+    // 4. Disclaimer Check (do not attach medical warnings to simple greetings)
     String disclaimer = response.disclaimer;
-    if (disclaimer.trim().isEmpty || !disclaimer.contains('professional medical')) {
-      disclaimer =
-          'This information is general health guidance and does not replace professional medical diagnosis, treatment, or evaluation. Always consult a qualified healthcare provider for personal medical advice.';
+    if (!response.isGreeting && !response.isAppHelp) {
+      if (disclaimer.trim().isEmpty || !disclaimer.contains('professional medical')) {
+        disclaimer =
+            'This information is general health guidance and does not replace professional medical diagnosis, treatment, or evaluation. Always consult a qualified healthcare provider for personal medical advice.';
+      }
     }
 
     // 5. Build sanitized AIResponse
@@ -62,8 +64,10 @@ class HealthSafetyFilter {
       whenToSeekMedicalHelp: isEmergency
           ? 'Seek immediate emergency medical care or call local emergency services immediately.'
           : response.whenToSeekMedicalHelp,
-      disclaimer: disclaimer,
+      disclaimer: response.isGreeting ? '' : disclaimer,
       errorInfo: response.errorInfo,
+      intent: response.intent,
+      recommendedCare: response.recommendedCare,
     );
   }
 

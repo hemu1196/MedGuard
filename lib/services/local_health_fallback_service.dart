@@ -13,6 +13,46 @@ class LocalHealthFallbackService {
   AIResponse generateFallback(String userQuery) {
     final clean = normalizeText(userQuery);
 
+    // 0. GREETINGS & CASUAL INQUIRIES
+    if (clean == 'hi' ||
+        clean == 'hello' ||
+        clean == 'hey' ||
+        clean == 'hi medguard' ||
+        clean == 'hello medguard' ||
+        clean == 'hey medguard' ||
+        clean.startsWith('hi ') ||
+        clean.startsWith('hello ') ||
+        clean.startsWith('hey ') ||
+        clean == 'good morning' ||
+        clean == 'good afternoon' ||
+        clean == 'good evening' ||
+        clean == 'how are you' ||
+        clean == 'greetings' ||
+        clean == 'help') {
+      return AIResponse(
+        text:
+            'Hello! I am MEDGUARD Health Assistant. I can help you understand symptoms, medication safety, first aid steps, and locate emergency medical care. How can I assist you today?',
+        source: AIResponseSource.localFallback,
+        isFallback: true,
+        category: 'Greeting',
+        isEmergency: false,
+        urgency: HealthUrgency.green,
+        intent: 'greeting',
+        understanding: 'Greeting and initial conversation.',
+        followUpQuestions: const [
+          'What is a healthy BMI?',
+          'I have a headache',
+          'How do medicine reminders work?',
+          'Find nearby hospitals',
+        ],
+        considerations: const [],
+        whatYouCanDoNow: const [],
+        warningSigns: const [],
+        whenToSeekMedicalHelp: '',
+        disclaimer: '',
+      );
+    }
+
     // 1. EMERGENCY SYMPTOMS DETECTION
     if (clean.contains('chest pain') ||
         clean.contains('shortness of breath') ||
@@ -35,6 +75,13 @@ class LocalHealthFallbackService {
         category: 'Emergency',
         urgency: HealthUrgency.red,
         isEmergency: true,
+        intent: 'emergency',
+        recommendedCare: RecommendedCare(
+          clinicianType: 'Emergency Department / Trauma Center (Call 108 / 112)',
+          urgency: 'emergency',
+          urgencyLabel: 'IMMEDIATE EMERGENCY CARE REQUIRED',
+          reason: 'Severe red-flag symptoms require immediate clinical resuscitation and emergency transport.',
+        ),
         understanding: 'Severe emergency red-flag symptoms reported.',
         followUpQuestions: [
           'Are you in a safe location right now?',
@@ -66,6 +113,7 @@ class LocalHealthFallbackService {
         category: 'Body Mass Index (BMI)',
         urgency: HealthUrgency.green,
         isEmergency: false,
+        intent: 'education',
         understanding: 'Inquiry regarding Body Mass Index (BMI) assessment.',
         followUpQuestions: [
           'What are your current height and weight measurements?',
@@ -101,6 +149,13 @@ class LocalHealthFallbackService {
         category: 'Medication: Paracetamol',
         urgency: HealthUrgency.yellow,
         isEmergency: false,
+        intent: 'medicine',
+        recommendedCare: RecommendedCare(
+          clinicianType: 'Pharmacist / General Physician',
+          urgency: 'routine',
+          urgencyLabel: 'Pharmacology Guidance',
+          reason: 'Verify correct dosage strength and total 24-hour paracetamol limits across all medications.',
+        ),
         understanding: 'Clinical inquiry regarding Paracetamol (Acetaminophen) safety and use.',
         followUpQuestions: [
           'What symptom (fever, headache, body pain) are you treating?',
@@ -136,6 +191,7 @@ class LocalHealthFallbackService {
         category: 'MedGuard Feature: Medicine Reminders',
         urgency: HealthUrgency.green,
         isEmergency: false,
+        intent: 'app_help',
         understanding: 'Guide on MEDGUARD Medicine Reminders and dose adherence.',
         followUpQuestions: [
           'Have you set your daily medication schedule in the Medicines tab?',
@@ -169,6 +225,7 @@ class LocalHealthFallbackService {
         category: 'MedGuard Feature: Emergency SOS',
         urgency: HealthUrgency.red,
         isEmergency: false,
+        intent: 'app_help',
         understanding: 'Overview of MEDGUARD Emergency SOS and contact broadcasting.',
         followUpQuestions: [
           'Have you registered your emergency contacts in your profile?',
@@ -198,6 +255,7 @@ class LocalHealthFallbackService {
         category: 'MedGuard Feature: Ambulance Assistance',
         urgency: HealthUrgency.orange,
         isEmergency: false,
+        intent: 'app_help',
         understanding: 'Guide to MEDGUARD Ambulance dispatch and calling.',
         followUpQuestions: [
           'Are you currently experiencing a medical emergency?',
@@ -229,6 +287,7 @@ class LocalHealthFallbackService {
         category: 'MedGuard Feature: Nearby Hospitals & Map',
         urgency: HealthUrgency.green,
         isEmergency: false,
+        intent: 'app_help',
         understanding: 'Locating nearby healthcare facilities on MEDGUARD Explore Map.',
         followUpQuestions: [
           'Are you looking for 24/7 emergency care or outpatient clinics?',
@@ -261,6 +320,7 @@ class LocalHealthFallbackService {
         category: 'MedGuard Feature: Health Vault & PDF',
         urgency: HealthUrgency.green,
         isEmergency: false,
+        intent: 'app_help',
         understanding: 'Managing personal health records and PDF summaries in MEDGUARD.',
         followUpQuestions: [
           'Would you like to upload a prescription, blood test, or consultation note?',
@@ -292,6 +352,7 @@ class LocalHealthFallbackService {
         category: 'MedGuard Feature: Doctor Appointments',
         urgency: HealthUrgency.green,
         isEmergency: false,
+        intent: 'app_help',
         understanding: 'Scheduling and tracking clinical appointments in MEDGUARD.',
         followUpQuestions: [
           'Do you have an upcoming doctor consultation to schedule?',
@@ -531,6 +592,13 @@ class LocalHealthFallbackService {
         category: 'Headache + Vomiting',
         urgency: HealthUrgency.orange,
         isEmergency: false,
+        intent: 'symptom',
+        recommendedCare: RecommendedCare(
+          clinicianType: 'Urgent Care / General Physician',
+          urgency: 'urgent',
+          urgencyLabel: 'Urgent Medical Review',
+          reason: 'Combined headache and vomiting can indicate intracranial pressure, severe migraine, or infectious etiology.',
+        ),
         understanding: 'Combined symptoms of headache and vomiting.',
         followUpQuestions: [
           'Did the headache begin suddenly or gradually?',
@@ -567,6 +635,13 @@ class LocalHealthFallbackService {
         category: 'Headache',
         urgency: HealthUrgency.yellow,
         isEmergency: false,
+        intent: 'symptom',
+        recommendedCare: RecommendedCare(
+          clinicianType: 'General Physician / Neurologist',
+          urgency: 'routine',
+          urgencyLabel: 'Routine Medical Evaluation',
+          reason: 'Recurrent or persistent headache should be evaluated to identify triggers and appropriate preventive management.',
+        ),
         understanding: 'Head pain or discomfort.',
         followUpQuestions: [
           'How long have you had this headache?',
@@ -603,6 +678,13 @@ class LocalHealthFallbackService {
         category: 'Fever',
         urgency: HealthUrgency.yellow,
         isEmergency: false,
+        intent: 'symptom',
+        recommendedCare: RecommendedCare(
+          clinicianType: 'General Physician / Internal Medicine',
+          urgency: 'prompt',
+          urgencyLabel: 'Prompt Medical Consultation',
+          reason: 'Fever persisting over 48 hours or accompanied by severe fatigue requires clinical workup to rule out bacterial or viral infection.',
+        ),
         understanding: 'Elevated body temperature or feverish symptoms.',
         followUpQuestions: [
           'What is your recorded body temperature reading?',
@@ -640,6 +722,13 @@ class LocalHealthFallbackService {
         category: 'Dizziness',
         urgency: HealthUrgency.yellow,
         isEmergency: false,
+        intent: 'symptom',
+        recommendedCare: RecommendedCare(
+          clinicianType: 'General Physician / ENT Specialist',
+          urgency: 'routine',
+          urgencyLabel: 'Clinical Balance Assessment',
+          reason: 'Dizziness or vertigo should be evaluated for inner ear balance disorders, cardiovascular orthostasis, or metabolic causes.',
+        ),
         understanding: 'Lightheadedness, dizziness, or loss of balance.',
         followUpQuestions: [
           'Does the room feel like it is spinning (vertigo), or do you feel faint?',
@@ -677,6 +766,13 @@ class LocalHealthFallbackService {
         category: 'Stomach Pain',
         urgency: HealthUrgency.yellow,
         isEmergency: false,
+        intent: 'symptom',
+        recommendedCare: RecommendedCare(
+          clinicianType: 'General Physician / Gastroenterologist',
+          urgency: 'prompt',
+          urgencyLabel: 'Abdominal Examination Recommended',
+          reason: 'Abdominal pain requires physical evaluation to differentiate benign indigestion from acute gastritis or surgical abdomen.',
+        ),
         understanding: 'Abdominal or stomach pain/discomfort.',
         followUpQuestions: [
           'Where in your abdomen is the pain located (upper, lower, left, right)?',
@@ -713,6 +809,13 @@ class LocalHealthFallbackService {
         category: 'Vomiting & Nausea',
         urgency: HealthUrgency.yellow,
         isEmergency: false,
+        intent: 'symptom',
+        recommendedCare: RecommendedCare(
+          clinicianType: 'General Physician / Urgent Care',
+          urgency: 'prompt',
+          urgencyLabel: 'Hydration & Clinical Review',
+          reason: 'Persistent vomiting risks electrolyte imbalance and dehydration requiring antiemetics and fluid assessment.',
+        ),
         understanding: 'Nausea or vomiting discomfort.',
         followUpQuestions: [
           'How many times have you vomited today?',
@@ -749,6 +852,13 @@ class LocalHealthFallbackService {
         category: 'Cough & Cold',
         urgency: HealthUrgency.green,
         isEmergency: false,
+        intent: 'symptom',
+        recommendedCare: RecommendedCare(
+          clinicianType: 'General Physician / Primary-Care Doctor',
+          urgency: 'routine',
+          urgencyLabel: 'Primary Care Visit if Persistent',
+          reason: 'Upper respiratory infections persisting beyond 10-14 days should be evaluated for secondary bacterial infection.',
+        ),
         understanding: 'Upper respiratory congestion or cough symptoms.',
         followUpQuestions: [
           'Is your cough dry or producing mucus?',
@@ -782,6 +892,13 @@ class LocalHealthFallbackService {
         category: 'Sore Throat',
         urgency: HealthUrgency.green,
         isEmergency: false,
+        intent: 'symptom',
+        recommendedCare: RecommendedCare(
+          clinicianType: 'General Physician / ENT Specialist',
+          urgency: 'routine',
+          urgencyLabel: 'Primary Care Visit',
+          reason: 'Severe sore throat, especially with fever or white tonsillar exudate, requires evaluation to test for streptococcal pharyngitis.',
+        ),
         understanding: 'Throat irritation or discomfort when swallowing.',
         followUpQuestions: [
           'Is the sore throat accompanied by a fever or swollen glands?',
@@ -806,6 +923,136 @@ class LocalHealthFallbackService {
       );
     }
 
+    // TOOTHACHE & DENTAL PAIN
+    if (clean.contains('tooth') ||
+        clean.contains('teeth') ||
+        clean.contains('dental') ||
+        clean.contains('gum pain') ||
+        clean.contains('toothache')) {
+      return _buildResponse(
+        query: userQuery,
+        category: 'Dental: Toothache',
+        urgency: HealthUrgency.yellow,
+        isEmergency: false,
+        intent: 'symptom',
+        recommendedCare: RecommendedCare(
+          clinicianType: 'Dentist / Dental Surgeon',
+          urgency: 'prompt',
+          urgencyLabel: 'Prompt Dental Evaluation',
+          reason: 'Tooth pain often stems from dental caries, pulp inflammation, cracked tooth, or dental abscess requiring in-office examination.',
+        ),
+        understanding: 'Toothache or dental discomfort reported.',
+        followUpQuestions: const [
+          'Is the tooth sensitive to hot or cold temperatures?',
+          'Do you notice any facial swelling, fever, or bleeding gums?',
+          'Is the pain constant throbbing or does it happen when chewing?',
+        ],
+        considerations: const [
+          'Tooth pain rarely resolves on its own and requires examination by a dentist.',
+          'Over-the-counter pain relievers can temporarily relieve discomfort but do not treat the underlying dental cause.',
+          'Warm salt water rinses can help keep the area clean and reduce inflammation.',
+        ],
+        whatYouCanDoNow: const [
+          'Rinse your mouth gently with warm salt water (1/2 teaspoon salt in 1 glass of warm water).',
+          'Floss gently around the affected tooth to dislodge trapped food particles.',
+          'Avoid very hot, cold, sugary, or acidic foods and drinks.',
+          'Do not apply aspirin directly to the gum tissue, as this causes chemical burns.',
+        ],
+        warningSigns: const [
+          'Visible facial or jaw swelling, or high fever (indicates potential spreading infection).',
+          'Difficulty swallowing or breathing (requires emergency care).',
+          'Pus drainage or a foul taste in the mouth.',
+        ],
+        whenToSeekMedicalHelp:
+            'Schedule a prompt appointment with a dentist. Go to an emergency center immediately if facial swelling spreads to the eye or neck.',
+      );
+    }
+
+    // SKIN RASH & DERMATITIS
+    if (clean.contains('rash') ||
+        clean.contains('itchy skin') ||
+        clean.contains('skin irritation') ||
+        clean.contains('eczema') ||
+        clean.contains('dermatitis')) {
+      return _buildResponse(
+        query: userQuery,
+        category: 'Dermatology: Skin Rash',
+        urgency: HealthUrgency.yellow,
+        isEmergency: false,
+        intent: 'symptom',
+        recommendedCare: RecommendedCare(
+          clinicianType: 'Dermatologist / General Physician',
+          urgency: 'routine',
+          urgencyLabel: 'Dermatology Consultation',
+          reason: 'Cutaneous eruptions and persistent rashes require visual dermatological assessment for accurate diagnosis and prescription topicals.',
+        ),
+        understanding: 'Skin rash, irritation, or itching reported.',
+        followUpQuestions: const [
+          'Where on your body is the rash located and has it spread?',
+          'Are there blisters, hives, scaling, or open sores?',
+          'Did you recently come into contact with new soaps, detergents, plants, or medications?',
+        ],
+        considerations: const [
+          'Rashes can result from contact dermatitis, viral exanthems, fungal infections, or allergic reactions.',
+          'Scratching compromises the epidermal barrier and increases the risk of secondary bacterial skin infection.',
+        ],
+        whatYouCanDoNow: const [
+          'Wash the area gently with mild, fragrance-free soap and lukewarm water.',
+          'Apply a cool, damp compress or soothing calamine lotion to relieve itching.',
+          'Avoid hot showers, tight synthetic clothing, and scented lotions.',
+          'Keep fingernails short and avoid scratching.',
+        ],
+        warningSigns: const [
+          'Rapidly spreading rash accompanied by high fever or shortness of breath.',
+          'Purple or dark red spots that do not fade when pressed (petechiae/purpura).',
+          'Skin peeling, blistering over large body areas, or involvement of eyes/mouth.',
+        ],
+        whenToSeekMedicalHelp:
+            'Consult a dermatologist or general physician if the rash persists more than 3-5 days, worsens, or causes severe itching.',
+      );
+    }
+
+    // KNEE & JOINT PAIN
+    if (clean.contains('knee') ||
+        clean.contains('joint') ||
+        clean.contains('arthritis') ||
+        clean.contains('swollen joint')) {
+      return _buildResponse(
+        query: userQuery,
+        category: 'Musculoskeletal: Joint & Knee Pain',
+        urgency: HealthUrgency.yellow,
+        isEmergency: false,
+        intent: 'symptom',
+        recommendedCare: RecommendedCare(
+          clinicianType: 'Orthopedic Specialist / Physiotherapist',
+          urgency: 'routine',
+          urgencyLabel: 'Musculoskeletal Evaluation',
+          reason: 'Joint pain or swelling requires physical examination, range-of-motion testing, and possibly imaging (X-ray/MRI).',
+        ),
+        understanding: 'Joint or knee discomfort reported.',
+        followUpQuestions: const [
+          'Did the pain begin following an acute twist, fall, or sports injury?',
+          'Is there visible swelling, warmth, or redness around the joint?',
+          'Are you able to bear weight and walk on the leg?',
+        ],
+        considerations: const [
+          'Joint pain may be caused by ligament sprains, meniscus tears, tendonitis, or osteoarthritis.',
+          'Protecting the joint from further strain while maintaining gentle mobility accelerates recovery.',
+        ],
+        whatYouCanDoNow: const [
+          'Follow the R.I.C.E protocol: Rest, Ice (15-20 min intervals), gentle Compression, and Elevation.',
+          'Avoid high-impact jumping, running, or deep squatting.',
+          'Use supportive footwear and avoid walking barefoot on hard floors.',
+        ],
+        warningSigns: const [
+          'Complete inability to bear weight or joint "giving way" or locking.',
+          'Rapid severe swelling, redness, and heat (possible septic arthritis).',
+          'Visible deformity or numbness below the joint.',
+        ],
+        whenToSeekMedicalHelp:
+            'Schedule a consultation with an orthopedic specialist if joint pain persists for more than a week, impairs walking, or recurs frequently.',
+      );
+    }
 
     // 25. GENERAL HEALTH / DEFAULT FALLBACK
     return _buildResponse(
@@ -813,6 +1060,7 @@ class LocalHealthFallbackService {
       category: 'General Health',
       urgency: HealthUrgency.green,
       isEmergency: false,
+      intent: 'general',
       understanding: 'General health or symptom inquiry.',
       followUpQuestions: [
         'How long have you noticed these symptoms?',
@@ -848,6 +1096,9 @@ class LocalHealthFallbackService {
     required List<String> whatYouCanDoNow,
     required List<String> warningSigns,
     required String whenToSeekMedicalHelp,
+    String intent = 'symptom',
+    RecommendedCare? recommendedCare,
+    String? disclaimer,
   }) {
     final bodyBuffer = StringBuffer();
     bodyBuffer.writeln('Summary: $understanding\n');
@@ -874,8 +1125,10 @@ class LocalHealthFallbackService {
       whatYouCanDoNow: whatYouCanDoNow,
       warningSigns: warningSigns,
       whenToSeekMedicalHelp: whenToSeekMedicalHelp,
-      disclaimer:
+      disclaimer: disclaimer ??
           'MedGuard Offline Guidance: This information is general health education and does not replace professional clinical evaluation or medical diagnosis.',
+      intent: intent,
+      recommendedCare: recommendedCare,
     );
   }
 }

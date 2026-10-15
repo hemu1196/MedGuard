@@ -44,23 +44,62 @@ class MedGuardAIService {
           if (res['success'] == true && res['reply'] != null) {
             final replyText = res['reply'].toString().trim();
             final isEmergency = res['isEmergency'] == true;
+            final intent = (res['intent'] ?? (isEmergency ? 'emergency' : 'general')).toString();
+
+            RecommendedCare? recommendedCare;
+            if (res['recommendedCare'] != null) {
+              recommendedCare = RecommendedCare.fromMap(
+                Map<String, dynamic>.from(res['recommendedCare']),
+              );
+            }
+
+            final followUpQuestions = List<String>.from(res['followUpQuestions'] ?? []);
+            final warningSigns = List<String>.from(res['warningSigns'] ?? []);
+
+            HealthUrgency urgency = HealthUrgency.green;
+            if (isEmergency || intent == 'emergency') {
+              urgency = HealthUrgency.red;
+            } else if (recommendedCare != null) {
+              final u = recommendedCare.urgency.toLowerCase();
+              if (u == 'urgent' || u == 'high') {
+                urgency = HealthUrgency.orange;
+              } else if (u == 'prompt' || u == 'medium') {
+                urgency = HealthUrgency.yellow;
+              }
+            }
 
             final cloudResponse = AIResponse(
               text: replyText,
               source: AIResponseSource.gemini,
               isFallback: false,
-              category: isEmergency ? 'Emergency Guidance' : 'MedGuard AI Cloud Guidance',
+              category: isEmergency
+                  ? 'Emergency Guidance'
+                  : (intent == 'greeting'
+                      ? 'Greeting'
+                      : (intent == 'app_help'
+                          ? 'App Guidance'
+                          : (intent == 'education'
+                              ? 'Medical Education'
+                              : (intent == 'medicine'
+                                  ? 'Medication Information'
+                                  : 'Symptom Guidance')))),
               isEmergency: isEmergency,
-              urgency: isEmergency ? HealthUrgency.red : HealthUrgency.green,
+              urgency: urgency,
               understanding: cleanQuery,
-              followUpQuestions: const [],
+              followUpQuestions: followUpQuestions,
               considerations: const [],
               whatYouCanDoNow: const [],
-              warningSigns: const [],
+              warningSigns: warningSigns,
               whenToSeekMedicalHelp: isEmergency
                   ? 'Call emergency medical services immediately (108 / 112).'
-                  : 'Consult a licensed physician for personalized medical advice.',
-              disclaimer: 'This guidance is educational and does not constitute a clinical medical diagnosis.',
+                  : (recommendedCare != null
+                      ? 'Consult a ${recommendedCare.clinicianType} for clinical evaluation.'
+                      : ''),
+              disclaimer: intent == 'greeting'
+                  ? ''
+                  : 'This guidance is educational and does not constitute a clinical medical diagnosis.',
+              intent: intent,
+              recommendedCare: recommendedCare,
             );
 
             return HealthSafetyFilter.filter(userQuery: cleanQuery, response: cloudResponse);
@@ -81,8 +120,16 @@ class MedGuardAIService {
         text: geminiRes.rawText.isNotEmpty ? geminiRes.rawText : _formatGeminiText(geminiRes),
         source: AIResponseSource.gemini,
         isFallback: false,
-        category: 'Gemini AI Guidance',
-        isEmergency: geminiRes.urgency == HealthUrgency.red,
+        category: geminiRes.intent == 'greeting'
+            ? 'Greeting'
+            : (geminiRes.intent == 'app_help'
+                ? 'App Guidance'
+                : (geminiRes.intent == 'education'
+                    ? 'Medical Education'
+                    : (geminiRes.intent == 'medicine'
+                        ? 'Medication Information'
+                        : 'Gemini AI Guidance'))),
+        isEmergency: geminiRes.urgency == HealthUrgency.red || geminiRes.intent == 'emergency',
         urgency: geminiRes.urgency,
         understanding: geminiRes.understanding,
         followUpQuestions: geminiRes.followUpQuestions,
@@ -90,7 +137,9 @@ class MedGuardAIService {
         whatYouCanDoNow: geminiRes.whatYouCanDoNow,
         warningSigns: geminiRes.warningSigns,
         whenToSeekMedicalHelp: geminiRes.whenToSeekMedicalHelp,
-        disclaimer: geminiRes.disclaimer,
+        disclaimer: geminiRes.intent == 'greeting' ? '' : geminiRes.disclaimer,
+        intent: geminiRes.intent,
+        recommendedCare: geminiRes.recommendedCare,
       );
 
       return HealthSafetyFilter.filter(userQuery: cleanQuery, response: aiResponse);
@@ -114,6 +163,8 @@ class MedGuardAIService {
         whenToSeekMedicalHelp: rawFallback.whenToSeekMedicalHelp,
         disclaimer: rawFallback.disclaimer,
         errorInfo: e.toString(),
+        intent: rawFallback.intent,
+        recommendedCare: rawFallback.recommendedCare,
       );
 
       return HealthSafetyFilter.filter(userQuery: cleanQuery, response: fallbackResponse);

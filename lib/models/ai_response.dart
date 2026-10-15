@@ -6,6 +6,38 @@ enum AIResponseSource {
   localFallback,
 }
 
+class RecommendedCare {
+  final String clinicianType;
+  final String urgency; // 'monitor', 'routine', 'prompt', 'urgent', 'emergency'
+  final String urgencyLabel;
+  final String reason;
+
+  RecommendedCare({
+    required this.clinicianType,
+    this.urgency = 'routine',
+    this.urgencyLabel = 'Routine Medical Evaluation',
+    required this.reason,
+  });
+
+  Map<String, dynamic> toMap() {
+    return {
+      'clinicianType': clinicianType,
+      'urgency': urgency,
+      'urgencyLabel': urgencyLabel,
+      'reason': reason,
+    };
+  }
+
+  factory RecommendedCare.fromMap(Map<String, dynamic> map) {
+    return RecommendedCare(
+      clinicianType: map['clinicianType'] ?? 'General Physician / Primary-Care Doctor',
+      urgency: map['urgency'] ?? 'routine',
+      urgencyLabel: map['urgencyLabel'] ?? 'Routine Medical Evaluation',
+      reason: map['reason'] ?? '',
+    );
+  }
+}
+
 class AIResponse {
   final String text;
   final AIResponseSource source;
@@ -22,6 +54,8 @@ class AIResponse {
   final String whenToSeekMedicalHelp;
   final String disclaimer;
   final String? errorInfo;
+  final String intent; // 'greeting', 'app_help', 'education', 'medicine', 'symptom', 'emergency', 'general'
+  final RecommendedCare? recommendedCare;
 
   AIResponse({
     required this.text,
@@ -39,7 +73,16 @@ class AIResponse {
     required this.whenToSeekMedicalHelp,
     required this.disclaimer,
     this.errorInfo,
+    this.intent = 'general',
+    this.recommendedCare,
   }) : timestamp = timestamp ?? DateTime.now();
+
+  bool get isGreeting => intent == 'greeting';
+  bool get isAppHelp => intent == 'app_help';
+  bool get isEducation => intent == 'education';
+  bool get isMedicine => intent == 'medicine';
+  bool get isSymptom => intent == 'symptom' || recommendedCare != null;
+  bool get isEmergencyCase => isEmergency || urgency == HealthUrgency.red || intent == 'emergency';
 
   String get sourceBadgeLabel {
     switch (source) {
@@ -51,9 +94,12 @@ class AIResponse {
   }
 
   String get urgencyLabel {
+    if (isEmergencyCase) {
+      return 'EMERGENCY CARE REQUIRED IMMEDIATELY';
+    }
     switch (urgency) {
       case HealthUrgency.green:
-        return 'GENERAL SELF-CARE';
+        return isSymptom ? 'SYMPTOM GUIDANCE' : 'GENERAL GUIDANCE';
       case HealthUrgency.yellow:
         return 'DOCTOR CONSULTATION RECOMMENDED';
       case HealthUrgency.orange:
@@ -80,6 +126,8 @@ class AIResponse {
       'whenToSeekMedicalHelp': whenToSeekMedicalHelp,
       'disclaimer': disclaimer,
       'errorInfo': errorInfo,
+      'intent': intent,
+      'recommendedCare': recommendedCare?.toMap(),
     };
   }
 
@@ -97,6 +145,11 @@ class AIResponse {
     final sStr = (map['source'] ?? 'localFallback').toString().toLowerCase();
     if (sStr.contains('gemini')) {
       src = AIResponseSource.gemini;
+    }
+
+    RecommendedCare? care;
+    if (map['recommendedCare'] != null) {
+      care = RecommendedCare.fromMap(Map<String, dynamic>.from(map['recommendedCare']));
     }
 
     return AIResponse(
@@ -118,6 +171,8 @@ class AIResponse {
       disclaimer: map['disclaimer'] ??
           'This information is general guidance and does not replace professional medical evaluation.',
       errorInfo: map['errorInfo'],
+      intent: map['intent'] ?? 'general',
+      recommendedCare: care,
     );
   }
 

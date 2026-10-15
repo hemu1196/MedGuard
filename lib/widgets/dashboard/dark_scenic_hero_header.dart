@@ -5,6 +5,7 @@ import '../../controllers/dashboard_controller.dart';
 
 class QuickActionData {
   final String label;
+  final String? subtitle;
   final IconData icon;
   final Color iconColor;
   final Color bgColor;
@@ -12,6 +13,7 @@ class QuickActionData {
 
   QuickActionData({
     required this.label,
+    this.subtitle,
     required this.icon,
     required this.iconColor,
     required this.bgColor,
@@ -38,6 +40,7 @@ class DarkScenicHeroHeader extends StatelessWidget {
     final List<QuickActionData> quickActions = [
       QuickActionData(
         label: 'AI',
+        subtitle: 'Symptom & advice',
         icon: Icons.smart_toy_rounded,
         iconColor: const Color(0xFF2563EB),
         bgColor: const Color(0xFFEFF6FF),
@@ -51,6 +54,7 @@ class DarkScenicHeroHeader extends StatelessWidget {
       ),
       QuickActionData(
         label: 'Medicines',
+        subtitle: 'Schedule & stock',
         icon: Icons.medication_rounded,
         iconColor: const Color(0xFFEF4444),
         bgColor: const Color(0xFFFEF2F2),
@@ -64,6 +68,7 @@ class DarkScenicHeroHeader extends StatelessWidget {
       ),
       QuickActionData(
         label: 'Vault',
+        subtitle: 'Records & vault',
         icon: Icons.folder_rounded,
         iconColor: const Color(0xFF0F766E),
         bgColor: const Color(0xFFF0FDF4),
@@ -77,6 +82,7 @@ class DarkScenicHeroHeader extends StatelessWidget {
       ),
       QuickActionData(
         label: 'Appts',
+        subtitle: 'Doctor visits',
         icon: Icons.calendar_month_rounded,
         iconColor: const Color(0xFF8B5CF6),
         bgColor: const Color(0xFFF5F3FF),
@@ -86,6 +92,7 @@ class DarkScenicHeroHeader extends StatelessWidget {
       ),
       QuickActionData(
         label: 'Hospitals',
+        subtitle: '24/7 Facilities',
         icon: Icons.local_hospital_rounded,
         iconColor: const Color(0xFF059669),
         bgColor: const Color(0xFFECFDF5),
@@ -95,6 +102,7 @@ class DarkScenicHeroHeader extends StatelessWidget {
       ),
       QuickActionData(
         label: 'Maps',
+        subtitle: 'Live navigation',
         icon: Icons.location_on_rounded,
         iconColor: const Color(0xFF0D9488),
         bgColor: const Color(0xFFF0FDF4),
@@ -104,6 +112,7 @@ class DarkScenicHeroHeader extends StatelessWidget {
       ),
       QuickActionData(
         label: 'Ambulance',
+        subtitle: 'SOS & dispatch',
         icon: Icons.airport_shuttle_rounded,
         iconColor: const Color(0xFFDC2626),
         bgColor: const Color(0xFFFEF2F2),
@@ -113,6 +122,7 @@ class DarkScenicHeroHeader extends StatelessWidget {
       ),
       QuickActionData(
         label: 'Water',
+        subtitle: 'Hydration goal',
         icon: Icons.water_drop_rounded,
         iconColor: const Color(0xFF0284C7),
         bgColor: const Color(0xFFF0F9FF),
@@ -557,42 +567,109 @@ class DarkScenicHeroHeader extends StatelessWidget {
   }
 
   Widget _buildQuickActionsGrid(BuildContext context, List<QuickActionData> items) {
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 4,
-        mainAxisSpacing: 10,
-        crossAxisSpacing: 10,
-        childAspectRatio: 0.96,
-      ),
-      itemCount: items.length,
-      itemBuilder: (context, index) {
-        final item = items[index];
-        return Material(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        final isWideDesktop = width >= 800;
+        final isTablet = width >= 500 && width < 800;
+
+        // Controlled height preventing oversized vertical expansion on desktop/web
+        final double mainAxisExtent = isWideDesktop
+            ? 130.0
+            : (isTablet ? 112.0 : 96.0);
+
+        final double iconBoxSize = isWideDesktop ? 48.0 : (isTablet ? 42.0 : 38.0);
+        final double iconSize = isWideDesktop ? 26.0 : (isTablet ? 22.0 : 20.0);
+        final double labelFontSize = isWideDesktop ? 13.0 : (isTablet ? 12.0 : 11.0);
+
+        return GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 4,
+            mainAxisSpacing: isWideDesktop ? 14 : 10,
+            crossAxisSpacing: isWideDesktop ? 14 : 10,
+            mainAxisExtent: mainAxisExtent,
+          ),
+          itemCount: items.length,
+          itemBuilder: (context, index) {
+            final item = items[index];
+            return _QuickActionCardTile(
+              item: item,
+              iconBoxSize: iconBoxSize,
+              iconSize: iconSize,
+              labelFontSize: labelFontSize,
+              showSubtitle: isWideDesktop,
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
+class _QuickActionCardTile extends StatefulWidget {
+  final QuickActionData item;
+  final double iconBoxSize;
+  final double iconSize;
+  final double labelFontSize;
+  final bool showSubtitle;
+
+  const _QuickActionCardTile({
+    required this.item,
+    required this.iconBoxSize,
+    required this.iconSize,
+    required this.labelFontSize,
+    required this.showSubtitle,
+  });
+
+  @override
+  State<_QuickActionCardTile> createState() => _QuickActionCardTileState();
+}
+
+class _QuickActionCardTileState extends State<_QuickActionCardTile> {
+  bool _isHovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final item = widget.item;
+
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _isHovered = true),
+      onExit: (_) => setState(() => _isHovered = false),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: _isHovered ? const Color(0xFF00BFA5) : const Color(0xFFE2E8F0),
+            width: _isHovered ? 1.5 : 1.0,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: _isHovered
+                  ? const Color(0xFF00BFA5).withValues(alpha: 0.22)
+                  : Colors.black.withValues(alpha: 0.08),
+              blurRadius: _isHovered ? 12 : 6,
+              offset: Offset(0, _isHovered ? 4 : 2),
+            ),
+          ],
+        ),
+        child: Material(
           color: Colors.transparent,
           child: InkWell(
             onTap: item.onTap,
             borderRadius: BorderRadius.circular(16),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.12),
-                    blurRadius: 8,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-              ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Container(
-                    width: 40,
-                    height: 40,
+                    width: widget.iconBoxSize,
+                    height: widget.iconBoxSize,
                     decoration: BoxDecoration(
                       color: item.bgColor,
                       borderRadius: BorderRadius.circular(12),
@@ -600,7 +677,7 @@ class DarkScenicHeroHeader extends StatelessWidget {
                     child: Icon(
                       item.icon,
                       color: item.iconColor,
-                      size: 22,
+                      size: widget.iconSize,
                     ),
                   ),
                   const SizedBox(height: 6),
@@ -609,19 +686,34 @@ class DarkScenicHeroHeader extends StatelessWidget {
                     textAlign: TextAlign.center,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 11,
+                    style: TextStyle(
+                      fontSize: widget.labelFontSize,
                       fontWeight: FontWeight.w700,
-                      color: Color(0xFF142432),
-                      height: 1.1,
+                      color: const Color(0xFF142432),
+                      height: 1.15,
                     ),
                   ),
+                  if (widget.showSubtitle && item.subtitle != null) ...[
+                    const SizedBox(height: 3),
+                    Text(
+                      item.subtitle!,
+                      textAlign: TextAlign.center,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w400,
+                        color: Color(0xFF64748B),
+                        height: 1.1,
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
+import 'package:url_launcher/url_launcher.dart';
 import '../../app/routes.dart';
 import '../../app/theme.dart';
 import '../../core/config/ai_config.dart';
@@ -398,27 +399,32 @@ class _AiAssistantPageState extends State<AiAssistantPage> {
 
             // Chat Messages List
             Expanded(
-              child: ListView.builder(
-                controller: _scrollController,
-                padding: const EdgeInsets.all(16),
-                itemCount: _messages.length + (_isThinking ? 1 : 0),
-                itemBuilder: (context, index) {
-                  if (index == _messages.length && _isThinking) {
-                    return _buildThinkingIndicator();
-                  }
-                  final msg = _messages[index];
-                  if (msg.isUser) {
-                    return _buildUserBubble(msg.text);
-                  } else if (msg.isError) {
-                    return _buildAiErrorCard(msg);
-                  } else if (msg.structuredResponse != null) {
-                    return _buildStructuredAiResponseCard(msg.structuredResponse!, msg.lastQuery);
-                  } else if (msg.aiResponse != null) {
-                    return _buildLegacyAiResponseCard(msg.aiResponse!);
-                  } else {
-                    return _buildSystemBubble(msg.text);
-                  }
-                },
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 1000),
+                  child: ListView.builder(
+                    controller: _scrollController,
+                    padding: const EdgeInsets.all(16),
+                    itemCount: _messages.length + (_isThinking ? 1 : 0),
+                    itemBuilder: (context, index) {
+                      if (index == _messages.length && _isThinking) {
+                        return _buildThinkingIndicator();
+                      }
+                      final msg = _messages[index];
+                      if (msg.isUser) {
+                        return _buildUserBubble(msg.text);
+                      } else if (msg.isError) {
+                        return _buildAiErrorCard(msg);
+                      } else if (msg.structuredResponse != null) {
+                        return _buildStructuredAiResponseCard(msg.structuredResponse!, msg.lastQuery);
+                      } else if (msg.aiResponse != null) {
+                        return _buildLegacyAiResponseCard(msg.aiResponse!);
+                      } else {
+                        return _buildSystemBubble(msg.text);
+                      }
+                    },
+                  ),
+                ),
               ),
             ),
 
@@ -435,51 +441,57 @@ class _AiAssistantPageState extends State<AiAssistantPage> {
                   ),
                 ],
               ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _inputController,
-                      enabled: !_isThinking,
-                      onSubmitted: _isThinking ? null : _sendMessage,
-                      decoration: InputDecoration(
-                        hintText: _isThinking
-                            ? 'MedGuard AI is responding...'
-                            : 'Describe your symptoms or ask a question...',
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 12,
-                        ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(24),
-                          borderSide: BorderSide(color: Colors.grey.shade300),
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(24),
-                          borderSide: BorderSide(color: Colors.grey.shade300),
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 1000),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _inputController,
+                          enabled: !_isThinking,
+                          onSubmitted: _isThinking ? null : _sendMessage,
+                          decoration: InputDecoration(
+                            hintText: _isThinking
+                                ? 'MedGuard AI is responding...'
+                                : 'Describe your symptoms or ask a question...',
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 12,
+                            ),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(24),
+                              borderSide: BorderSide(color: Colors.grey.shade300),
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(24),
+                              borderSide: BorderSide(color: Colors.grey.shade300),
+                            ),
+                          ),
                         ),
                       ),
-                    ),
+                      const SizedBox(width: 8),
+                      IconButton(
+                        icon: Icon(
+                          _isListening ? Icons.mic_rounded : Icons.mic_none_rounded,
+                          color: _isListening ? AppColors.emergency : AppTheme.primaryTeal,
+                        ),
+                        onPressed: _isThinking ? null : _toggleListening,
+                      ),
+                      const SizedBox(width: 4),
+                      IconButton.filled(
+                        onPressed: _isThinking
+                            ? null
+                            : () => _sendMessage(_inputController.text),
+                        icon: const Icon(Icons.send_rounded),
+                        style: IconButton.styleFrom(
+                          backgroundColor: AppTheme.primaryTeal,
+                          foregroundColor: Colors.white,
+                        ),
+                      ),
+                    ],
                   ),
-                  IconButton(
-                    icon: Icon(
-                      _isListening ? Icons.mic_rounded : Icons.mic_none_rounded,
-                      color: _isListening ? AppColors.emergency : AppTheme.primaryTeal,
-                    ),
-                    onPressed: _isThinking ? null : _toggleListening,
-                  ),
-                  const SizedBox(width: 4),
-                  IconButton.filled(
-                    onPressed: _isThinking
-                        ? null
-                        : () => _sendMessage(_inputController.text),
-                    icon: const Icon(Icons.send_rounded),
-                    style: IconButton.styleFrom(
-                      backgroundColor: AppTheme.primaryTeal,
-                      foregroundColor: Colors.white,
-                    ),
-                  ),
-                ],
+                ),
               ),
             ),
           ],
@@ -649,7 +661,502 @@ class _AiAssistantPageState extends State<AiAssistantPage> {
     );
   }
 
+  Future<void> _makePhoneCall(String phoneNumber) async {
+    final uri = Uri.parse('tel:$phoneNumber');
+    try {
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri);
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Cannot place call to $phoneNumber automatically.')),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('[PHONE CALL ERROR] $e');
+    }
+  }
+
   Widget _buildStructuredAiResponseCard(AIResponse resp, String? lastQuery) {
+    if (resp.isGreeting) {
+      return _buildGreetingResponseCard(resp, lastQuery);
+    }
+    if (resp.isEmergencyCase) {
+      return _buildEmergencyResponseCard(resp, lastQuery);
+    }
+    if (resp.isAppHelp || resp.isEducation) {
+      return _buildEducationalResponseCard(resp, lastQuery);
+    }
+    return _buildSymptomGuidanceCard(resp, lastQuery);
+  }
+
+  Widget _buildGreetingResponseCard(AIResponse resp, String? lastQuery) {
+    final isGemini = resp.source == AIResponseSource.gemini;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      child: Card(
+        elevation: 1.5,
+        color: Colors.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: AppTheme.primaryTeal.withValues(alpha: 0.2)),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: AppTheme.primaryTeal.withValues(alpha: 0.12),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.auto_awesome, color: AppTheme.primaryTeal, size: 20),
+                  ),
+                  const SizedBox(width: 10),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'MedGuard AI Assistant',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 15,
+                            color: AppTheme.textDark,
+                          ),
+                        ),
+                        Text(
+                          'Your Intelligent Health Companion',
+                          style: TextStyle(fontSize: 11, color: AppTheme.textMuted),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: isGemini
+                          ? AppTheme.primaryTeal.withValues(alpha: 0.1)
+                          : Colors.amber.shade50,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: isGemini
+                            ? AppTheme.primaryTeal.withValues(alpha: 0.3)
+                            : Colors.amber.shade300,
+                      ),
+                    ),
+                    child: Text(
+                      resp.sourceBadgeLabel,
+                      style: TextStyle(
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.bold,
+                        color: isGemini ? AppTheme.primaryTeal : Colors.amber.shade900,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+
+              // Greeting Message
+              Text(
+                resp.text.isNotEmpty ? resp.text : resp.understanding,
+                style: const TextStyle(
+                  fontSize: 14,
+                  height: 1.5,
+                  color: AppTheme.textDark,
+                ),
+              ),
+
+              // Follow-up Suggestions
+              if (resp.followUpQuestions.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                const Text(
+                  'HOW CAN I HELP YOU TODAY?',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 0.8,
+                    color: AppTheme.primaryTeal,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: resp.followUpQuestions.map((q) {
+                    return ActionChip(
+                      avatar: const Icon(Icons.chat_bubble_outline_rounded, size: 14, color: AppTheme.primaryTeal),
+                      label: Text(
+                        q,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: AppTheme.primaryTeal,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      backgroundColor: AppTheme.primaryTeal.withValues(alpha: 0.06),
+                      side: BorderSide(color: AppTheme.primaryTeal.withValues(alpha: 0.25)),
+                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                      onPressed: _isThinking ? null : () => _sendMessage(q),
+                    );
+                  }).toList(),
+                ),
+              ],
+
+              const SizedBox(height: 12),
+              // Copy Button
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  onPressed: () {
+                    Clipboard.setData(ClipboardData(text: resp.text.isNotEmpty ? resp.text : resp.understanding));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Message copied to clipboard ✓'),
+                        duration: Duration(seconds: 2),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.copy_rounded, size: 14, color: AppTheme.textMuted),
+                  label: const Text('Copy', style: TextStyle(fontSize: 11, color: AppTheme.textMuted)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEmergencyResponseCard(AIResponse resp, String? lastQuery) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      child: Card(
+        elevation: 3,
+        color: const Color(0xFFFEF2F2),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: const BorderSide(color: AppTheme.accentRed, width: 1.5),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Red Emergency Header Banner
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: AppTheme.accentRed,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Row(
+                  children: [
+                    Icon(Icons.emergency, color: Colors.white, size: 20),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'EMERGENCY CARE REQUIRED IMMEDIATELY',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 12,
+                          letterSpacing: 0.8,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+
+              // Understanding / Symptoms description
+              Text(
+                resp.understanding.isNotEmpty ? resp.understanding : resp.text,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: AppTheme.accentRed,
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Severe emergency symptoms reported. Please seek immediate clinical emergency evaluation. Do not attempt to drive yourself.',
+                style: TextStyle(fontSize: 13, color: AppTheme.textDark, height: 1.4),
+              ),
+
+              // Red-Flag Warnings
+              if (resp.warningSigns.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                const Text(
+                  'CRITICAL WARNING SIGNS',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 0.8,
+                    color: AppTheme.accentRed,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                ...resp.warningSigns.map((w) => Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 2.0),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(Icons.warning_amber_rounded, size: 16, color: AppTheme.accentRed),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          w,
+                          style: const TextStyle(fontSize: 12.5, color: AppTheme.accentRed, fontWeight: FontWeight.w500),
+                        ),
+                      ),
+                    ],
+                  ),
+                )),
+              ],
+
+              const SizedBox(height: 16),
+              // Prominent Emergency Buttons
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: [
+                  ElevatedButton.icon(
+                    onPressed: () => _makePhoneCall('108'),
+                    icon: const Icon(Icons.call, size: 18),
+                    label: const Text('Call 108 Ambulance'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppTheme.accentRed,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    ),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: () => _makePhoneCall('112'),
+                    icon: const Icon(Icons.call, size: 18),
+                    label: const Text('Call 112 Emergency'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppTheme.accentRed,
+                      side: const BorderSide(color: AppTheme.accentRed),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    ),
+                  ),
+                  ElevatedButton.icon(
+                    onPressed: () => Navigator.pushNamed(context, AppRoutes.emergency),
+                    icon: const Icon(Icons.sos_rounded, size: 18),
+                    label: const Text('Trigger Emergency SOS'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.red.shade900,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    ),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: () => Navigator.pushNamed(context, AppRoutes.hospitals),
+                    icon: const Icon(Icons.local_hospital_rounded, size: 18),
+                    label: const Text('Nearest ER Hospitals'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppTheme.textDark,
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    ),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 14),
+              const Divider(),
+              const Text(
+                'Emergency Protocol: MedGuard is an assistive guidance platform and does not replace official emergency services. In severe respiratory, cardiac, or traumatic distress, call 108 or 112 without delay.',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontStyle: FontStyle.italic,
+                  color: AppTheme.textMuted,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEducationalResponseCard(AIResponse resp, String? lastQuery) {
+    final isGemini = resp.source == AIResponseSource.gemini;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      child: Card(
+        elevation: 1.5,
+        color: Colors.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: AppTheme.primaryBlue.withValues(alpha: 0.2)),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header
+              Row(
+                children: [
+                  Icon(
+                    isGemini ? Icons.smart_toy_outlined : Icons.offline_bolt_outlined,
+                    color: isGemini ? AppTheme.primaryTeal : Colors.amber.shade900,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      resp.category.isNotEmpty ? resp.category : 'Health Information',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 15,
+                        color: AppTheme.textDark,
+                      ),
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: isGemini
+                          ? AppTheme.primaryTeal.withValues(alpha: 0.1)
+                          : Colors.amber.shade100,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: isGemini
+                            ? AppTheme.primaryTeal.withValues(alpha: 0.3)
+                            : Colors.amber.shade300,
+                      ),
+                    ),
+                    child: Text(
+                      resp.sourceBadgeLabel,
+                      style: TextStyle(
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.bold,
+                        color: isGemini ? AppTheme.primaryTeal : Colors.amber.shade900,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+
+              // Text or Understanding
+              Text(
+                resp.text.isNotEmpty ? resp.text : resp.understanding,
+                style: const TextStyle(fontSize: 14, height: 1.5, color: AppTheme.textDark),
+              ),
+
+              // Considerations
+              if (resp.considerations.isNotEmpty) ...[
+                const SizedBox(height: 14),
+                const Text(
+                  'KEY DETAILS',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 0.8,
+                    color: AppTheme.textMuted,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                ...resp.considerations.map(
+                  (c) => Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 2.0),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('• ', style: TextStyle(fontWeight: FontWeight.bold, color: AppTheme.primaryTeal)),
+                        Expanded(child: Text(c, style: const TextStyle(fontSize: 13, height: 1.4))),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+
+              // What You Can Do Now
+              if (resp.whatYouCanDoNow.isNotEmpty) ...[
+                const SizedBox(height: 14),
+                const Text(
+                  'RECOMMENDED STEPS',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 0.8,
+                    color: AppTheme.primaryTeal,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                ...resp.whatYouCanDoNow.map(
+                  (a) => Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 2.0),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(Icons.check_circle_outline, size: 16, color: AppTheme.primaryTeal),
+                        const SizedBox(width: 6),
+                        Expanded(child: Text(a, style: const TextStyle(fontSize: 13, height: 1.4))),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+
+              // Suggested Follow-up Questions in Wrap
+              _buildFollowUpQuestionsWrap(resp.followUpQuestions),
+
+              const SizedBox(height: 12),
+              // Action Chips
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  ActionChip(
+                    avatar: const Icon(Icons.copy_rounded, size: 15, color: AppTheme.textDark),
+                    label: const Text('Copy Guidance', style: TextStyle(fontSize: 11)),
+                    onPressed: () {
+                      Clipboard.setData(ClipboardData(text: resp.text.isNotEmpty ? resp.text : resp.understanding));
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Guidance copied to clipboard ✓')),
+                      );
+                    },
+                  ),
+                  ActionChip(
+                    avatar: const Icon(Icons.bookmark_add_outlined, size: 15, color: AppTheme.primaryBlue),
+                    label: const Text('Save to Health Vault', style: TextStyle(fontSize: 11)),
+                    onPressed: () => _saveSummaryToVault(resp),
+                  ),
+                  if (resp.isFallback && lastQuery != null)
+                    ActionChip(
+                      avatar: const Icon(Icons.refresh_rounded, size: 15, color: AppTheme.primaryTeal),
+                      label: const Text('Try AI again', style: TextStyle(fontSize: 11)),
+                      onPressed: () => _retryQuery(lastQuery),
+                    ),
+                ],
+              ),
+
+              if (resp.disclaimer.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Text(
+                  resp.disclaimer,
+                  style: const TextStyle(fontSize: 11, fontStyle: FontStyle.italic, color: AppTheme.textMuted),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSymptomGuidanceCard(AIResponse resp, String? lastQuery) {
     Color urgencyBg;
     Color urgencyBorder;
     Color urgencyTextColor;
@@ -694,7 +1201,7 @@ class _AiAssistantPageState extends State<AiAssistantPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Source Badge & Title Header
+              // Header
               Row(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
@@ -705,7 +1212,7 @@ class _AiAssistantPageState extends State<AiAssistantPage> {
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'MedGuard AI Analysis',
+                      'MedGuard Symptom Guidance',
                       style: TextStyle(
                         fontWeight: FontWeight.bold,
                         fontSize: 16,
@@ -713,7 +1220,6 @@ class _AiAssistantPageState extends State<AiAssistantPage> {
                       ),
                     ),
                   ),
-                  // Source Badge
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                     decoration: BoxDecoration(
@@ -766,14 +1272,14 @@ class _AiAssistantPageState extends State<AiAssistantPage> {
                   ],
                 ),
               ),
-              const Divider(height: 20),
+              const SizedBox(height: 14),
 
               // UNDERSTANDING
               const Text(
                 'UNDERSTANDING',
                 style: TextStyle(
                   fontWeight: FontWeight.bold,
-                  fontSize: 12,
+                  fontSize: 11,
                   color: AppTheme.textMuted,
                   letterSpacing: 1.0,
                 ),
@@ -783,57 +1289,12 @@ class _AiAssistantPageState extends State<AiAssistantPage> {
                 resp.understanding,
                 style: const TextStyle(fontSize: 14, color: AppTheme.textDark),
               ),
-              const SizedBox(height: 16),
 
-              // FOLLOW-UP QUESTIONS
-              if (resp.followUpQuestions.isNotEmpty) ...[
-                const Text(
-                  'FOLLOW-UP QUESTIONS',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 12,
-                    color: AppTheme.primaryBlue,
-                    letterSpacing: 1.0,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                ...resp.followUpQuestions.map(
-                  (q) => Padding(
-                    padding: const EdgeInsets.only(bottom: 6.0),
-                    child: InkWell(
-                      onTap: _isThinking ? null : () => _sendMessage(q),
-                      borderRadius: BorderRadius.circular(8),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                        decoration: BoxDecoration(
-                          color: AppTheme.primaryBlue.withValues(alpha: 0.06),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(
-                            color: AppTheme.primaryBlue.withValues(alpha: 0.2),
-                          ),
-                        ),
-                        child: Row(
-                          children: [
-                            const Icon(Icons.help_outline, size: 16, color: AppTheme.primaryBlue),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                q,
-                                style: const TextStyle(
-                                  fontSize: 13,
-                                  color: AppTheme.primaryBlue,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-              ],
+              // MANDATORY RECOMMENDED CARE / DOCTOR TYPE CARD
+              _buildRecommendedCareCard(resp),
+
+              // FOLLOW-UP QUESTIONS in responsive Wrap
+              _buildFollowUpQuestionsWrap(resp.followUpQuestions),
 
               // CONSIDERATIONS
               if (resp.considerations.isNotEmpty) ...[
@@ -841,7 +1302,7 @@ class _AiAssistantPageState extends State<AiAssistantPage> {
                   'POSSIBLE CONSIDERATIONS',
                   style: TextStyle(
                     fontWeight: FontWeight.bold,
-                    fontSize: 12,
+                    fontSize: 11,
                     color: AppTheme.textMuted,
                     letterSpacing: 1.0,
                   ),
@@ -861,16 +1322,13 @@ class _AiAssistantPageState extends State<AiAssistantPage> {
                           ),
                         ),
                         Expanded(
-                          child: Text(
-                            item,
-                            style: const TextStyle(fontSize: 13),
-                          ),
+                          child: Text(item, style: const TextStyle(fontSize: 13)),
                         ),
                       ],
                     ),
                   ),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 14),
               ],
 
               // WHAT YOU CAN DO NOW
@@ -879,7 +1337,7 @@ class _AiAssistantPageState extends State<AiAssistantPage> {
                   'WHAT YOU CAN DO NOW',
                   style: TextStyle(
                     fontWeight: FontWeight.bold,
-                    fontSize: 12,
+                    fontSize: 11,
                     color: AppTheme.primaryTeal,
                     letterSpacing: 1.0,
                   ),
@@ -898,16 +1356,13 @@ class _AiAssistantPageState extends State<AiAssistantPage> {
                         ),
                         const SizedBox(width: 6),
                         Expanded(
-                          child: Text(
-                            item,
-                            style: const TextStyle(fontSize: 13),
-                          ),
+                          child: Text(item, style: const TextStyle(fontSize: 13)),
                         ),
                       ],
                     ),
                   ),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 14),
               ],
 
               // WARNING SIGNS
@@ -916,7 +1371,7 @@ class _AiAssistantPageState extends State<AiAssistantPage> {
                   'WARNING SIGNS',
                   style: TextStyle(
                     fontWeight: FontWeight.bold,
-                    fontSize: 12,
+                    fontSize: 11,
                     color: AppTheme.accentRed,
                     letterSpacing: 1.0,
                   ),
@@ -947,40 +1402,42 @@ class _AiAssistantPageState extends State<AiAssistantPage> {
                     ),
                   ),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 14),
               ],
 
               // WHEN TO SEEK HELP
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.amber.shade50,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.amber.shade200),
-                ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Icon(
-                      Icons.local_hospital_outlined,
-                      color: Colors.amber.shade900,
-                      size: 20,
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        resp.whenToSeekMedicalHelp,
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.amber.shade900,
-                          fontWeight: FontWeight.w500,
+              if (resp.whenToSeekMedicalHelp.isNotEmpty) ...[
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.amber.shade50,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.amber.shade200),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(
+                        Icons.local_hospital_outlined,
+                        color: Colors.amber.shade900,
+                        size: 20,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          resp.whenToSeekMedicalHelp,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.amber.shade900,
+                            fontWeight: FontWeight.w500,
+                          ),
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
-              const SizedBox(height: 16),
+                const SizedBox(height: 14),
+              ],
 
               // Quick Actions Bar
               const Text(
@@ -1048,18 +1505,166 @@ class _AiAssistantPageState extends State<AiAssistantPage> {
               const SizedBox(height: 12),
 
               // Medical Disclaimer
-              Text(
-                resp.disclaimer,
-                style: const TextStyle(
-                  fontSize: 11,
-                  fontStyle: FontStyle.italic,
-                  color: AppTheme.textMuted,
+              if (resp.disclaimer.isNotEmpty)
+                Text(
+                  resp.disclaimer,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontStyle: FontStyle.italic,
+                    color: AppTheme.textMuted,
+                  ),
                 ),
-              ),
             ],
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildRecommendedCareCard(AIResponse resp) {
+    final care = resp.recommendedCare ??
+        RecommendedCare(
+          clinicianType: 'General Physician / Primary-Care Doctor',
+          urgency: 'routine',
+          urgencyLabel: 'Medical Consultation',
+          reason: 'A qualified clinician can physically examine your symptoms and provide personalized diagnosis.',
+        );
+
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 12),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppTheme.primaryTeal.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppTheme.primaryTeal.withValues(alpha: 0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: AppTheme.primaryTeal.withValues(alpha: 0.15),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.medical_services_rounded, color: AppTheme.primaryTeal, size: 20),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'RECOMMENDED CARE / DOCTOR TYPE',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 0.8,
+                        color: AppTheme.primaryTeal,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      care.clinicianType,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                        color: AppTheme.textDark,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.teal.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: AppTheme.primaryTeal.withValues(alpha: 0.4)),
+                ),
+                child: Text(
+                  care.urgencyLabel,
+                  style: const TextStyle(
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w600,
+                    color: AppTheme.primaryTeal,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (care.reason.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(
+              care.reason,
+              style: TextStyle(
+                fontSize: 12.5,
+                color: Colors.grey.shade800,
+                height: 1.4,
+              ),
+            ),
+          ],
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: () => Navigator.pushNamed(context, AppRoutes.hospitals),
+              icon: const Icon(Icons.map_rounded, size: 16),
+              label: const Text('Find Nearby Clinics & Hospitals'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppTheme.primaryTeal,
+                side: const BorderSide(color: AppTheme.primaryTeal),
+                visualDensity: VisualDensity.compact,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFollowUpQuestionsWrap(List<String> questions) {
+    if (questions.isEmpty) return const SizedBox.shrink();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 6),
+        const Text(
+          'FOLLOW-UP QUESTIONS',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 11,
+            color: AppTheme.primaryBlue,
+            letterSpacing: 0.8,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: questions.map((q) {
+            return ActionChip(
+              avatar: const Icon(Icons.help_outline_rounded, size: 14, color: AppTheme.primaryBlue),
+              label: Text(
+                q,
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: AppTheme.primaryBlue,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              backgroundColor: AppTheme.primaryBlue.withValues(alpha: 0.08),
+              side: BorderSide(color: AppTheme.primaryBlue.withValues(alpha: 0.3)),
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+              onPressed: _isThinking ? null : () => _sendMessage(q),
+            );
+          }).toList(),
+        ),
+        const SizedBox(height: 14),
+      ],
     );
   }
 

@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import '../core/errors/app_exception.dart';
+import '../models/ai_response.dart';
 import '../models/chat_message.dart';
 import 'gemini_service.dart';
 
@@ -21,6 +22,8 @@ class AiHealthResponse {
   final String whenToSeekMedicalHelp;
   final String rawText;
   final String disclaimer;
+  final String intent;
+  final RecommendedCare? recommendedCare;
 
   AiHealthResponse({
     required this.urgency,
@@ -33,6 +36,8 @@ class AiHealthResponse {
     this.rawText = '',
     this.disclaimer =
         'This information is general guidance and does not replace professional medical evaluation. Always consult a healthcare provider for medical diagnosis and prescriptions.',
+    this.intent = 'symptom',
+    this.recommendedCare,
   });
 
   Map<String, dynamic> toMap() {
@@ -46,6 +51,8 @@ class AiHealthResponse {
       'whenToSeekMedicalHelp': whenToSeekMedicalHelp,
       'rawText': rawText,
       'disclaimer': disclaimer,
+      'intent': intent,
+      'recommendedCare': recommendedCare?.toMap(),
     };
   }
 
@@ -58,6 +65,10 @@ class AiHealthResponse {
         break;
       }
     }
+    RecommendedCare? recCare;
+    if (map['recommendedCare'] != null) {
+      recCare = RecommendedCare.fromMap(Map<String, dynamic>.from(map['recommendedCare']));
+    }
     return AiHealthResponse(
       urgency: u,
       understanding: map['understanding'] ?? '',
@@ -69,6 +80,8 @@ class AiHealthResponse {
       rawText: map['rawText'] ?? '',
       disclaimer: map['disclaimer'] ??
           'This information is general guidance and does not replace professional medical evaluation.',
+      intent: map['intent'] ?? 'symptom',
+      recommendedCare: recCare,
     );
   }
 
@@ -96,6 +109,43 @@ class AiHealthService {
     final cleanQuery = userQuery.trim();
     if (cleanQuery.isEmpty) {
       throw AppException('Please enter a valid health query or symptom description.');
+    }
+
+    final lower = cleanQuery.toLowerCase();
+    final isGreeting = lower == 'hi' ||
+        lower == 'hello' ||
+        lower == 'hey' ||
+        lower == 'hi medguard' ||
+        lower == 'hello medguard' ||
+        lower.startsWith('hi ') ||
+        lower.startsWith('hello ') ||
+        lower.startsWith('hey ') ||
+        lower == 'good morning' ||
+        lower == 'good afternoon' ||
+        lower == 'good evening' ||
+        lower == 'how are you' ||
+        lower == 'who are you';
+
+    if (isGreeting) {
+      return AiHealthResponse(
+        urgency: HealthUrgency.green,
+        understanding: 'Greeting and welcome.',
+        followUpQuestions: const [
+          'What is a healthy BMI?',
+          'I have a headache',
+          'How do medicine reminders work?',
+          'Find nearby hospitals',
+        ],
+        considerations: const [],
+        whatYouCanDoNow: const [],
+        warningSigns: const [],
+        whenToSeekMedicalHelp: '',
+        rawText:
+            'Hello! I am MEDGUARD Health Assistant. I can help you understand symptoms, medication safety, first aid steps, and locate emergency medical care. How can I assist you today?',
+        disclaimer: '',
+        intent: 'greeting',
+        recommendedCare: null,
+      );
     }
 
     final formattedPrompt = _buildStructuredPrompt(cleanQuery);
@@ -128,6 +178,12 @@ class AiHealthService {
         // Medication request safeguard check
         _applyMedicationSafeguardIfNeeded(cleanQuery, considerations);
 
+        RecommendedCare? recCare;
+        if (parsed['recommendedCare'] != null) {
+          recCare = RecommendedCare.fromMap(Map<String, dynamic>.from(parsed['recommendedCare']));
+        }
+        final intent = (parsed['intent'] ?? (urgency == HealthUrgency.red ? 'emergency' : 'symptom')).toString();
+
         return AiHealthResponse(
           urgency: urgency,
           understanding: parsed['understanding'] ?? cleanQuery,
@@ -140,6 +196,8 @@ class AiHealthService {
           rawText: responseText,
           disclaimer: parsed['disclaimer'] ??
               'This information is general guidance and does not replace professional medical evaluation.',
+          intent: intent,
+          recommendedCare: recCare,
         );
       }
     } catch (e) {
@@ -151,15 +209,22 @@ class AiHealthService {
   }
 
   String _buildStructuredPrompt(String query) {
-    return 'Analyze the following user health inquiry and output a structured response.\n'
+    return 'Analyze the following user health inquiry and output a structured response in valid JSON.\n'
         'User Question: "$query"\n\n'
         'JSON Schema Output Required:\n'
         '{\n'
+        '  "intent": "greeting" | "app_help" | "education" | "medicine" | "symptom" | "emergency",\n'
         '  "urgency": "GREEN" | "YELLOW" | "ORANGE" | "RED",\n'
         '  "understanding": "Brief summary of reported symptoms/question",\n'
         '  "followUpQuestions": ["2-3 specific follow-up questions to understand context"],\n'
         '  "considerations": ["General non-diagnostic considerations"],\n'
         '  "whatYouCanDoNow": ["General non-diagnostic self-care steps"],\n'
+        '  "recommendedCare": {\n'
+        '     "clinicianType": "e.g. General Physician, Dentist, Dermatologist, Orthopedic Specialist",\n'
+        '     "urgency": "routine | prompt | urgent | emergency",\n'
+        '     "urgencyLabel": "e.g. Routine Consultation, Prompt Medical Review",\n'
+        '     "reason": "Specific clinical reason for seeing this specialist"\n'
+        '  },\n'
         '  "warningSigns": ["Red-flag warning symptoms"],\n'
         '  "whenToSeekMedicalHelp": "Clear guidance on when to consult a doctor or seek emergency care",\n'
         '  "disclaimer": "General medical guidance disclaimer"\n'

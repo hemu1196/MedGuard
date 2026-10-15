@@ -6,7 +6,9 @@
   "scripts": {
     "start": "node index.js",
     "dev": "node index.js",
+    "test": "node scripts/verifyWriteRead.js",
     "test:db": "node scripts/testDatabase.js",
+    "test:vault": "node scripts/verifyVaultFlow.js",
     "test:write": "node scripts/verifyWriteRead.js"
   },
   "keywords": [

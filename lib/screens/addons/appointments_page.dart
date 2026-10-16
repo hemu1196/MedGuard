@@ -71,9 +71,9 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
     }).toList();
   }
 
-  void _scheduleSystemNotification(Appointment appt) {
+  void _scheduleSystemNotification(Appointment appt, {bool isEdit = false}) {
     InAppNotificationService().addNotification(
-      title: 'Appointment: Dr. ${appt.doctorName}',
+      title: isEdit ? 'Appointment Updated: Dr. ${appt.doctorName}' : 'Appointment: Dr. ${appt.doctorName}',
       body: 'Scheduled for ${DateFormat("MMM dd, yyyy 'at' hh:mm a").format(appt.appointmentDate)} at ${appt.hospitalOrClinic}.',
       type: NotificationType.appointment,
       targetRoute: '/appointments',
@@ -87,13 +87,15 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
     );
   }
 
-  void _cancelSystemNotification(Appointment appt) {
-    InAppNotificationService().addNotification(
-      title: 'Appointment Cancelled',
-      body: 'Your appointment with Dr. ${appt.doctorName} was cancelled.',
-      type: NotificationType.appointment,
-      targetRoute: '/appointments',
-    );
+  void _cancelSystemNotification(Appointment appt, {bool notify = true}) {
+    if (notify) {
+      InAppNotificationService().addNotification(
+        title: 'Appointment Cancelled',
+        body: 'Your appointment with Dr. ${appt.doctorName} was cancelled.',
+        type: NotificationType.appointment,
+        targetRoute: '/appointments',
+      );
+    }
     _notificationService.cancelAppointmentNotifications(appt.id);
   }
 
@@ -658,10 +660,10 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
                         final targetAppt = savedAppt ?? appt;
 
                         if (existing != null) {
-                          _cancelSystemNotification(existing);
+                          _cancelSystemNotification(existing, notify: false);
                         }
                         if (targetAppt.reminderEnabled && targetAppt.status == 'Upcoming') {
-                          _scheduleSystemNotification(targetAppt);
+                          _scheduleSystemNotification(targetAppt, isEdit: existing != null);
                         }
 
                         if (context.mounted) {

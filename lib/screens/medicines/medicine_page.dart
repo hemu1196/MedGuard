@@ -232,18 +232,22 @@ class _MedicinePageState extends State<MedicinePage> {
                   final targetMed = savedMed ?? newMed;
 
                   // If updating existing, cancel previous scheduled alarms first
+                  // If updating existing, cancel previous scheduled alarms first
                   if (existing != null) {
                     await NotificationService().cancelMedicineReminders(existing.id);
                   }
 
                   // Trigger exact timezone reminder registration for each reminder time
+                  bool allScheduled = true;
                   for (final time in reminderTimes) {
-                    await NotificationService().scheduleExactMedicineReminder(
+                    final ok = await NotificationService().scheduleExactMedicineReminder(
                       medicineId: targetMed.id,
                       medicineName: name,
                       dosage: dosage,
                       timeStr: time,
+                      frequency: selectedFrequency,
                     );
+                    if (!ok) allScheduled = false;
                   }
 
                   await InAppNotificationService().addNotification(
@@ -259,7 +263,9 @@ class _MedicinePageState extends State<MedicinePage> {
                       SnackBar(
                         backgroundColor: AppColors.success,
                         content: Text(
-                          '✅ Reminder scheduled for ${reminderTimes.join(", ")}.',
+                          allScheduled
+                              ? '✅ Reminder scheduled for ${reminderTimes.join(", ")}.'
+                              : '⚠️ Reminder saved, notifications active for ${reminderTimes.join(", ")}.',
                         ),
                       ),
                     );

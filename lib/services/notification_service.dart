@@ -8,6 +8,8 @@ import 'package:timezone/data/latest_all.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
 import '../models/appointment.dart';
 import '../models/medicine.dart';
+import '../repositories/medicine_repository.dart';
+import 'in_app_notification_service.dart';
 
 class MedicineAlertEvent {
   final String medicineId;
@@ -27,6 +29,22 @@ class MedicineAlertEvent {
   }) : timestamp = timestamp ?? DateTime.now();
 }
 
+class AppointmentAlertEvent {
+  final String appointmentId;
+  final String doctorName;
+  final String hospitalOrClinic;
+  final String scheduledTime;
+  final DateTime timestamp;
+
+  AppointmentAlertEvent({
+    required this.appointmentId,
+    required this.doctorName,
+    required this.hospitalOrClinic,
+    required this.scheduledTime,
+    DateTime? timestamp,
+  }) : timestamp = timestamp ?? DateTime.now();
+}
+
 class NotificationService {
   static final NotificationService _instance = NotificationService._internal();
   factory NotificationService() => _instance;
@@ -38,13 +56,23 @@ class NotificationService {
   final StreamController<MedicineAlertEvent> _alertController =
       StreamController<MedicineAlertEvent>.broadcast();
 
+  final StreamController<AppointmentAlertEvent> _appointmentAlertController =
+      StreamController<AppointmentAlertEvent>.broadcast();
+
   Stream<MedicineAlertEvent> get onMedicineAlert => _alertController.stream;
+  Stream<AppointmentAlertEvent> get onAppointmentAlert =>
+      _appointmentAlertController.stream;
 
   bool _initialized = false;
   final Map<int, Timer> _webTimers = {};
 
   static const String _scheduledMedicineIdsPrefix = 'medguard_scheduled_ids_med_';
   static const String _scheduledApptIdsPrefix = 'medguard_scheduled_ids_appt_';
+
+  // Base IDs for non-colliding notification ranges
+  static const int _medicineIdBase = 100000;
+  static const int _appointmentIdBase = 500000;
+  static const int _idRange = 400000;
 
   Future<void> init() async {
     if (_initialized) return;
@@ -85,48 +113,70 @@ class NotificationService {
         iOS: iosSettings,
       );
 
-      await _notificationsPlugin.initialize(
-        settings,
-        onDidReceiveNotificationResponse: _handleNotificationResponse,
-      );
-
-      // Create dedicated Android notification channels
-      final androidImpl = _notificationsPlugin
-          .resolvePlatformSpecificImplementation<
-              AndroidFlutterLocalNotificationsPlugin>();
-      if (androidImpl != null) {
-        // Channel 1: High Priority Medicine Alarms
-        const medicineChannel = AndroidNotificationChannel(
-          'medicine_alarms',
-          'Medicine Alarms & Reminders',
-          description:
-              'High-priority audible and vibration alerts for scheduled medications',
-          importance: Importance.max,
-          enableVibration: true,
-          playSound: true,
+      try {
+        await _notificationsPlugin.initialize(
+          settings,
+          onDidReceiveNotificationResponse: _handleNotificationResponse,
         );
-        await androidImpl.createNotificationChannel(medicineChannel);
 
-        // Channel 2: High Priority Appointment Reminders
-        const appointmentChannel = AndroidNotificationChannel(
-          'appointment_alarms',
-          'Appointment Reminders',
-          description:
-              'High-priority alerts for upcoming doctor visits and clinical consultations',
-          importance: Importance.high,
-          enableVibration: true,
-          playSound: true,
-        );
-        await androidImpl.createNotificationChannel(appointmentChannel);
+        // Create dedicated Android notification channels
+        final androidImpl = _notificationsPlugin
+            .resolvePlatformSpecificImplementation<
+                AndroidFlutterLocalNotificationsPlugin>();
+        if (androidImpl != null) {
+          // Channel 1: High Priority Medicine Alarms
+          const medicineChannel = AndroidNotificationChannel(
+            'medicine_alarms',
+            'Medicine Alarms & Reminders',
+            description:
+                'High-priority audible and vibration alerts for scheduled medications',
+            importance: Importance.max,
+            enableVibration: true,
+            playSound: true,
+            showBadge: true,
+            enableLights: true,
+          );
+          await androidImpl.createNotificationChannel(medicineChannel);
 
-        // Channel 3: General Alerts
-        const generalChannel = AndroidNotificationChannel(
-          'medguard_general',
-          'General Notifications',
-          description: 'MedGuard System and Health Announcements',
-          importance: Importance.defaultImportance,
-        );
-        await androidImpl.createNotificationChannel(generalChannel);
+          // Channel 2: High Priority Appointment Reminders
+          const appointmentChannel = AndroidNotificationChannel(
+            'appointment_alarms',
+            'Appointment Reminders',
+            description:
+                'High-priority alerts for upcoming doctor visits and clinical consultations',
+            importance: Importance.high,
+            enableVibration: true,
+            playSound: true,
+            showBadge: true,
+            enableLights: true,
+          );
+          await androidImpl.createNotificationChannel(appointmentChannel);
+
+          // Channel 3: General Alerts
+          const generalChannel = AndroidNotificationChannel(
+            'medguard_general',
+            'General Notifications',
+            description: 'MedGuard System and Health Announcements',
+            importance: Importance.defaultImportance,
+          );
+          await androidImpl.createNotificationChannel(generalChannel);
+        }
+
+        // Check if application was launched via tapping a notification while terminated
+        try {
+          final launchDetails =
+              await _notificationsPlugin.getNotificationAppLaunchDetails();
+          if (launchDetails != null &&
+              launchDetails.didNotificationLaunchApp &&
+              launchDetails.notificationResponse != null) {
+            Future.microtask(() =>
+                _handleNotificationResponse(launchDetails.notificationResponse!));
+          }
+        } catch (launchErr) {
+          debugPrint('[NOTIFICATION SERVICE] Launch details check note: $launchErr');
+        }
+      } catch (pluginErr) {
+        debugPrint('[NOTIFICATION SERVICE] Native notifications init note: $pluginErr');
       }
     }
 
@@ -156,12 +206,48 @@ class NotificationService {
       final dosage = parts[3];
       final scheduledTime = parts.length > 4 ? parts[4] : '';
 
+      // Direct action button triggers from OS tray
+      if (response.actionId == 'action_taken') {
+        MedicineRepository().logMedicationDose(
+          medicineId: medicineId,
+          scheduledTime: scheduledTime,
+          status: 'taken',
+        );
+      } else if (response.actionId == 'action_skip') {
+        MedicineRepository().logMedicationDose(
+          medicineId: medicineId,
+          scheduledTime: scheduledTime,
+          status: 'skipped',
+        );
+      } else if (response.actionId == 'action_snooze') {
+        scheduleExactMedicineReminder(
+          medicineId: medicineId,
+          medicineName: medicineName,
+          dosage: dosage,
+          timeStr: scheduledTime,
+          snoozeMinutes: 10,
+        );
+      }
+
       _alertController.add(
         MedicineAlertEvent(
           medicineId: medicineId,
           medicineName: medicineName,
           dosage: dosage,
           scheduledTime: scheduledTime,
+        ),
+      );
+    } else if (parts.length >= 3 && parts[0] == 'appointment') {
+      final appointmentId = parts[1];
+      final doctorName = parts[2];
+      final timeStr = parts.length > 3 ? parts[3] : '';
+
+      _appointmentAlertController.add(
+        AppointmentAlertEvent(
+          appointmentId: appointmentId,
+          doctorName: doctorName,
+          hospitalOrClinic: '',
+          scheduledTime: timeStr,
         ),
       );
     }
@@ -186,9 +272,111 @@ class NotificationService {
     return true;
   }
 
+  Future<bool> areNotificationsEnabled() async {
+    if (kIsWeb) return true;
+    final androidImpl = _notificationsPlugin
+        .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>();
+    if (androidImpl != null) {
+      return (await androidImpl.areNotificationsEnabled()) ?? false;
+    }
+    return true;
+  }
+
+  Future<bool> canScheduleExactAlarms() async {
+    if (kIsWeb) return true;
+    final androidImpl = _notificationsPlugin
+        .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>();
+    if (androidImpl != null) {
+      return (await androidImpl.canScheduleExactNotifications()) ?? false;
+    }
+    return true;
+  }
+
+  Future<List<PendingNotificationRequest>> getPendingNotifications() async {
+    if (kIsWeb) return [];
+    try {
+      return await _notificationsPlugin.pendingNotificationRequests();
+    } catch (e) {
+      debugPrint('[NOTIFICATION SERVICE] Error fetching pending notifications: $e');
+      return [];
+    }
+  }
+
   int generateMedicineNotifId(String medicineId, String timeStr) {
     final combined = '$medicineId|$timeStr';
-    return (combined.hashCode.abs()) % 100000;
+    return _medicineIdBase + ((combined.hashCode.abs()) % _idRange);
+  }
+
+  int generateAppointmentNotifId(String appointmentId, int offset) {
+    final hash = (appointmentId.hashCode.abs() * 31 + offset) & 0x7FFFFFFF;
+    return _appointmentIdBase + (hash % _idRange);
+  }
+
+  /// Parses 12-hour (1:03 PM, 01:03 PM, 1:03\u202fPM) or 24-hour (13:03) time strings
+  /// returning (hour, minute) in 24-hour format.
+  static (int, int) parseTimeParts(String timeStr) {
+    final normalized =
+        timeStr.replaceAll(RegExp(r'[\s\u00A0\u202F\u2007\u200B]+'), ' ').trim();
+    final match =
+        RegExp(r'^(\d{1,2}):(\d{2})(?::\d{2})?(?:\s*([APap][Mm]))?')
+            .firstMatch(normalized);
+    if (match != null) {
+      int hour = int.parse(match.group(1)!);
+      final minute = int.parse(match.group(2)!);
+      final ampm = match.group(3)?.toUpperCase();
+      if (ampm == 'PM' && hour < 12) {
+        hour += 12;
+      } else if (ampm == 'AM' && hour == 12) {
+        hour = 0;
+      }
+      return (hour, minute);
+    }
+    return (8, 0);
+  }
+
+  /// Computes the exact next future occurrence as a TZDateTime.
+  tz.TZDateTime computeNextScheduledTzTime({
+    required String timeStr,
+    DateTime? startDate,
+    int? snoozeMinutes,
+  }) {
+    final now = tz.TZDateTime.now(tz.local);
+
+    if (snoozeMinutes != null && snoozeMinutes > 0) {
+      return now.add(Duration(minutes: snoozeMinutes));
+    }
+
+    final (targetHour, targetMinute) = parseTimeParts(timeStr);
+
+    tz.TZDateTime scheduledDate;
+    if (startDate != null && startDate.isAfter(DateTime.now())) {
+      scheduledDate = tz.TZDateTime(
+        tz.local,
+        startDate.year,
+        startDate.month,
+        startDate.day,
+        targetHour,
+        targetMinute,
+      );
+    } else {
+      scheduledDate = tz.TZDateTime(
+        tz.local,
+        now.year,
+        now.month,
+        now.day,
+        targetHour,
+        targetMinute,
+      );
+    }
+
+    // Crucial: Never schedule in the past silently. If target time already passed today, advance to next day.
+    if (scheduledDate.isBefore(now) || scheduledDate.isAtSameMomentAs(now)) {
+      scheduledDate = scheduledDate.add(const Duration(days: 1));
+    }
+
+    return scheduledDate;
   }
 
   /// Schedules an exact-time medicine reminder with high-priority sound,
@@ -198,12 +386,13 @@ class NotificationService {
     required String medicineName,
     required String dosage,
     required String timeStr,
+    String frequency = 'Daily',
     DateTime? startDate,
     int? snoozeMinutes,
   }) async {
     await init();
 
-    final scheduledTzTime = _computeNextScheduledTzTime(
+    final scheduledTzTime = computeNextScheduledTzTime(
       timeStr: timeStr,
       startDate: startDate,
       snoozeMinutes: snoozeMinutes,
@@ -244,10 +433,13 @@ class NotificationService {
       channelDescription:
           'High-priority audible and vibration alerts for scheduled medications',
       importance: Importance.max,
-      priority: Priority.high,
+      priority: Priority.max,
       category: AndroidNotificationCategory.alarm,
       enableVibration: true,
       playSound: true,
+      channelShowBadge: true,
+      visibility: NotificationVisibility.public,
+      ticker: 'MEDGUARD Medicine Reminder',
       actions: <AndroidNotificationAction>[
         AndroidNotificationAction(
           'action_taken',
@@ -282,6 +474,20 @@ class NotificationService {
     const notifTitle = 'MEDGUARD — Medicine Reminder';
     final notifBody = "It's time for your scheduled medicine: $medicineName ($dosage).";
 
+    // Select repeat match based on frequency
+    DateTimeComponents? matchComponents;
+    if (snoozeMinutes != null && snoozeMinutes > 0) {
+      matchComponents = null; // One-time snooze
+    } else if (frequency.toLowerCase() == 'weekly') {
+      matchComponents = DateTimeComponents.dayOfWeekAndTime;
+    } else if (frequency.toLowerCase() == 'once') {
+      matchComponents = null;
+    } else {
+      // Default daily recurrence
+      matchComponents = DateTimeComponents.time;
+    }
+
+    bool scheduled = false;
     try {
       await _notificationsPlugin.zonedSchedule(
         notifId,
@@ -292,32 +498,15 @@ class NotificationService {
         androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
         uiLocalNotificationDateInterpretation:
             UILocalNotificationDateInterpretation.absoluteTime,
+        matchDateTimeComponents: matchComponents,
         payload: payload,
       );
-
-      // In-app fallback trigger when app is actively open
-      final diff = scheduledTzTime.toLocal().difference(DateTime.now());
-      if (!diff.isNegative) {
-        _webTimers[notifId]?.cancel();
-        _webTimers[notifId] = Timer(diff, () {
-          _alertController.add(
-            MedicineAlertEvent(
-              medicineId: medicineId,
-              medicineName: medicineName,
-              dosage: dosage,
-              scheduledTime: timeStr,
-              snoozeMinutes: snoozeMinutes,
-            ),
-          );
-        });
-      }
-
+      scheduled = true;
       debugPrint(
-        '[NOTIFICATION SERVICE] Exactly scheduled reminder for "$medicineName" at ${scheduledTzTime.toLocal()} (ID: $notifId)',
+        '[NOTIFICATION SERVICE] Exactly scheduled reminder for "$medicineName" at ${scheduledTzTime.toLocal()} (ID: $notifId, Mode: exactAllowWhileIdle, Match: $matchComponents)',
       );
-      return true;
     } catch (e) {
-      debugPrint('[NOTIFICATION SERVICE] zonedSchedule fallback to inexact: $e');
+      debugPrint('[NOTIFICATION SERVICE] zonedSchedule exact mode note: $e. Falling back to inexact...');
       try {
         await _notificationsPlugin.zonedSchedule(
           notifId,
@@ -328,74 +517,43 @@ class NotificationService {
           androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
           uiLocalNotificationDateInterpretation:
               UILocalNotificationDateInterpretation.absoluteTime,
+          matchDateTimeComponents: matchComponents,
           payload: payload,
         );
-        return true;
+        scheduled = true;
+        debugPrint(
+          '[NOTIFICATION SERVICE] Inexact scheduled reminder for "$medicineName" at ${scheduledTzTime.toLocal()} (ID: $notifId)',
+        );
       } catch (err) {
         debugPrint('[NOTIFICATION SERVICE] Inexact schedule failed: $err');
-        return false;
-      }
-    }
-  }
-
-  /// Helper to compute next TZDateTime matching target time string
-  tz.TZDateTime _computeNextScheduledTzTime({
-    required String timeStr,
-    DateTime? startDate,
-    int? snoozeMinutes,
-  }) {
-    final now = tz.TZDateTime.now(tz.local);
-
-    if (snoozeMinutes != null && snoozeMinutes > 0) {
-      return now.add(Duration(minutes: snoozeMinutes));
-    }
-
-    int targetHour = 8;
-    int targetMinute = 0;
-
-    final trimmed = timeStr.trim();
-    if (trimmed.contains(':')) {
-      final parts = trimmed.split(':');
-      targetHour = int.tryParse(parts[0]) ?? 8;
-      final minutePart = parts[1].split(' ')[0];
-      targetMinute = int.tryParse(minutePart) ?? 0;
-
-      // Handle 12-hour AM/PM format
-      final upper = trimmed.toUpperCase();
-      if (upper.contains('PM') && targetHour < 12) {
-        targetHour += 12;
-      } else if (upper.contains('AM') && targetHour == 12) {
-        targetHour = 0;
       }
     }
 
-    tz.TZDateTime scheduledDate;
-    if (startDate != null && startDate.isAfter(DateTime.now())) {
-      scheduledDate = tz.TZDateTime(
-        tz.local,
-        startDate.year,
-        startDate.month,
-        startDate.day,
-        targetHour,
-        targetMinute,
-      );
-    } else {
-      scheduledDate = tz.TZDateTime(
-        tz.local,
-        now.year,
-        now.month,
-        now.day,
-        targetHour,
-        targetMinute,
-      );
-
-      // If scheduled time has already passed today, schedule for tomorrow
-      if (scheduledDate.isBefore(now)) {
-        scheduledDate = scheduledDate.add(const Duration(days: 1));
-      }
+    // In-app backup trigger when app remains active
+    final diff = scheduledTzTime.toLocal().difference(DateTime.now());
+    if (!diff.isNegative) {
+      _webTimers[notifId]?.cancel();
+      _webTimers[notifId] = Timer(diff, () {
+        _alertController.add(
+          MedicineAlertEvent(
+            medicineId: medicineId,
+            medicineName: medicineName,
+            dosage: dosage,
+            scheduledTime: timeStr,
+            snoozeMinutes: snoozeMinutes,
+          ),
+        );
+      });
     }
 
-    return scheduledDate;
+    // Verify presence in Android's pending notification request queue
+    if (!kIsWeb) {
+      final pending = await getPendingNotifications();
+      final isFound = pending.any((p) => p.id == notifId);
+      debugPrint('[NOTIFICATION SERVICE] Pending alarm verification: ${isFound ? "VERIFIED IN QUEUE" : "NOT FOUND"} (ID: $notifId, Total pending: ${pending.length})');
+    }
+
+    return scheduled;
   }
 
   /// Cancels all scheduled reminder alarms for a given medicine
@@ -404,7 +562,9 @@ class NotificationService {
     for (final id in scheduledIds) {
       _webTimers[id]?.cancel();
       if (!kIsWeb) {
-        await _notificationsPlugin.cancel(id);
+        try {
+          await _notificationsPlugin.cancel(id);
+        } catch (_) {}
       }
     }
     await _clearRecordedIds(_scheduledMedicineIdsPrefix, medicineId);
@@ -416,7 +576,9 @@ class NotificationService {
     final notifId = generateMedicineNotifId(medicineId, timeStr);
     _webTimers[notifId]?.cancel();
     if (!kIsWeb) {
-      await _notificationsPlugin.cancel(notifId);
+      try {
+        await _notificationsPlugin.cancel(notifId);
+      } catch (_) {}
     }
   }
 
@@ -440,7 +602,7 @@ class NotificationService {
     for (final offset in reminderOffsets) {
       final scheduledTime = appointmentDate.subtract(Duration(minutes: offset));
       if (scheduledTime.isAfter(DateTime.now())) {
-        final notifId = ((appointmentId.hashCode.abs() * 31 + offset) & 0x7FFFFFFF) % 100000;
+        final notifId = generateAppointmentNotifId(appointmentId, offset);
         await _recordScheduledId(_scheduledApptIdsPrefix, appointmentId, notifId);
 
         String timingText = 'approaching';
@@ -460,7 +622,21 @@ class NotificationService {
         final body =
             'Your appointment with Dr. $doctorName$placeStr is scheduled for $dateStr at $timeStr ($timingText).';
 
-        if (kIsWeb) continue;
+        if (kIsWeb) {
+          final diff = scheduledTime.difference(DateTime.now());
+          if (!diff.isNegative) {
+            _webTimers[notifId]?.cancel();
+            _webTimers[notifId] = Timer(diff, () {
+              InAppNotificationService().addNotification(
+                title: title,
+                body: body,
+                type: NotificationType.appointment,
+                targetRoute: '/appointments',
+              );
+            });
+          }
+          continue;
+        }
 
         final scheduledTz = tz.TZDateTime.from(scheduledTime, tz.local);
         const androidDetails = AndroidNotificationDetails(
@@ -470,10 +646,14 @@ class NotificationService {
               'High-priority alerts for upcoming doctor visits and clinical consultations',
           importance: Importance.high,
           priority: Priority.high,
+          category: AndroidNotificationCategory.reminder,
           playSound: true,
           enableVibration: true,
+          channelShowBadge: true,
+          visibility: NotificationVisibility.public,
         );
         const details = NotificationDetails(android: androidDetails);
+        final payload = 'appointment|$appointmentId|$doctorName|$timeStr';
 
         try {
           await _notificationsPlugin.zonedSchedule(
@@ -485,12 +665,13 @@ class NotificationService {
             androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
             uiLocalNotificationDateInterpretation:
                 UILocalNotificationDateInterpretation.absoluteTime,
-            payload: 'appointment|$appointmentId|$doctorName|$timeStr',
+            payload: payload,
           );
           debugPrint(
-            '[NOTIFICATION SERVICE] Scheduled appointment reminder (ID: $notifId) for $scheduledTime',
+            '[NOTIFICATION SERVICE] Scheduled appointment reminder (ID: $notifId) for $scheduledTime (Mode: exactAllowWhileIdle)',
           );
         } catch (e) {
+          debugPrint('[NOTIFICATION SERVICE] Exact appointment schedule note: $e. Falling back to inexact...');
           try {
             await _notificationsPlugin.zonedSchedule(
               notifId,
@@ -501,10 +682,17 @@ class NotificationService {
               androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
               uiLocalNotificationDateInterpretation:
                   UILocalNotificationDateInterpretation.absoluteTime,
-              payload: 'appointment|$appointmentId|$doctorName|$timeStr',
+              payload: payload,
+            );
+            debugPrint(
+              '[NOTIFICATION SERVICE] Inexact appointment reminder scheduled (ID: $notifId) for $scheduledTime',
             );
           } catch (_) {}
         }
+
+        final pending = await getPendingNotifications();
+        final isFound = pending.any((p) => p.id == notifId);
+        debugPrint('[NOTIFICATION SERVICE] Pending appt verification: ${isFound ? "VERIFIED IN QUEUE" : "NOT FOUND"} (ID: $notifId)');
       }
     }
   }
@@ -515,7 +703,9 @@ class NotificationService {
     for (final id in scheduledIds) {
       _webTimers[id]?.cancel();
       if (!kIsWeb) {
-        await _notificationsPlugin.cancel(id);
+        try {
+          await _notificationsPlugin.cancel(id);
+        } catch (_) {}
       }
     }
     await _clearRecordedIds(_scheduledApptIdsPrefix, appointmentId);
@@ -566,6 +756,7 @@ class NotificationService {
           medicineName: med.name,
           dosage: med.dosage,
           timeStr: time,
+          frequency: med.frequency,
         );
       }
     }

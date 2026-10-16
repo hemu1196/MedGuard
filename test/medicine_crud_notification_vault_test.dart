@@ -76,8 +76,8 @@ void main() {
 
       expect(id1, equals(id2));
       expect(id1, isNot(equals(idDiff)));
-      expect(id1, greaterThanOrEqualTo(0));
-      expect(id1, lessThan(100000));
+      expect(id1, greaterThanOrEqualTo(100000));
+      expect(id1, lessThan(500000));
     });
 
     test('InAppNotificationService records medicine reminders with high accuracy', () async {

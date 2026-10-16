@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../app/routes.dart';
 import '../../controllers/dashboard_controller.dart';
+import '../../services/in_app_notification_service.dart';
 import '../medguard_avatar.dart';
 
 class QuickActionData {
@@ -264,50 +265,49 @@ class DarkScenicHeroHeader extends StatelessWidget {
           ),
         ),
 
-        // Notification Bell with Badge
-        Stack(
-          clipBehavior: Clip.none,
-          children: [
-            IconButton(
-              icon: const Icon(Icons.notifications_none_rounded, color: Colors.white, size: 24),
-              onPressed: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      controller.unreadNotifications > 0
-                          ? 'You have ${controller.unreadNotifications} unread notifications.'
-                          : 'No new notifications at this time.',
-                    ),
-                    duration: const Duration(seconds: 2),
-                  ),
-                );
-              },
-              tooltip: 'Notifications',
-              visualDensity: VisualDensity.compact,
-            ),
-            if (controller.unreadNotifications > 0)
-              Positioned(
-                right: 6,
-                top: 6,
-                child: Container(
-                  padding: const EdgeInsets.all(4),
-                  decoration: const BoxDecoration(
-                    color: Color(0xFFEF4444),
-                    shape: BoxShape.circle,
-                  ),
-                  constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
-                  child: Text(
-                    '${controller.unreadNotifications}',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 9,
-                      fontWeight: FontWeight.bold,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
+        // Notification Bell with Reactive Badge
+        ListenableBuilder(
+          listenable: InAppNotificationService(),
+          builder: (context, _) {
+            final unread = InAppNotificationService().unreadCount;
+            return Stack(
+              clipBehavior: Clip.none,
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.notifications_none_rounded,
+                      color: Colors.white, size: 24),
+                  onPressed: () {
+                    Navigator.pushNamed(context, AppRoutes.notifications);
+                  },
+                  tooltip: 'Notification Center',
+                  visualDensity: VisualDensity.compact,
                 ),
-              ),
-          ],
+                if (unread > 0)
+                  Positioned(
+                    right: 6,
+                    top: 6,
+                    child: Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: const BoxDecoration(
+                        color: Color(0xFFEF4444),
+                        shape: BoxShape.circle,
+                      ),
+                      constraints:
+                          const BoxConstraints(minWidth: 16, minHeight: 16),
+                      child: Text(
+                        unread > 9 ? '9+' : '$unread',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 9,
+                          fontWeight: FontWeight.bold,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ),
+              ],
+            );
+          },
         ),
 
         // User Profile Avatar

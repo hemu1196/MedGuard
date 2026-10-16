@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
-import 'auth_gate.dart';
 import 'routes.dart';
 import 'theme.dart';
+import '../screens/splash/splash_screen.dart';
+import '../screens/onboarding/onboarding_screen.dart';
+import '../screens/notifications/notification_center_page.dart';
 import '../screens/auth/login_page.dart';
 import '../screens/onboarding/health_profile_page.dart';
 import '../screens/main_navigation_frame.dart';
@@ -37,8 +39,11 @@ class MedGuardApp extends StatelessWidget {
       title: 'MEDGUARD',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
-      home: const AuthGate(),
+      home: const SplashScreen(),
       routes: {
+        AppRoutes.splash: (context) => const SplashScreen(),
+        AppRoutes.onboarding: (context) => const OnboardingPage(),
+        AppRoutes.notifications: (context) => const NotificationCenterPage(),
         AppRoutes.login: (context) => const LoginPage(),
         AppRoutes.profileSetup: (context) => const HealthProfilePage(),
         AppRoutes.dashboard: (context) =>

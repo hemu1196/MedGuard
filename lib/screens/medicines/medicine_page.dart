@@ -4,6 +4,7 @@ import '../../models/medicine.dart';
 import '../../repositories/auth_repository.dart';
 import '../../repositories/medicine_repository.dart';
 import '../../services/notification_service.dart';
+import '../../services/in_app_notification_service.dart';
 import '../../widgets/app_header.dart';
 import '../../widgets/empty_state.dart';
 import '../../widgets/loading_view.dart';
@@ -238,6 +239,13 @@ class _MedicinePageState extends State<MedicinePage> {
                     );
                   }
 
+                  await InAppNotificationService().addNotification(
+                    title: 'Medicine Scheduled: $name',
+                    body: 'Daily reminders active for ${reminderTimes.join(", ")} ($dosage).',
+                    type: NotificationType.medicine,
+                    targetRoute: '/medicines',
+                  );
+
                   if (context.mounted) {
                     Navigator.of(context).pop();
                     ScaffoldMessenger.of(context).showSnackBar(
@@ -284,6 +292,7 @@ class _MedicinePageState extends State<MedicinePage> {
 
     if (confirm == true) {
       final userId = _currentUserId ?? await _authRepository.getCurrentUserId();
+      await NotificationService().cancelMedicineReminders(id);
       await _medicineRepository.deleteMedicine(id, userId: userId);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -473,33 +482,88 @@ class _MedicinePageState extends State<MedicinePage> {
                                     )
                                     .toList(),
                               ),
-                              const SizedBox(height: 8),
-                              Align(
-                                alignment: Alignment.centerRight,
-                                child: OutlinedButton.icon(
-                                  style: OutlinedButton.styleFrom(
-                                    visualDensity: VisualDensity.compact,
-                                    foregroundColor: AppColors.primary,
-                                    side: const BorderSide(color: AppColors.primary),
-                                  ),
-                                  onPressed: () async {
-                                    await NotificationService().testReminderNow(
-                                      medicineId: med.id,
-                                      medicineName: med.name,
-                                      dosage: med.dosage,
-                                    );
-                                    if (context.mounted) {
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        const SnackBar(
-                                          content: Text('🔔 Test alert triggered! Check notification / popup.'),
-                                          duration: Duration(seconds: 2),
+                              const SizedBox(height: 10),
+                              Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 10, vertical: 5),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF009E8F)
+                                          .withValues(alpha: 0.08),
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(
+                                        color: const Color(0xFF009E8F)
+                                            .withValues(alpha: 0.25),
+                                      ),
+                                    ),
+                                    child: const Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          Icons.alarm_on_rounded,
+                                          size: 14,
+                                          color: Color(0xFF009E8F),
                                         ),
+                                        SizedBox(width: 4),
+                                        Text(
+                                          'Reminders Active',
+                                          style: TextStyle(
+                                            fontSize: 11.5,
+                                            fontWeight: FontWeight.bold,
+                                            color: Color(0xFF009E8F),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  ElevatedButton.icon(
+                                    style: ElevatedButton.styleFrom(
+                                      visualDensity: VisualDensity.compact,
+                                      backgroundColor: const Color(0xFF009E8F),
+                                      foregroundColor: Colors.white,
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 12, vertical: 6),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius:
+                                            BorderRadius.circular(8),
+                                      ),
+                                    ),
+                                    onPressed: () async {
+                                      final scheduledTime =
+                                          med.reminderTimes.isNotEmpty
+                                              ? med.reminderTimes.first
+                                              : 'Now';
+                                      await _medicineRepository
+                                          .logMedicationDose(
+                                        medicineId: med.id,
+                                        scheduledTime: scheduledTime,
+                                        status: 'taken',
                                       );
-                                    }
-                                  },
-                                  icon: const Icon(Icons.notifications_active_outlined, size: 14),
-                                  label: const Text('Test Reminder Now', style: TextStyle(fontSize: 12)),
-                                ),
+                                      if (context.mounted) {
+                                        ScaffoldMessenger.of(context)
+                                            .showSnackBar(
+                                          SnackBar(
+                                            backgroundColor:
+                                                AppColors.success,
+                                            content: Text(
+                                              '✅ Dose logged for ${med.name}! Stock updated.',
+                                            ),
+                                            duration:
+                                                const Duration(seconds: 2),
+                                          ),
+                                        );
+                                        setState(() {});
+                                      }
+                                    },
+                                    icon: const Icon(Icons.check_circle_outline,
+                                        size: 14),
+                                    label: const Text('Take Dose',
+                                        style: TextStyle(fontSize: 12)),
+                                  ),
+                                ],
                               ),
                             ],
                           ),

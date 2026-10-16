@@ -8,6 +8,7 @@ import '../../services/pdf_export_service.dart';
 import '../../repositories/appointment_repository.dart';
 import '../../repositories/auth_repository.dart';
 import '../../services/notification_service.dart';
+import '../../services/in_app_notification_service.dart';
 import '../../widgets/app_header.dart';
 import '../../widgets/empty_state.dart';
 import '../../widgets/loading_view.dart';
@@ -71,6 +72,12 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
   }
 
   void _scheduleSystemNotification(Appointment appt) {
+    InAppNotificationService().addNotification(
+      title: 'Appointment: Dr. ${appt.doctorName}',
+      body: 'Scheduled for ${DateFormat("MMM dd, yyyy 'at' hh:mm a").format(appt.appointmentDate)} at ${appt.hospitalOrClinic}.',
+      type: NotificationType.appointment,
+      targetRoute: '/appointments',
+    );
     if (kIsWeb) return;
     _notificationService.scheduleAppointmentNotifications(
       baseNotificationId: appt.notificationId,
@@ -82,6 +89,12 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
   }
 
   void _cancelSystemNotification(Appointment appt) {
+    InAppNotificationService().addNotification(
+      title: 'Appointment Cancelled',
+      body: 'Your appointment with Dr. ${appt.doctorName} was cancelled.',
+      type: NotificationType.appointment,
+      targetRoute: '/appointments',
+    );
     if (kIsWeb) return;
     _notificationService.cancelAppointmentNotifications(
       baseNotificationId: appt.notificationId,

@@ -94,7 +94,12 @@ flutter:
 
   assets:
     - assets/icon/app_icon.png
+    - assets/images/
     - assets/images/scenic_mountain_bg.jpg
+    - assets/images/medguard_logo.jpg
+    - assets/images/onboarding_1_doctor.jpg
+    - assets/images/onboarding_2_care.jpg
+    - assets/images/onboarding_3_safety.jpg
 
   # To add assets to your application, add an assets section, like this:
   # assets:

@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../app/routes.dart';
 import '../../app/theme.dart';
 import '../../repositories/auth_repository.dart';
+import '../../services/notification_service.dart';
 import '../../services/user_state_service.dart';
 import '../../widgets/app_header.dart';
 
@@ -363,6 +364,127 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
+  void _showNotificationDiagnosticsDialog() {
+    showDialog(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.troubleshoot_rounded, color: AppTheme.primaryTeal),
+            SizedBox(width: 8),
+            Text('Notification Diagnostics', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Test and verify native Android system notifications and AlarmManager registration directly on this device.',
+              style: TextStyle(fontSize: 13, color: Colors.black87),
+            ),
+            const SizedBox(height: 16),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const CircleAvatar(
+                backgroundColor: Color(0xFFE6FFFA),
+                child: Icon(Icons.flash_on_rounded, color: AppTheme.primaryTeal),
+              ),
+              title: const Text('1. Post Immediate Notification', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+              subtitle: const Text('Sends a system alert right now to verify the notification shade, icon & channel.'),
+              onTap: () async {
+                Navigator.of(dialogCtx).pop();
+                final ok = await NotificationService().showImmediateDiagnosticNotification();
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      backgroundColor: ok ? AppTheme.accentGreen : Colors.red,
+                      content: Text(ok
+                          ? '✅ Immediate notification posted! Check your Android notification shade.'
+                          : '❌ Failed to post immediate notification.'),
+                    ),
+                  );
+                }
+              },
+            ),
+            const Divider(height: 16),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const CircleAvatar(
+                backgroundColor: Color(0xFFEBF8FF),
+                child: Icon(Icons.alarm_add_rounded, color: Colors.blue),
+              ),
+              title: const Text('2. Schedule 2-Min Native Alarm', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+              subtitle: const Text('Registers a 2-minute native alarm with AlarmManager. Lock phone or close app to test background firing.'),
+              onTap: () async {
+                Navigator.of(dialogCtx).pop();
+                final ok = await NotificationService().scheduleDiagnosticNotification(minutesAhead: 2);
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      backgroundColor: ok ? AppTheme.accentGreen : Colors.red,
+                      content: Text(ok
+                          ? '⏰ 2-min alarm registered with Android OS! You can minimize or lock the screen.'
+                          : '❌ Failed to schedule 2-min alarm.'),
+                    ),
+                  );
+                }
+              },
+            ),
+            const Divider(height: 16),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const CircleAvatar(
+                backgroundColor: Color(0xFFF7FAFC),
+                child: Icon(Icons.list_alt_rounded, color: Colors.blueGrey),
+              ),
+              title: const Text('3. Inspect Pending Android Alarms', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+              subtitle: const Text('Queries Android AlarmManager queue for scheduled reminders.'),
+              onTap: () async {
+                final pending = await NotificationService().getPendingNotifications();
+                if (mounted) {
+                  showDialog(
+                    context: context,
+                    builder: (ctx) => AlertDialog(
+                      title: Text('Pending Alarms (${pending.length})'),
+                      content: pending.isEmpty
+                          ? const Text('No alarms currently pending in Android AlarmManager.')
+                          : SizedBox(
+                              width: double.maxFinite,
+                              child: ListView.builder(
+                                shrinkWrap: true,
+                                itemCount: pending.length,
+                                itemBuilder: (c, i) => ListTile(
+                                  dense: true,
+                                  title: Text(pending[i].title ?? 'Untitled'),
+                                  subtitle: Text('ID: ${pending[i].id} | ${pending[i].body ?? ""}'),
+                                ),
+                              ),
+                            ),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.of(ctx).pop(),
+                          child: const Text('Close'),
+                        ),
+                      ],
+                    ),
+                  );
+                }
+              },
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogCtx).pop(),
+            child: const Text('Done'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -456,6 +578,14 @@ class _SettingsPageState extends State<SettingsPage> {
                           },
                           child: const Text('Open Settings', style: TextStyle(fontSize: 12)),
                         ),
+                      ),
+                      const Divider(height: 1),
+                      ListTile(
+                        leading: const Icon(Icons.troubleshoot_rounded, color: AppTheme.primaryTeal),
+                        title: const Text('System Notification Diagnostics', style: TextStyle(fontWeight: FontWeight.w600)),
+                        subtitle: const Text('Test immediate alert, 2-min native alarm & queue status'),
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: () => _showNotificationDiagnosticsDialog(),
                       ),
                     ],
                   ),

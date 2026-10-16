@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
 import 'services/messaging_service.dart';
+import 'services/notification_service.dart';
 import 'app/app.dart';
 
 void main() async {
@@ -14,5 +15,12 @@ void main() async {
   } catch (e) {
     debugPrint('Firebase initialization failed/bypassed: $e');
   }
+
+  try {
+    await NotificationService().init();
+  } catch (e) {
+    debugPrint('NotificationService initialization note: $e');
+  }
+
   runApp(const MedGuardApp());
 }

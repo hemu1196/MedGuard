@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_timezone/flutter_timezone.dart';
@@ -69,6 +70,17 @@ class NotificationService {
   static const String _scheduledMedicineIdsPrefix = 'medguard_scheduled_ids_med_';
   static const String _scheduledApptIdsPrefix = 'medguard_scheduled_ids_appt_';
 
+  // Stable Versioned Notification Channels (Android 8.0+ / API 26+)
+  static const String medicineChannelId = 'medguard_medicine_alerts_v2';
+  static const String medicineChannelName = 'MEDGUARD Medicine Reminders';
+  static const String medicineChannelDesc =
+      'High-priority audible and vibration alarms for scheduled medications';
+
+  static const String appointmentChannelId = 'medguard_appointment_alerts_v2';
+  static const String appointmentChannelName = 'MEDGUARD Appointment Alerts';
+  static const String appointmentChannelDesc =
+      'High-priority alerts for upcoming doctor visits and clinical consultations';
+
   // Base IDs for non-colliding notification ranges
   static const int _medicineIdBase = 100000;
   static const int _appointmentIdBase = 500000;
@@ -100,8 +112,9 @@ class NotificationService {
     }
 
     if (!kIsWeb) {
+      // Use monochrome drawable icon in res/drawable/ic_notification.xml
       const androidSettings =
-          AndroidInitializationSettings('@mipmap/ic_launcher');
+          AndroidInitializationSettings('ic_notification');
       const iosSettings = DarwinInitializationSettings(
         requestAlertPermission: true,
         requestBadgePermission: true,
@@ -114,22 +127,22 @@ class NotificationService {
       );
 
       try {
-        await _notificationsPlugin.initialize(
+        final initOk = await _notificationsPlugin.initialize(
           settings,
           onDidReceiveNotificationResponse: _handleNotificationResponse,
         );
+        debugPrint('[NOTIFICATION SERVICE] Native notification plugin init status: $initOk');
 
-        // Create dedicated Android notification channels
+        // Create dedicated Android notification channels with MAX importance
         final androidImpl = _notificationsPlugin
             .resolvePlatformSpecificImplementation<
                 AndroidFlutterLocalNotificationsPlugin>();
         if (androidImpl != null) {
-          // Channel 1: High Priority Medicine Alarms
+          // Channel 1: High Priority Medicine Alarms (V2)
           const medicineChannel = AndroidNotificationChannel(
-            'medicine_alarms',
-            'Medicine Alarms & Reminders',
-            description:
-                'High-priority audible and vibration alerts for scheduled medications',
+            medicineChannelId,
+            medicineChannelName,
+            description: medicineChannelDesc,
             importance: Importance.max,
             enableVibration: true,
             playSound: true,
@@ -138,12 +151,11 @@ class NotificationService {
           );
           await androidImpl.createNotificationChannel(medicineChannel);
 
-          // Channel 2: High Priority Appointment Reminders
+          // Channel 2: High Priority Appointment Reminders (V2)
           const appointmentChannel = AndroidNotificationChannel(
-            'appointment_alarms',
-            'Appointment Reminders',
-            description:
-                'High-priority alerts for upcoming doctor visits and clinical consultations',
+            appointmentChannelId,
+            appointmentChannelName,
+            description: appointmentChannelDesc,
             importance: Importance.high,
             enableVibration: true,
             playSound: true,
@@ -428,13 +440,14 @@ class NotificationService {
     }
 
     const androidDetails = AndroidNotificationDetails(
-      'medicine_alarms',
-      'Medicine Alarms & Reminders',
-      channelDescription:
-          'High-priority audible and vibration alerts for scheduled medications',
+      medicineChannelId,
+      medicineChannelName,
+      channelDescription: medicineChannelDesc,
       importance: Importance.max,
       priority: Priority.max,
       category: AndroidNotificationCategory.alarm,
+      icon: 'ic_notification',
+      color: Color(0xFF0D9488),
       enableVibration: true,
       playSound: true,
       channelShowBadge: true,
@@ -640,13 +653,14 @@ class NotificationService {
 
         final scheduledTz = tz.TZDateTime.from(scheduledTime, tz.local);
         const androidDetails = AndroidNotificationDetails(
-          'appointment_alarms',
-          'Appointment Reminders',
-          channelDescription:
-              'High-priority alerts for upcoming doctor visits and clinical consultations',
+          appointmentChannelId,
+          appointmentChannelName,
+          channelDescription: appointmentChannelDesc,
           importance: Importance.high,
           priority: Priority.high,
           category: AndroidNotificationCategory.reminder,
+          icon: 'ic_notification',
+          color: Color(0xFF0D9488),
           playSound: true,
           enableVibration: true,
           channelShowBadge: true,
@@ -809,5 +823,143 @@ class NotificationService {
       final key = '$prefix$entityId';
       await prefs.remove(key);
     } catch (_) {}
+  }
+
+  // --- Diagnostic Methods (Phase 2 & Phase 3) ---
+
+  /// Phase 2 Diagnostic: Immediate system notification posting
+  Future<bool> showImmediateDiagnosticNotification({
+    String title = 'MEDGUARD — Android Notification Test',
+    String body = 'Android system notifications are configured.',
+  }) async {
+    await init();
+    if (kIsWeb) {
+      debugPrint('[NOTIFICATION DIAGNOSTIC] Web immediate notification stub');
+      return true;
+    }
+
+    const androidDetails = AndroidNotificationDetails(
+      medicineChannelId,
+      medicineChannelName,
+      channelDescription: medicineChannelDesc,
+      importance: Importance.max,
+      priority: Priority.max,
+      category: AndroidNotificationCategory.alarm,
+      icon: 'ic_notification',
+      color: Color(0xFF0D9488),
+      enableVibration: true,
+      playSound: true,
+      channelShowBadge: true,
+      visibility: NotificationVisibility.public,
+      ticker: 'MEDGUARD Diagnostic Alert',
+    );
+
+    const iosDetails = DarwinNotificationDetails(
+      sound: 'default',
+      presentAlert: true,
+      presentBadge: true,
+      presentSound: true,
+    );
+
+    const details = NotificationDetails(
+      android: androidDetails,
+      iOS: iosDetails,
+    );
+
+    try {
+      await _notificationsPlugin.show(
+        999999,
+        title,
+        body,
+        details,
+        payload: 'diagnostic_immediate',
+      );
+      debugPrint('[NOTIFICATION DIAGNOSTIC] Immediate system notification posted successfully (ID: 999999)');
+      return true;
+    } catch (e) {
+      debugPrint('[NOTIFICATION DIAGNOSTIC] Immediate notification posting error: $e');
+      return false;
+    }
+  }
+
+  /// Phase 3 Diagnostic: Native scheduled system notification (2 minutes ahead)
+  Future<bool> scheduleDiagnosticNotification({
+    int minutesAhead = 2,
+    String title = 'MEDGUARD — Scheduled Diagnostic Test',
+    String? body,
+  }) async {
+    await init();
+    final fireTime = tz.TZDateTime.now(tz.local).add(Duration(minutes: minutesAhead));
+    final notifBody = body ??
+        'Diagnostic reminder scheduled $minutesAhead min ago arrived successfully in system shade.';
+
+    if (kIsWeb) {
+      debugPrint('[NOTIFICATION DIAGNOSTIC] Web scheduled notification stub');
+      return true;
+    }
+
+    const androidDetails = AndroidNotificationDetails(
+      medicineChannelId,
+      medicineChannelName,
+      channelDescription: medicineChannelDesc,
+      importance: Importance.max,
+      priority: Priority.max,
+      category: AndroidNotificationCategory.alarm,
+      icon: 'ic_notification',
+      color: Color(0xFF0D9488),
+      enableVibration: true,
+      playSound: true,
+      channelShowBadge: true,
+      visibility: NotificationVisibility.public,
+      ticker: 'MEDGUARD Scheduled Diagnostic',
+    );
+
+    const iosDetails = DarwinNotificationDetails(
+      sound: 'default',
+      presentAlert: true,
+      presentBadge: true,
+      presentSound: true,
+    );
+
+    const details = NotificationDetails(
+      android: androidDetails,
+      iOS: iosDetails,
+    );
+
+    try {
+      await _notificationsPlugin.zonedSchedule(
+        999998,
+        title,
+        notifBody,
+        fireTime,
+        details,
+        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+        uiLocalNotificationDateInterpretation:
+            UILocalNotificationDateInterpretation.absoluteTime,
+        payload: 'diagnostic_scheduled',
+      );
+      debugPrint('[NOTIFICATION DIAGNOSTIC] Scheduled diagnostic alarm for $fireTime (ID: 999998, exactAllowWhileIdle)');
+      return true;
+    } catch (e) {
+      debugPrint('[NOTIFICATION DIAGNOSTIC] Exact mode failed ($e), falling back to inexact...');
+      try {
+        await _notificationsPlugin.zonedSchedule(
+          999998,
+          title,
+          notifBody,
+          fireTime,
+          details,
+          androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+          uiLocalNotificationDateInterpretation:
+              UILocalNotificationDateInterpretation.absoluteTime,
+          payload: 'diagnostic_scheduled',
+        );
+        debugPrint('[NOTIFICATION DIAGNOSTIC] Scheduled diagnostic alarm (inexact) for $fireTime (ID: 999998)');
+        return true;
+      } catch (err) {
+        debugPrint('[NOTIFICATION DIAGNOSTIC] Scheduled diagnostic failed: $err');
+        return false;
+      }
+    }
   }
 }

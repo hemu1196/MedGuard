@@ -1511,7 +1511,9 @@ class _HealthDocumentViewerDialogState extends State<_HealthDocumentViewerDialog
   @override
   Widget build(BuildContext context) {
     final record = widget.record;
-    final isPdf = _isPdfBytes(_documentBytes) || record.isPdf;
+    final isPdf = _documentBytes != null && _documentBytes!.isNotEmpty
+        ? _isPdfBytes(_documentBytes)
+        : record.isPdf;
 
     return Dialog(
       insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
@@ -1819,6 +1821,19 @@ class _HealthDocumentViewerDialogState extends State<_HealthDocumentViewerDialog
           child: Image.memory(
             _documentBytes!,
             fit: BoxFit.contain,
+            errorBuilder: (context, error, stackTrace) => const Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.broken_image_outlined, size: 48, color: Colors.grey),
+                  SizedBox(height: 8),
+                  Text(
+                    'Unable to render image preview.',
+                    style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
           ),
         ),
       ),

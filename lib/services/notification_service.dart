@@ -522,6 +522,34 @@ class NotificationService {
     debugPrint('[NOTIFICATION SERVICE] Cancelled appointment reminders for: $appointmentId');
   }
 
+  /// Cancels all scheduled reminder alarms across all medicines and appointments
+  Future<void> cancelAllScheduledReminders() async {
+    for (final timer in _webTimers.values) {
+      timer.cancel();
+    }
+    _webTimers.clear();
+
+    if (!kIsWeb) {
+      try {
+        await _notificationsPlugin.cancelAll();
+      } catch (e) {
+        debugPrint('[NOTIFICATION SERVICE] cancelAll note: $e');
+      }
+    }
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final keys = prefs.getKeys().where((k) =>
+          k.startsWith(_scheduledMedicineIdsPrefix) ||
+          k.startsWith(_scheduledApptIdsPrefix));
+      for (final key in keys.toList()) {
+        await prefs.remove(key);
+      }
+    } catch (_) {}
+
+    debugPrint('[NOTIFICATION SERVICE] Cancelled all scheduled reminders.');
+  }
+
   /// Reconciles local notification schedules against user's active medicines and appointments
   Future<void> reconcileSchedules({
     required List<Medicine> medicines,

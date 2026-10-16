@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../core/api/api_client.dart';
 import '../core/errors/app_exception.dart';
+import '../services/notification_service.dart';
+import '../services/user_state_service.dart';
 
 class AuthSession {
   final String token;
@@ -312,6 +314,17 @@ class AuthRepository {
         await _firebaseAuth!.signOut();
       } catch (_) {}
     }
+
+    // Clear in-memory profile state
+    ProfileStateManager.instance.clear();
+
+    // Cancel all scheduled OS alarms and web timers to prevent cross-account reminder leaks
+    try {
+      await NotificationService().cancelAllScheduledReminders();
+    } catch (e) {
+      debugPrint('[AUTH] cancelAllScheduledReminders note: $e');
+    }
+
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_sessionKey, false);
     await prefs.remove(_userIdKey);

@@ -4,7 +4,6 @@ import '../../core/utils/bmi_calculator.dart';
 import '../../models/user_profile.dart';
 import '../../repositories/auth_repository.dart';
 import '../../repositories/profile_repository.dart';
-import '../../services/gemini_service.dart';
 import '../../widgets/app_header.dart';
 
 class DietFitnessPage extends StatefulWidget {
@@ -17,14 +16,10 @@ class DietFitnessPage extends StatefulWidget {
 class _DietFitnessPageState extends State<DietFitnessPage> {
   final ProfileRepository _profileRepo = ProfileRepository();
   final AuthRepository _authRepo = AuthRepository();
-  final GeminiService _geminiService = GeminiService();
 
   UserProfile? _profile;
   bool _loading = true;
   String _dietFilter = 'All';
-  String _selectedGoal = 'Weight Management';
-  bool _isGeneratingAi = false;
-  String? _customAiPlan;
 
   final Map<String, bool> _dailyHabits = {
     'Hydration (8+ glasses / 2.2L - 2.5L)': false,
@@ -33,15 +28,6 @@ class _DietFitnessPageState extends State<DietFitnessPage> {
     '7-8 hours restful restorative sleep': false,
     '5 minutes mindful breathing or relaxation': false,
   };
-
-  final List<String> _healthGoals = [
-    'Weight Management',
-    'Boost Energy',
-    'Heart Health',
-    'Better Digestion',
-    'Blood Sugar Balance',
-    'Muscle Tone',
-  ];
 
   @override
   void initState() {
@@ -115,51 +101,6 @@ class _DietFitnessPageState extends State<DietFitnessPage> {
     return a;
   }
 
-  Future<void> _generateAiPlan() async {
-    setState(() {
-      _isGeneratingAi = true;
-    });
-
-    final prompt = '''
-You are MedGuard AI Clinical Nutritionist. Provide a structured, tailored 1-day meal & fitness routine based on:
-- User BMI: ${_bmi.toStringAsFixed(1)} ($_bmiCategory)
-- Weight: ${_weightKg.round()} kg, Height: ${_heightCm.round()} cm
-- Known Allergies: ${_allergiesText.isEmpty ? 'None' : _allergiesText}
-- Selected Health Goal: $_selectedGoal
-- Preferred Diet Style: $_dietFilter
-
-Format your response clearly with:
-1. Target Daily Intake & Calorie Breakdown
-2. Tailored Breakfast, Lunch, Snack & Dinner (respecting all allergies strictly)
-3. 2 Targeted Exercise Suggestions for $_selectedGoal
-4. Medical Safety Reminder
-
-Keep the tone encouraging, professional, and practical.
-''';
-
-    try {
-      final response = await _geminiService.generateResponse(prompt: prompt);
-      if (mounted) {
-        setState(() {
-          _customAiPlan = response;
-          _isGeneratingAi = false;
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _isGeneratingAi = false;
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('AI customization notice: ${e.toString().replaceAll('Exception:', '')}'),
-            backgroundColor: AppColors.textPrimary,
-          ),
-        );
-      }
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -230,24 +171,10 @@ Keep the tone encouraging, professional, and practical.
                     _buildHabitsChecklistCard(),
                     const SizedBox(height: 24),
 
-                    // SECTION 6: Health Goals Focus
-                    _buildSectionHeader(
-                      icon: Icons.flag_outlined,
-                      title: '6. General Health Goals',
-                      subtitle: 'Select your focus area for contextual guidance',
-                    ),
-                    const SizedBox(height: 10),
-                    _buildGoalsSelector(),
-                    const SizedBox(height: 24),
-
-                    // AI Tailored Plan (Optional on-demand)
-                    _buildAiPlanCard(),
-                    const SizedBox(height: 24),
-
-                    // SECTION 7: Professional Guidance & Disclaimer
+                    // SECTION 6: Professional Guidance & Disclaimer
                     _buildSectionHeader(
                       icon: Icons.verified_user_outlined,
-                      title: '7. Medical Guidance & Disclaimer',
+                      title: '6. Medical Guidance & Disclaimer',
                       subtitle: 'Important health safety principles',
                     ),
                     const SizedBox(height: 10),
@@ -883,186 +810,7 @@ Keep the tone encouraging, professional, and practical.
     );
   }
 
-  // --- SECTION 6: Health Goals Focus ---
-  Widget _buildGoalsSelector() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: _healthGoals.map((g) {
-            final isSelected = _selectedGoal == g;
-            return ChoiceChip(
-              label: Text(g),
-              selected: isSelected,
-              onSelected: (_) => setState(() => _selectedGoal = g),
-              selectedColor: AppColors.primary,
-              labelStyle: TextStyle(
-                fontSize: 12,
-                fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                color: isSelected ? Colors.white : AppColors.textPrimary,
-              ),
-              backgroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(20),
-                side: BorderSide(
-                  color: isSelected ? AppColors.primary : const Color(0xFFE2E8F0),
-                ),
-              ),
-            );
-          }).toList(),
-        ),
-        const SizedBox(height: 12),
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: const Color(0xFFF0FDF4),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: const Color(0xFFDCFCE7)),
-          ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Icon(Icons.tips_and_updates_outlined, size: 18, color: Color(0xFF16A34A)),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  _getGoalGuidance(_selectedGoal),
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: Color(0xFF166534),
-                    height: 1.35,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  String _getGoalGuidance(String goal) {
-    switch (goal) {
-      case 'Weight Management':
-        return 'Focus on caloric awareness, whole food volume, high dietary fiber, and adequate protein to sustain satiety without rapid insulin spikes.';
-      case 'Boost Energy':
-        return 'Avoid high-glycemic sugar spikes. Pair complex carbohydrates with healthy plant fats, stay hydrated with 2.5L water, and take short movement breaks.';
-      case 'Heart Health':
-        return 'Prioritize monounsaturated fats (extra virgin olive oil, nuts, seeds), eliminate trans fats, restrict sodium below 2,000 mg, and walk 30 minutes daily.';
-      case 'Better Digestion':
-        return 'Incorporate naturally fermented foods (curd, kefir), chew food thoroughly in a relaxed posture, and space meals 3-4 hours apart.';
-      case 'Blood Sugar Balance':
-        return 'Eat fiber and vegetables before carbohydrates, walk 10 minutes following each meal, and replace refined grains with barley, oats, or quinoa.';
-      case 'Muscle Tone':
-        return 'Target 1.2g - 1.6g of quality protein per kg of body weight, paired with resistance training exercises 3 times per week.';
-      default:
-        return 'Balanced nutrition, mindful eating, and regular physical movement form the foundation of lifelong health.';
-    }
-  }
-
-  // --- Optional AI Tailored Plan ---
-  Widget _buildAiPlanCard() {
-    return Card(
-      elevation: 0,
-      color: Colors.white,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: const BorderSide(color: Color(0xFFE2E8F0)),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFFAF5FF),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: const Icon(Icons.auto_awesome_rounded, color: Color(0xFF9333EA), size: 20),
-                ),
-                const SizedBox(width: 10),
-                const Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'MedGuard AI Personalized Plan',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.bold,
-                          color: AppColors.textPrimary,
-                        ),
-                      ),
-                      Text(
-                        'Synthesize a custom routine with your medical profile',
-                        style: TextStyle(fontSize: 11, color: AppColors.textSecondary),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 14),
-            SizedBox(
-              width: double.infinity,
-              height: 44,
-              child: ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primary,
-                  foregroundColor: Colors.white,
-                  elevation: 0,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                onPressed: _isGeneratingAi ? null : _generateAiPlan,
-                icon: _isGeneratingAi
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                      )
-                    : const Icon(Icons.auto_awesome, size: 18),
-                label: Text(
-                  _isGeneratingAi ? 'Analyzing Profile & Generating...' : 'Personalize with AI',
-                  style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
-                ),
-              ),
-            ),
-            if (_customAiPlan != null) ...[
-              const SizedBox(height: 16),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF8FAFC),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xFFE2E8F0)),
-                ),
-                child: SelectableText(
-                  _customAiPlan!,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: AppColors.textPrimary,
-                    height: 1.45,
-                  ),
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  // --- SECTION 7: Medical Guidance & Disclaimer ---
+  // --- SECTION 6: Medical Guidance & Disclaimer ---
   Widget _buildDisclaimerCard() {
     return Container(
       width: double.infinity,

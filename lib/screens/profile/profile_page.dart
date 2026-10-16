@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
@@ -10,6 +11,7 @@ import '../../core/utils/bmi_calculator.dart';
 import '../../core/utils/phone_helper.dart';
 import '../../models/user_profile.dart';
 import '../../models/water_intake.dart';
+import '../../models/health_record.dart';
 import '../../repositories/auth_repository.dart';
 import '../../repositories/emergency_contact_repository.dart';
 import '../../repositories/health_record_repository.dart';
@@ -44,6 +46,7 @@ class _ProfilePageState extends State<ProfilePage> {
   String _emergencyContactRelation = 'Dad';
   String _emergencyContactPhone = '+91 8309305811';
   bool _isLoading = true;
+  StreamSubscription<List<HealthRecord>>? _recordsSub;
 
   @override
   void initState() {
@@ -65,6 +68,7 @@ class _ProfilePageState extends State<ProfilePage> {
 
   @override
   void dispose() {
+    _recordsSub?.cancel();
     ProfileStateManager.instance.removeListener(_onProfileStateManagerChanged);
     super.dispose();
   }
@@ -91,6 +95,15 @@ class _ProfilePageState extends State<ProfilePage> {
         medsCount = meds.where((m) => m.quantityAvailable > 0).length;
         final recs = await _recordRepository.getRecords(userId: userId);
         recordsCount = recs.length;
+
+        _recordsSub?.cancel();
+        _recordsSub = _recordRepository.watchHealthRecords(userId).listen((records) {
+          if (mounted) {
+            setState(() {
+              _healthRecordsCount = records.length;
+            });
+          }
+        });
 
         final contacts =
             await _contactRepository.getEmergencyContacts(userId: userId);
@@ -365,7 +378,7 @@ class _ProfilePageState extends State<ProfilePage> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Confirm Logout'),
-        content: const Text('Are you sure you want to log out of MedGuard?'),
+        content: const Text('Are you sure you want to log out of MEDGUARD?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
@@ -948,8 +961,9 @@ class _ProfilePageState extends State<ProfilePage> {
                       ),
                     ),
                     TextButton(
-                      onPressed: () {
-                        Navigator.pushNamed(context, AppRoutes.vault);
+                      onPressed: () async {
+                        await Navigator.pushNamed(context, AppRoutes.vault);
+                        _loadProfile();
                       },
                       child: const Text(
                         'View All',
@@ -1009,8 +1023,10 @@ class _ProfilePageState extends State<ProfilePage> {
                         iconColor: const Color(0xFF2563EB),
                         title: 'Records',
                         subtitle: '$_healthRecordsCount document',
-                        onTap: () =>
-                            Navigator.pushNamed(context, AppRoutes.vault),
+                        onTap: () async {
+                          await Navigator.pushNamed(context, AppRoutes.vault);
+                          _loadProfile();
+                        },
                       ),
                     ),
                   ],
@@ -1322,12 +1338,74 @@ class _ProfilePageState extends State<ProfilePage> {
                     ),
                   ],
                 ),
-              const SizedBox(height: 32),
+              const SizedBox(height: 28),
+              _buildDesktopSettingsAndLogout(contentWidth),
+              const SizedBox(height: 36),
             ],
           ),
         );
       },
     );
+  }
+
+  Widget _buildDesktopSettingsAndLogout(double contentWidth) {
+    final settingsButton = SizedBox(
+      height: 48,
+      child: OutlinedButton.icon(
+        key: const Key('web_profile_settings_button'),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: const Color(0xFF009E8F),
+          side: const BorderSide(color: Color(0xFF009E8F), width: 1.5),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+        ),
+        onPressed: () => Navigator.pushNamed(context, AppRoutes.settings),
+        icon: const Icon(Icons.settings_outlined, size: 20),
+        label: const Text(
+          'Settings',
+          style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+        ),
+      ),
+    );
+
+    final logoutButton = SizedBox(
+      height: 48,
+      child: ElevatedButton.icon(
+        key: const Key('web_profile_logout_button'),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: const Color(0xFFDC2626),
+          foregroundColor: Colors.white,
+          elevation: 0,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+        ),
+        onPressed: _logout,
+        icon: const Icon(Icons.logout_rounded, size: 20),
+        label: const Text(
+          'Logout',
+          style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+        ),
+      ),
+    );
+
+    if (contentWidth >= 600) {
+      return Row(
+        children: [
+          Expanded(child: settingsButton),
+          const SizedBox(width: 16),
+          Expanded(child: logoutButton),
+        ],
+      );
+    } else {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          settingsButton,
+          const SizedBox(height: 12),
+          logoutButton,
+        ],
+      );
+    }
   }
 
   Widget _buildDesktopProfileHero({
@@ -2138,8 +2216,10 @@ class _ProfilePageState extends State<ProfilePage> {
           ),
           const SizedBox(height: 18),
           InkWell(
-            onTap: () =>
-                Navigator.pushNamed(context, AppRoutes.vault),
+            onTap: () async {
+              await Navigator.pushNamed(context, AppRoutes.vault);
+              _loadProfile();
+            },
             child: Row(
               children: const [
                 Text(

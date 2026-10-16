@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../core/api/api_client.dart';
+import '../core/utils/image_helper.dart';
 import '../models/health_record.dart';
 
 class HealthRecordRepository {
@@ -98,15 +99,54 @@ class HealthRecordRepository {
 
   /// Download file bytes securely using JWT Bearer authentication
   Future<Uint8List> getRecordBytes(HealthRecord record) async {
-    if (record.id.isEmpty) {
-      throw Exception('Cannot download record with empty ID.');
+    // 1. Try remote MongoDB Atlas GridFS download if valid Mongo ObjectId
+    if (record.id.length == 24 && RegExp(r'^[0-9a-fA-F]{24}$').hasMatch(record.id)) {
+      try {
+        final endpoint = '/health-records/${record.id}/download';
+        return await _apiClient.downloadBytes(endpoint);
+      } catch (e) {
+        debugPrint('[HEALTH VAULT REPO] Remote download note: $e');
+      }
     }
-    final endpoint = '/health-records/${record.id}/download';
-    return await _apiClient.downloadBytes(endpoint);
+
+    // 2. Try fileUrl if remote download failed or record is local/cached
+    if (record.fileUrl != null && record.fileUrl!.isNotEmpty) {
+      final bytes = await ImageHelper.loadBytes(record.fileUrl);
+      if (bytes != null && bytes.isNotEmpty) {
+        return bytes;
+      }
+    }
+
+    throw Exception('Document content is not available for this record.');
   }
 
-  /// Save new record or update existing record in MongoDB Atlas
-  /// Throws Exception if the backend operation fails - NEVER gives false success!
+  String _resolveAttachmentFileName({
+    String? providedName,
+    Uint8List? bytes,
+    String? fileUrl,
+    required String title,
+  }) {
+    if (providedName != null && providedName.trim().isNotEmpty) {
+      return providedName.trim();
+    }
+    if (bytes != null && bytes.length >= 4) {
+      if (bytes[0] == 0x25 && bytes[1] == 0x50 && bytes[2] == 0x44 && bytes[3] == 0x46) {
+        return title.endsWith('.pdf') ? title : '$title.pdf';
+      }
+      if (bytes[0] == 0x89 && bytes[1] == 0x50 && bytes[2] == 0x4E && bytes[3] == 0x47) {
+        return title.endsWith('.png') ? title : '$title.png';
+      }
+      if (bytes[0] == 0xFF && bytes[1] == 0xD8) {
+        return (title.endsWith('.jpg') || title.endsWith('.jpeg')) ? title : '$title.jpg';
+      }
+    }
+    if (fileUrl != null && fileUrl.isNotEmpty) {
+      final name = fileUrl.split('/').last.split('\\').last;
+      if (name.contains('.')) return name;
+    }
+    return title.contains('.') ? title : '$title.pdf';
+  }
+
   /// Save new record or update existing record in MongoDB Atlas
   /// When [throwOnError] is true, throws Exception on backend failure to prevent false success in UI.
   Future<bool> saveRecord(
@@ -116,6 +156,12 @@ class HealthRecordRepository {
     bool throwOnError = false,
   }) async {
     final category = _mapRecordTypeToCategory(record.recordType);
+    final resolvedAttachmentName = _resolveAttachmentFileName(
+      providedName: fileName,
+      bytes: fileBytes,
+      fileUrl: record.fileUrl,
+      title: record.title,
+    );
 
     // 1. UPDATE EXISTING RECORD (MongoDB ObjectId format: 24-character hex string)
     final isExistingMongoRecord = record.id.length == 24 &&
@@ -131,7 +177,7 @@ class HealthRecordRepository {
             filePath: record.fileUrl ?? '',
             fileFieldName: 'file',
             bytes: fileBytes,
-            filename: fileName ?? (record.title.endsWith('.pdf') ? record.title : '${record.title}.pdf'),
+            filename: resolvedAttachmentName,
             fields: {
               'title': record.title,
               'category': category,
@@ -192,7 +238,7 @@ class HealthRecordRepository {
           filePath: record.fileUrl ?? '',
           fileFieldName: 'file',
           bytes: fileBytes,
-          filename: fileName ?? (record.title.endsWith('.pdf') ? record.title : '${record.title}.pdf'),
+          filename: resolvedAttachmentName,
           fields: {
             'title': record.title,
             'category': category,

@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../config/api_config.dart';
 import '../errors/app_exception.dart';
@@ -260,10 +261,29 @@ class ApiClient {
     }
 
     if (bytes != null && filename != null) {
+      MediaType? contentType;
+      final ext = filename.split('.').last.toLowerCase();
+      if (ext == 'pdf' || (bytes.length >= 4 && bytes[0] == 0x25 && bytes[1] == 0x50 && bytes[2] == 0x44 && bytes[3] == 0x46)) {
+        contentType = MediaType('application', 'pdf');
+      } else if (ext == 'png' || (bytes.length >= 8 && bytes[0] == 0x89 && bytes[1] == 0x50 && bytes[2] == 0x4E && bytes[3] == 0x47)) {
+        contentType = MediaType('image', 'png');
+      } else if (ext == 'jpg' || ext == 'jpeg' || (bytes.length >= 3 && bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF)) {
+        contentType = MediaType('image', 'jpeg');
+      } else if (ext == 'webp') {
+        contentType = MediaType('image', 'webp');
+      } else if (ext == 'doc') {
+        contentType = MediaType('application', 'msword');
+      } else if (ext == 'docx') {
+        contentType = MediaType('application', 'vnd.openxmlformats-officedocument.wordprocessingml.document');
+      } else if (ext == 'txt') {
+        contentType = MediaType('text', 'plain');
+      }
+
       request.files.add(http.MultipartFile.fromBytes(
         fileFieldName,
         bytes,
         filename: filename,
+        contentType: contentType,
       ));
     } else {
       request.files.add(await http.MultipartFile.fromPath(fileFieldName, filePath));

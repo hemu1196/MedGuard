@@ -78,9 +78,8 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
       type: NotificationType.appointment,
       targetRoute: '/appointments',
     );
-    if (kIsWeb) return;
     _notificationService.scheduleAppointmentNotifications(
-      baseNotificationId: appt.notificationId,
+      appointmentId: appt.id,
       doctorName: appt.doctorName,
       hospitalOrClinic: appt.hospitalOrClinic,
       appointmentDate: appt.appointmentDate,
@@ -95,11 +94,7 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
       type: NotificationType.appointment,
       targetRoute: '/appointments',
     );
-    if (kIsWeb) return;
-    _notificationService.cancelAppointmentNotifications(
-      baseNotificationId: appt.notificationId,
-      reminderOffsets: appt.reminderOffsets,
-    );
+    _notificationService.cancelAppointmentNotifications(appt.id);
   }
 
   Future<void> _callDoctor(String phoneNumber) async {
@@ -659,13 +654,14 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
                           updatedAt: DateTime.now(),
                         );
 
-                        await _appointmentRepository.saveAppointment(userId, appt);
+                        final savedAppt = await _appointmentRepository.saveAppointment(userId, appt);
+                        final targetAppt = savedAppt ?? appt;
 
                         if (existing != null) {
                           _cancelSystemNotification(existing);
                         }
-                        if (appt.reminderEnabled && appt.status == 'Upcoming') {
-                          _scheduleSystemNotification(appt);
+                        if (targetAppt.reminderEnabled && targetAppt.status == 'Upcoming') {
+                          _scheduleSystemNotification(targetAppt);
                         }
 
                         if (context.mounted) {

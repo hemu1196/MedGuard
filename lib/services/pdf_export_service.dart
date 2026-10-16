@@ -462,4 +462,60 @@ class PdfExportService {
       );
     }
   }
+
+  /// Shares any original file (image, PDF, document)
+  Future<void> shareOriginalFile({
+    required Uint8List bytes,
+    required String filename,
+    required String mimeType,
+    String? subject,
+  }) async {
+    try {
+      if (mimeType.toLowerCase() == 'application/pdf') {
+        await sharePdf(bytes: bytes, filename: filename, subject: subject);
+      } else {
+        await Share.shareXFiles(
+          [
+            XFile.fromData(
+              bytes,
+              name: filename,
+              mimeType: mimeType,
+            ),
+          ],
+          subject: subject ?? 'MEDGUARD Health Attachment',
+        );
+      }
+    } catch (e) {
+      debugPrint('[FILE SHARE] Error sharing original file: $e');
+    }
+  }
+
+  /// Downloads or opens layout preview for any original file
+  Future<void> downloadOriginalFile({
+    required Uint8List bytes,
+    required String filename,
+    required String mimeType,
+  }) async {
+    if (mimeType.toLowerCase() == 'application/pdf') {
+      await downloadPdf(bytes: bytes, filename: filename);
+    } else {
+      try {
+        await Printing.layoutPdf(
+          onLayout: (PdfPageFormat format) async {
+            return await convertImageToPdf(
+              imageBytes: bytes,
+              title: filename,
+            );
+          },
+          name: filename.endsWith('.pdf') ? filename : '$filename.pdf',
+        );
+      } catch (e) {
+        await shareOriginalFile(
+          bytes: bytes,
+          filename: filename,
+          mimeType: mimeType,
+        );
+      }
+    }
+  }
 }

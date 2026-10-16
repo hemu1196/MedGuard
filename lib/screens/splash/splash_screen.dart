@@ -2,7 +2,11 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../app/routes.dart';
+import '../../models/appointment.dart';
+import '../../models/medicine.dart';
+import '../../repositories/appointment_repository.dart';
 import '../../repositories/auth_repository.dart';
+import '../../repositories/medicine_repository.dart';
 import '../../repositories/profile_repository.dart';
 import '../../services/in_app_notification_service.dart';
 import '../../services/notification_service.dart';
@@ -115,6 +119,7 @@ class _SplashScreenState extends State<SplashScreen>
         final userId = await _authRepository.getCurrentUserId();
         if (userId.isNotEmpty) {
           hasProfile = await _profileRepository.profileExists(userId);
+          unawaited(_reconcileSchedules(userId));
         }
       }
     } catch (e) {
@@ -147,6 +152,23 @@ class _SplashScreenState extends State<SplashScreen>
     } else {
       // Returning User / No Valid Session or Expired -> Login Screen
       Navigator.pushReplacementNamed(context, AppRoutes.login);
+    }
+  }
+
+  Future<void> _reconcileSchedules(String userId) async {
+    try {
+      final results = await Future.wait([
+        MedicineRepository().getMedicines(userId: userId),
+        AppointmentRepository().getAppointments(userId: userId),
+      ]);
+      final meds = results[0] as List<Medicine>;
+      final appts = results[1] as List<Appointment>;
+      await NotificationService().reconcileSchedules(
+        medicines: meds,
+        appointments: appts,
+      );
+    } catch (e) {
+      debugPrint('[SPLASH] Schedule reconciliation error: $e');
     }
   }
 

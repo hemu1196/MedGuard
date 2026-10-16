@@ -1,9 +1,13 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timezone/data/latest_all.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
+import '../models/appointment.dart';
+import '../models/medicine.dart';
 
 class MedicineAlertEvent {
   final String medicineId;
@@ -39,28 +43,42 @@ class NotificationService {
   bool _initialized = false;
   final Map<int, Timer> _webTimers = {};
 
+  static const String _scheduledMedicineIdsPrefix = 'medguard_scheduled_ids_med_';
+  static const String _scheduledApptIdsPrefix = 'medguard_scheduled_ids_appt_';
+
   Future<void> init() async {
     if (_initialized) return;
 
-    // 1. Initialize Timezone database
+    // 1. Initialize Timezone database with real device IANA timezone
     try {
       tz.initializeTimeZones();
-      // Default to local device timezone; fallback gracefully if not found
-      final String currentTimeZone = DateTime.now().timeZoneName;
-      if (tz.timeZoneDatabase.locations.containsKey(currentTimeZone)) {
-        tz.setLocalLocation(tz.getLocation(currentTimeZone));
+      String timeZoneName = 'UTC';
+      try {
+        final tzInfo = await FlutterTimezone.getLocalTimezone();
+        timeZoneName = tzInfo.identifier;
+      } catch (tzErr) {
+        debugPrint('[NOTIFICATION SERVICE] FlutterTimezone detection note: $tzErr');
+      }
+
+      if (tz.timeZoneDatabase.locations.containsKey(timeZoneName)) {
+        tz.setLocalLocation(tz.getLocation(timeZoneName));
+        debugPrint('[NOTIFICATION SERVICE] Local timezone set to: $timeZoneName');
       } else {
-        // Fallback to UTC or general offset
-        tz.setLocalLocation(tz.local);
+        _setFallbackLocationByOffset();
       }
     } catch (e) {
       debugPrint('[NOTIFICATION SERVICE] Timezone init fallback: $e');
+      _setFallbackLocationByOffset();
     }
 
     if (!kIsWeb) {
       const androidSettings =
           AndroidInitializationSettings('@mipmap/ic_launcher');
-      const iosSettings = DarwinInitializationSettings();
+      const iosSettings = DarwinInitializationSettings(
+        requestAlertPermission: true,
+        requestBadgePermission: true,
+        requestSoundPermission: true,
+      );
 
       const settings = InitializationSettings(
         android: androidSettings,
@@ -72,11 +90,12 @@ class NotificationService {
         onDidReceiveNotificationResponse: _handleNotificationResponse,
       );
 
-      // Create dedicated high-priority medicine alert channel for Android
+      // Create dedicated Android notification channels
       final androidImpl = _notificationsPlugin
           .resolvePlatformSpecificImplementation<
               AndroidFlutterLocalNotificationsPlugin>();
       if (androidImpl != null) {
+        // Channel 1: High Priority Medicine Alarms
         const medicineChannel = AndroidNotificationChannel(
           'medicine_alarms',
           'Medicine Alarms & Reminders',
@@ -87,10 +106,43 @@ class NotificationService {
           playSound: true,
         );
         await androidImpl.createNotificationChannel(medicineChannel);
+
+        // Channel 2: High Priority Appointment Reminders
+        const appointmentChannel = AndroidNotificationChannel(
+          'appointment_alarms',
+          'Appointment Reminders',
+          description:
+              'High-priority alerts for upcoming doctor visits and clinical consultations',
+          importance: Importance.high,
+          enableVibration: true,
+          playSound: true,
+        );
+        await androidImpl.createNotificationChannel(appointmentChannel);
+
+        // Channel 3: General Alerts
+        const generalChannel = AndroidNotificationChannel(
+          'medguard_general',
+          'General Notifications',
+          description: 'MedGuard System and Health Announcements',
+          importance: Importance.defaultImportance,
+        );
+        await androidImpl.createNotificationChannel(generalChannel);
       }
     }
 
     _initialized = true;
+  }
+
+  void _setFallbackLocationByOffset() {
+    final offset = DateTime.now().timeZoneOffset;
+    for (final loc in tz.timeZoneDatabase.locations.values) {
+      if (loc.currentTimeZone.offset == offset.inMilliseconds) {
+        tz.setLocalLocation(loc);
+        debugPrint('[NOTIFICATION SERVICE] Matched timezone by offset: ${loc.name}');
+        return;
+      }
+    }
+    tz.setLocalLocation(tz.local);
   }
 
   void _handleNotificationResponse(NotificationResponse response) {
@@ -124,11 +176,19 @@ class NotificationService {
             AndroidFlutterLocalNotificationsPlugin>();
     if (androidImpl != null) {
       final granted = await androidImpl.requestNotificationsPermission();
-      // Request exact alarm permission if available (Android 12+)
-      await androidImpl.requestExactAlarmsPermission();
+      try {
+        await androidImpl.requestExactAlarmsPermission();
+      } catch (exactErr) {
+        debugPrint('[NOTIFICATION SERVICE] Exact alarm permission request note: $exactErr');
+      }
       return granted ?? false;
     }
     return true;
+  }
+
+  int generateMedicineNotifId(String medicineId, String timeStr) {
+    final combined = '$medicineId|$timeStr';
+    return (combined.hashCode.abs()) % 100000;
   }
 
   /// Schedules an exact-time medicine reminder with high-priority sound,
@@ -149,11 +209,13 @@ class NotificationService {
       snoozeMinutes: snoozeMinutes,
     );
 
-    final notifId = (medicineId.hashCode.abs() + timeStr.hashCode.abs()) % 100000;
+    final notifId = generateMedicineNotifId(medicineId, timeStr);
     final payload = 'med_reminder|$medicineId|$medicineName|$dosage|$timeStr';
 
+    // Store mapped ID for reliable cancellation
+    await _recordScheduledId(_scheduledMedicineIdsPrefix, medicineId, notifId);
+
     if (kIsWeb) {
-      // Web scheduling: In-tab timer fallback to fire foreground modal
       final now = DateTime.now();
       final scheduledDateTime = scheduledTzTime.toLocal();
       final diff = scheduledDateTime.difference(now);
@@ -217,11 +279,14 @@ class NotificationService {
       iOS: iosDetails,
     );
 
+    const notifTitle = 'MEDGUARD — Medicine Reminder';
+    final notifBody = "It's time for your scheduled medicine: $medicineName ($dosage).";
+
     try {
       await _notificationsPlugin.zonedSchedule(
         notifId,
-        'MEDGUARD Medicine Alert: $medicineName',
-        'Time to take your scheduled dose: $dosage ($timeStr)',
+        notifTitle,
+        notifBody,
         scheduledTzTime,
         details,
         androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
@@ -230,7 +295,7 @@ class NotificationService {
         payload: payload,
       );
 
-      // Also set an in-app timer so that if the app is foregrounded, the popup opens seamlessly
+      // In-app fallback trigger when app is actively open
       final diff = scheduledTzTime.toLocal().difference(DateTime.now());
       if (!diff.isNegative) {
         _webTimers[notifId]?.cancel();
@@ -252,13 +317,12 @@ class NotificationService {
       );
       return true;
     } catch (e) {
-      debugPrint('[NOTIFICATION SERVICE] zonedSchedule fallback to immediate: $e');
-      // If exact alarm is blocked by OS permission, fallback to inexact schedule
+      debugPrint('[NOTIFICATION SERVICE] zonedSchedule fallback to inexact: $e');
       try {
         await _notificationsPlugin.zonedSchedule(
           notifId,
-          'MEDGUARD Medicine Alert: $medicineName',
-          'Time to take your scheduled dose: $dosage ($timeStr)',
+          notifTitle,
+          notifBody,
           scheduledTzTime,
           details,
           androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
@@ -274,7 +338,7 @@ class NotificationService {
     }
   }
 
-  /// Helper to compute next TZDateTime matching the target time string
+  /// Helper to compute next TZDateTime matching target time string
   tz.TZDateTime _computeNextScheduledTzTime({
     required String timeStr,
     DateTime? startDate,
@@ -334,108 +398,80 @@ class NotificationService {
     return scheduledDate;
   }
 
-  /// Triggers a test reminder after a short 3-second delay so the user
-  /// can verify sound, system notification, and foreground popup on their device.
-  Future<void> testReminderNow({
-    required String medicineId,
-    required String medicineName,
-    required String dosage,
-  }) async {
-    await init();
-    final testTimeStr = DateFormat('hh:mm a').format(DateTime.now());
-
-    if (!kIsWeb) {
-      const androidDetails = AndroidNotificationDetails(
-        'medicine_alarms',
-        'Medicine Alarms & Reminders',
-        channelDescription:
-            'High-priority audible and vibration alerts for scheduled medications',
-        importance: Importance.max,
-        priority: Priority.high,
-        enableVibration: true,
-        playSound: true,
-      );
-      const details = NotificationDetails(android: androidDetails);
-
-      await _notificationsPlugin.show(
-        99999,
-        '🔔 TEST MEDGUARD Alert: $medicineName',
-        'Time to take your scheduled dose: $dosage ($testTimeStr)',
-        details,
-        payload: 'med_reminder|$medicineId|$medicineName|$dosage|$testTimeStr',
-      );
-    }
-
-    // Broadcast foreground alert popup
-    Timer(const Duration(milliseconds: 500), () {
-      _alertController.add(
-        MedicineAlertEvent(
-          medicineId: medicineId,
-          medicineName: medicineName,
-          dosage: dosage,
-          scheduledTime: testTimeStr,
-        ),
-      );
-    });
-  }
-
+  /// Cancels all scheduled reminder alarms for a given medicine
   Future<void> cancelMedicineReminders(String medicineId) async {
-    final notifIdBase = medicineId.hashCode.abs() % 100000;
-    _webTimers[notifIdBase]?.cancel();
+    final scheduledIds = await _getRecordedIds(_scheduledMedicineIdsPrefix, medicineId);
+    for (final id in scheduledIds) {
+      _webTimers[id]?.cancel();
+      if (!kIsWeb) {
+        await _notificationsPlugin.cancel(id);
+      }
+    }
+    await _clearRecordedIds(_scheduledMedicineIdsPrefix, medicineId);
+    debugPrint('[NOTIFICATION SERVICE] Cancelled all reminders for medicine: $medicineId (${scheduledIds.length} alarms)');
+  }
+
+  /// Cancels a specific time reminder for a medicine
+  Future<void> cancelSingleMedicineTimeReminder(String medicineId, String timeStr) async {
+    final notifId = generateMedicineNotifId(medicineId, timeStr);
+    _webTimers[notifId]?.cancel();
     if (!kIsWeb) {
-      await _notificationsPlugin.cancel(notifIdBase);
+      await _notificationsPlugin.cancel(notifId);
     }
   }
 
-  Future<void> cancelNotification(int id) async {
-    _webTimers[id]?.cancel();
-    if (!kIsWeb) {
-      await _notificationsPlugin.cancel(id);
-    }
-  }
-
+  /// Schedules native OS notifications for an appointment
   Future<void> scheduleAppointmentNotifications({
-    required int baseNotificationId,
+    required String appointmentId,
     required String doctorName,
     required String hospitalOrClinic,
     required DateTime appointmentDate,
     required List<int> reminderOffsets,
   }) async {
-    if (kIsWeb) return;
     await init();
 
     final timeStr = DateFormat('hh:mm a').format(appointmentDate);
     final dateStr = DateFormat('MMM dd').format(appointmentDate);
     final placeStr = hospitalOrClinic.isNotEmpty ? ' at $hospitalOrClinic' : '';
 
+    // First cancel any old reminders for this appointment
+    await cancelAppointmentNotifications(appointmentId);
+
     for (final offset in reminderOffsets) {
-      final notifId = (baseNotificationId + offset) % 100000;
-      String timingText = 'soon';
-      if (offset == 1440) {
-        timingText = 'tomorrow';
-      } else if (offset == 180) {
-        timingText = 'in 3 hours';
-      } else if (offset == 60) {
-        timingText = 'in 1 hour';
-      } else if (offset == 30) {
-        timingText = 'in 30 minutes';
-      } else if (offset == 0) {
-        timingText = 'now';
-      }
-
-      final title = 'Doctor Visit Reminder ($timingText)';
-      final body =
-          'Appointment with Dr. $doctorName$placeStr scheduled for $dateStr at $timeStr.';
-
       final scheduledTime = appointmentDate.subtract(Duration(minutes: offset));
       if (scheduledTime.isAfter(DateTime.now())) {
+        final notifId = ((appointmentId.hashCode.abs() * 31 + offset) & 0x7FFFFFFF) % 100000;
+        await _recordScheduledId(_scheduledApptIdsPrefix, appointmentId, notifId);
+
+        String timingText = 'approaching';
+        if (offset == 1440) {
+          timingText = 'tomorrow';
+        } else if (offset == 180) {
+          timingText = 'in 3 hours';
+        } else if (offset == 60) {
+          timingText = 'in 1 hour';
+        } else if (offset == 30) {
+          timingText = 'in 30 minutes';
+        } else if (offset == 0) {
+          timingText = 'now';
+        }
+
+        const title = 'MEDGUARD — Appointment Reminder';
+        final body =
+            'Your appointment with Dr. $doctorName$placeStr is scheduled for $dateStr at $timeStr ($timingText).';
+
+        if (kIsWeb) continue;
+
         final scheduledTz = tz.TZDateTime.from(scheduledTime, tz.local);
         const androidDetails = AndroidNotificationDetails(
-          'medguard_general',
-          'General Notifications',
-          channelDescription: 'MedGuard General Alerts',
+          'appointment_alarms',
+          'Appointment Reminders',
+          channelDescription:
+              'High-priority alerts for upcoming doctor visits and clinical consultations',
           importance: Importance.high,
           priority: Priority.high,
+          playSound: true,
+          enableVibration: true,
         );
         const details = NotificationDetails(android: androidDetails);
 
@@ -446,24 +482,113 @@ class NotificationService {
             body,
             scheduledTz,
             details,
-            androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+            androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
             uiLocalNotificationDateInterpretation:
                 UILocalNotificationDateInterpretation.absoluteTime,
+            payload: 'appointment|$appointmentId|$doctorName|$timeStr',
           );
-        } catch (_) {}
+          debugPrint(
+            '[NOTIFICATION SERVICE] Scheduled appointment reminder (ID: $notifId) for $scheduledTime',
+          );
+        } catch (e) {
+          try {
+            await _notificationsPlugin.zonedSchedule(
+              notifId,
+              title,
+              body,
+              scheduledTz,
+              details,
+              androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+              uiLocalNotificationDateInterpretation:
+                  UILocalNotificationDateInterpretation.absoluteTime,
+              payload: 'appointment|$appointmentId|$doctorName|$timeStr',
+            );
+          } catch (_) {}
+        }
       }
     }
   }
 
-  Future<void> cancelAppointmentNotifications({
-    required int baseNotificationId,
-    required List<int> reminderOffsets,
-  }) async {
-    if (kIsWeb) return;
-    await cancelNotification(baseNotificationId % 100000);
-    for (final offset in reminderOffsets) {
-      final notifId = (baseNotificationId + offset) % 100000;
-      await cancelNotification(notifId);
+  /// Cancels all scheduled reminder alarms for an appointment
+  Future<void> cancelAppointmentNotifications(String appointmentId) async {
+    final scheduledIds = await _getRecordedIds(_scheduledApptIdsPrefix, appointmentId);
+    for (final id in scheduledIds) {
+      _webTimers[id]?.cancel();
+      if (!kIsWeb) {
+        await _notificationsPlugin.cancel(id);
+      }
     }
+    await _clearRecordedIds(_scheduledApptIdsPrefix, appointmentId);
+    debugPrint('[NOTIFICATION SERVICE] Cancelled appointment reminders for: $appointmentId');
+  }
+
+  /// Reconciles local notification schedules against user's active medicines and appointments
+  Future<void> reconcileSchedules({
+    required List<Medicine> medicines,
+    required List<Appointment> appointments,
+  }) async {
+    await init();
+    debugPrint('[NOTIFICATION SERVICE] Reconciling schedules: ${medicines.length} medicines, ${appointments.length} appointments');
+
+    // 1. Reschedule all active medicines
+    for (final med in medicines) {
+      for (final time in med.reminderTimes) {
+        await scheduleExactMedicineReminder(
+          medicineId: med.id,
+          medicineName: med.name,
+          dosage: med.dosage,
+          timeStr: time,
+        );
+      }
+    }
+
+    // 2. Reschedule all upcoming appointments
+    for (final appt in appointments) {
+      if (appt.status.toLowerCase() == 'upcoming' && appt.reminderEnabled) {
+        await scheduleAppointmentNotifications(
+          appointmentId: appt.id,
+          doctorName: appt.doctorName,
+          hospitalOrClinic: appt.hospitalOrClinic,
+          appointmentDate: appt.appointmentDate,
+          reminderOffsets: appt.selectedRemindersMinutes,
+        );
+      } else {
+        await cancelAppointmentNotifications(appt.id);
+      }
+    }
+  }
+
+  // --- Internal SharedPreferences ID Tracker Helpers ---
+
+  Future<void> _recordScheduledId(String prefix, String entityId, int notifId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final key = '$prefix$entityId';
+      final existing = prefs.getStringList(key) ?? [];
+      final idStr = notifId.toString();
+      if (!existing.contains(idStr)) {
+        existing.add(idStr);
+        await prefs.setStringList(key, existing);
+      }
+    } catch (_) {}
+  }
+
+  Future<List<int>> _getRecordedIds(String prefix, String entityId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final key = '$prefix$entityId';
+      final raw = prefs.getStringList(key) ?? [];
+      return raw.map((e) => int.tryParse(e) ?? -1).where((e) => e != -1).toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<void> _clearRecordedIds(String prefix, String entityId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final key = '$prefix$entityId';
+      await prefs.remove(key);
+    } catch (_) {}
   }
 }

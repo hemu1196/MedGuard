@@ -1,4 +1,5 @@
 const fs = require('fs');
+const mongoose = require('mongoose');
 const Appointment = require('../models/Appointment');
 const { generateAppointmentPdf } = require('../services/pdfService');
 
@@ -69,6 +70,9 @@ const addAppointment = async (req, res) => {
 const updateAppointment = async (req, res) => {
   try {
     const { appointmentId } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(appointmentId)) {
+      return res.status(404).json({ success: false, message: 'Invalid appointment ID format.' });
+    }
     const appointment = await Appointment.findOne({ _id: appointmentId, userId: req.userId });
 
     if (!appointment) {
@@ -112,6 +116,9 @@ const updateAppointment = async (req, res) => {
 const downloadAppointmentPdf = async (req, res) => {
   try {
     const { appointmentId } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(appointmentId)) {
+      return res.status(404).json({ success: false, message: 'Invalid appointment ID format.' });
+    }
     const appointment = await Appointment.findOne({ _id: appointmentId, userId: req.userId });
 
     if (!appointment) {
@@ -143,6 +150,9 @@ const downloadAppointmentPdf = async (req, res) => {
 const deleteAppointment = async (req, res) => {
   try {
     const { appointmentId } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(appointmentId)) {
+      return res.status(404).json({ success: false, message: 'Invalid appointment ID format.' });
+    }
     const appointment = await Appointment.findOne({ _id: appointmentId, userId: req.userId });
 
     if (!appointment) {
@@ -158,7 +168,7 @@ const deleteAppointment = async (req, res) => {
       } catch (err) {}
     }
 
-    await Appointment.deleteOne({ _id: appointmentId });
+    await Appointment.deleteOne({ _id: appointmentId, userId: req.userId });
 
     return res.status(200).json({
       success: true,
@@ -175,6 +185,9 @@ const deleteAppointment = async (req, res) => {
 const patchAppointmentStatus = async (req, res) => {
   try {
     const { appointmentId } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(appointmentId)) {
+      return res.status(404).json({ success: false, message: 'Invalid appointment ID format.' });
+    }
     const { status } = req.body;
 
     if (!status || typeof status !== 'string') {

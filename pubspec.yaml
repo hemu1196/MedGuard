@@ -55,6 +55,7 @@ dependencies:
   speech_to_text: ^7.0.0
   sensors_plus: ^6.1.1
   timezone: ^0.10.1
+  flutter_timezone: ^5.1.1
   pdf: ^3.11.1
   printing: ^5.13.2
   share_plus: ^10.1.4

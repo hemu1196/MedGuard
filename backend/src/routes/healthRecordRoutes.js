@@ -19,9 +19,9 @@ router.post('/upload', uploadVault.single('file'), healthRecordController.upload
 router.get('/:recordId/download', healthRecordController.downloadRecord);
 router.get('/download/:recordId', healthRecordController.downloadRecord);
 
-// Record update (metadata)
-router.patch('/:recordId', healthRecordController.updateRecord);
-router.put('/:recordId', healthRecordController.updateRecord);
+// Record update (metadata and optional new file attachment)
+router.patch('/:recordId', uploadVault.single('file'), healthRecordController.updateRecord);
+router.put('/:recordId', uploadVault.single('file'), healthRecordController.updateRecord);
 
 // Record deletion
 router.delete('/:recordId', healthRecordController.deleteRecord);

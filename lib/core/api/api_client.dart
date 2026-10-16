@@ -245,11 +245,12 @@ class ApiClient {
     Map<String, String>? fields,
     Uint8List? bytes,
     String? filename,
+    String method = 'POST',
   }) async {
     final uri = Uri.parse('$baseUrl$endpoint');
     final token = await getToken();
 
-    final request = http.MultipartRequest('POST', uri);
+    final request = http.MultipartRequest(method, uri);
     if (token != null && token.isNotEmpty) {
       request.headers['Authorization'] = 'Bearer $token';
     }

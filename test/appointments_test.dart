@@ -59,7 +59,7 @@ void main() {
       );
 
       final saveResult = await repo.saveAppointment(userId, appt);
-      expect(saveResult, isTrue);
+      expect(saveResult != null, isTrue);
 
       final retrieved = await repo.getAppointments(userId: userId);
       expect(retrieved.length, equals(1));

@@ -73,14 +73,18 @@ class Medicine {
   Map<String, dynamic> toMap() {
     return {
       'id': id,
+      '_id': id,
       'userId': userId,
       'sourceHealthRecordId': sourceHealthRecordId,
       'name': name,
       'dosage': dosage,
       'frequency': frequency,
       'reminderTimes': reminderTimes,
+      'times': reminderTimes,
       'notes': notes,
       'quantityAvailable': quantityAvailable,
+      'remainingStock': quantityAvailable,
+      'totalStock': quantityAvailable,
       'dosageQuantity': dosageQuantity,
       'dailyConsumption': dailyConsumption,
       'refillThreshold': refillThreshold,

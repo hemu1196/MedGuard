@@ -233,6 +233,31 @@ const updateRecord = async (req, res) => {
         : String(tags).split(',').map((t) => t.trim()).filter(Boolean);
     }
 
+    // If new file attachment is provided during update
+    if (req.file) {
+      const oldStorageKey = record.storageKey;
+      const oldStorageType = record.storageType;
+
+      const uploadedStorage = await uploadToVault({
+        file: req.file,
+        userId: req.userId,
+        title: record.title,
+      });
+
+      record.storageKey = uploadedStorage.storageKey;
+      record.storageType = uploadedStorage.storageType;
+      record.fileName = uploadedStorage.fileName;
+      record.mimeType = uploadedStorage.mimeType;
+      record.fileSizeBytes = uploadedStorage.fileSizeBytes;
+
+      if (oldStorageKey) {
+        await deleteFromVault({
+          storageKey: oldStorageKey,
+          storageType: oldStorageType,
+        }).catch((err) => console.warn('[VAULT UPDATE] Old file cleanup note:', err.message));
+      }
+    }
+
     await record.save();
 
     return res.status(200).json({

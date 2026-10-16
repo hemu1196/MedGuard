@@ -599,6 +599,125 @@ class _HealthVaultPageState extends State<HealthVaultPage> {
     return await PdfExportService().generateHealthRecordSummaryPdf(record: record);
   }
 
+  bool _isPdfBytes(Uint8List? bytes) {
+    if (bytes == null || bytes.length < 4) return false;
+    return bytes[0] == 0x25 && // %
+        bytes[1] == 0x50 && // P
+        bytes[2] == 0x44 && // D
+        bytes[3] == 0x46; // F
+  }
+
+  Future<void> _downloadOriginalFile(HealthRecord record) async {
+    try {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Downloading original attachment...'),
+          duration: Duration(seconds: 1),
+        ),
+      );
+      final rawBytes = await _vaultRepository.getRecordBytes(record);
+      final isPdf = _isPdfBytes(rawBytes) || record.isPdf;
+      final ext = isPdf ? 'pdf' : 'jpg';
+      final safeName = '${record.title.replaceAll(RegExp(r"[^\w\s-]"), "").replaceAll(" ", "_")}_original.$ext';
+      final mimeType = isPdf ? 'application/pdf' : 'image/jpeg';
+      await PdfExportService().downloadOriginalFile(
+        bytes: rawBytes,
+        filename: safeName,
+        mimeType: mimeType,
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: AppColors.emergency,
+            content: Text('Failed to download original file: $e'),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _shareOriginalFile(HealthRecord record) async {
+    try {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Preparing original attachment for sharing...'),
+          duration: Duration(seconds: 1),
+        ),
+      );
+      final rawBytes = await _vaultRepository.getRecordBytes(record);
+      final isPdf = _isPdfBytes(rawBytes) || record.isPdf;
+      final ext = isPdf ? 'pdf' : 'jpg';
+      final safeName = '${record.title.replaceAll(RegExp(r"[^\w\s-]"), "").replaceAll(" ", "_")}_original.$ext';
+      final mimeType = isPdf ? 'application/pdf' : 'image/jpeg';
+      await PdfExportService().shareOriginalFile(
+        bytes: rawBytes,
+        filename: safeName,
+        mimeType: mimeType,
+        subject: 'MEDGUARD Original Document - ${record.title}',
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: AppColors.emergency,
+            content: Text('Failed to share original file: $e'),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _downloadSummaryPdf(HealthRecord record) async {
+    try {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Generating clinical summary PDF...'),
+          duration: Duration(seconds: 1),
+        ),
+      );
+      final pdfBytes = await PdfExportService().generateHealthRecordSummaryPdf(record: record);
+      final safeName = '${record.title.replaceAll(RegExp(r"[^\w\s-]"), "").replaceAll(" ", "_")}_summary.pdf';
+      await PdfExportService().downloadPdf(bytes: pdfBytes, filename: safeName);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: AppColors.emergency,
+            content: Text('Failed to download summary PDF: $e'),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _shareSummaryPdf(HealthRecord record) async {
+    try {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Generating clinical summary PDF for sharing...'),
+          duration: Duration(seconds: 1),
+        ),
+      );
+      final pdfBytes = await PdfExportService().generateHealthRecordSummaryPdf(record: record);
+      final safeName = '${record.title.replaceAll(RegExp(r"[^\w\s-]"), "").replaceAll(" ", "_")}_summary.pdf';
+      await PdfExportService().sharePdf(
+        bytes: pdfBytes,
+        filename: safeName,
+        subject: 'MEDGUARD Clinical Summary - ${record.title}',
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: AppColors.emergency,
+            content: Text('Failed to share summary PDF: $e'),
+          ),
+        );
+      }
+    }
+  }
+
   Future<void> _downloadRecordPdf(HealthRecord record) async {
     try {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -649,14 +768,18 @@ class _HealthVaultPageState extends State<HealthVaultPage> {
     }
   }
 
-  void _viewDocumentFile(HealthRecord record) {
+  void _viewDocumentFile(HealthRecord record, {int initialTab = 0}) {
     showDialog(
       context: context,
       builder: (dialogCtx) => _HealthDocumentViewerDialog(
         record: record,
         vaultRepository: _vaultRepository,
-        onDownload: () => _downloadRecordPdf(record),
-        onShare: () => _shareRecordPdf(record),
+        initialTab: initialTab,
+        onDownloadOriginal: () => _downloadOriginalFile(record),
+        onShareOriginal: () => _shareOriginalFile(record),
+        onDownloadSummary: () => _downloadSummaryPdf(record),
+        onShareSummary: () => _shareSummaryPdf(record),
+        onDownloadPdf: () => _downloadRecordPdf(record),
       ),
     );
   }
@@ -741,16 +864,94 @@ class _HealthVaultPageState extends State<HealthVaultPage> {
                 Text(record.description),
                 const SizedBox(height: 16),
               ],
+              if (record.hasFileAttachment) ...[
+                Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: () {
+                          Navigator.of(context).pop();
+                          _viewDocumentFile(record, initialTab: 0);
+                        },
+                        icon: const Icon(Icons.attachment_rounded, size: 16),
+                        label: const Text('View Original'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppTheme.primaryTeal,
+                          foregroundColor: Colors.white,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () {
+                          Navigator.of(context).pop();
+                          _viewDocumentFile(record, initialTab: 1);
+                        },
+                        icon: const Icon(Icons.article_outlined, size: 16),
+                        label: const Text('View Summary'),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () {
+                          Navigator.of(context).pop();
+                          _downloadOriginalFile(record);
+                        },
+                        icon: const Icon(Icons.download_rounded, size: 16),
+                        label: const Text('Download Original'),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () {
+                          Navigator.of(context).pop();
+                          _shareOriginalFile(record);
+                        },
+                        icon: const Icon(Icons.share_rounded, size: 16),
+                        label: const Text('Share Original'),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+              ] else ...[
+                Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: () {
+                          Navigator.of(context).pop();
+                          _viewDocumentFile(record, initialTab: 1);
+                        },
+                        icon: const Icon(Icons.article_outlined, size: 16),
+                        label: const Text('View Summary PDF'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppTheme.primaryTeal,
+                          foregroundColor: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+              ],
               Row(
                 children: [
                   Expanded(
                     child: OutlinedButton.icon(
                       onPressed: () {
                         Navigator.of(context).pop();
-                        _downloadRecordPdf(record);
+                        _downloadSummaryPdf(record);
                       },
-                      icon: const Icon(Icons.download_rounded, size: 18),
-                      label: const Text('Download PDF'),
+                      icon: const Icon(Icons.picture_as_pdf_outlined, size: 16),
+                      label: const Text('Summary PDF'),
                     ),
                   ),
                   const SizedBox(width: 8),
@@ -758,24 +959,9 @@ class _HealthVaultPageState extends State<HealthVaultPage> {
                     child: OutlinedButton.icon(
                       onPressed: () {
                         Navigator.of(context).pop();
-                        _shareRecordPdf(record);
-                      },
-                      icon: const Icon(Icons.share_rounded, size: 18),
-                      label: const Text('Share'),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: () {
-                        Navigator.of(context).pop();
                         _openAddEditRecordModal(recordToEdit: record);
                       },
-                      icon: const Icon(Icons.edit_outlined),
+                      icon: const Icon(Icons.edit_outlined, size: 16),
                       label: const Text('Edit'),
                     ),
                   ),
@@ -789,6 +975,7 @@ class _HealthVaultPageState extends State<HealthVaultPage> {
                       icon: const Icon(
                         Icons.delete_outline,
                         color: AppColors.emergency,
+                        size: 16,
                       ),
                       label: const Text(
                         'Delete',
@@ -796,21 +983,6 @@ class _HealthVaultPageState extends State<HealthVaultPage> {
                       ),
                       style: OutlinedButton.styleFrom(
                         side: const BorderSide(color: AppColors.emergency),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: () {
-                        Navigator.of(context).pop();
-                        _viewDocumentFile(record);
-                      },
-                      icon: const Icon(Icons.visibility_outlined),
-                      label: const Text('View'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppTheme.primaryTeal,
-                        foregroundColor: Colors.white,
                       ),
                     ),
                   ),
@@ -1249,14 +1421,22 @@ class _HealthVaultPageState extends State<HealthVaultPage> {
 class _HealthDocumentViewerDialog extends StatefulWidget {
   final HealthRecord record;
   final HealthRecordRepository vaultRepository;
-  final VoidCallback onDownload;
-  final VoidCallback onShare;
+  final int initialTab;
+  final VoidCallback onDownloadOriginal;
+  final VoidCallback onShareOriginal;
+  final VoidCallback onDownloadSummary;
+  final VoidCallback onShareSummary;
+  final VoidCallback onDownloadPdf;
 
   const _HealthDocumentViewerDialog({
     required this.record,
     required this.vaultRepository,
-    required this.onDownload,
-    required this.onShare,
+    this.initialTab = 0,
+    required this.onDownloadOriginal,
+    required this.onShareOriginal,
+    required this.onDownloadSummary,
+    required this.onShareSummary,
+    required this.onDownloadPdf,
   });
 
   @override
@@ -1264,6 +1444,7 @@ class _HealthDocumentViewerDialog extends StatefulWidget {
 }
 
 class _HealthDocumentViewerDialogState extends State<_HealthDocumentViewerDialog> {
+  late int _selectedTab;
   Uint8List? _documentBytes;
   bool _isLoading = false;
   String? _errorMessage;
@@ -1271,6 +1452,7 @@ class _HealthDocumentViewerDialogState extends State<_HealthDocumentViewerDialog
   @override
   void initState() {
     super.initState();
+    _selectedTab = widget.record.hasFileAttachment ? widget.initialTab : 1;
     if (widget.record.hasFileAttachment) {
       _loadBytes();
     }
@@ -1373,11 +1555,106 @@ class _HealthDocumentViewerDialogState extends State<_HealthDocumentViewerDialog
               ),
             ),
 
-            // Content
+            // Tab Selector Bar
+            if (record.hasFileAttachment) ...[
+              Container(
+                color: const Color(0xFFF1F5F9),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: InkWell(
+                        onTap: () => setState(() => _selectedTab = 0),
+                        borderRadius: BorderRadius.circular(8),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          decoration: BoxDecoration(
+                            color: _selectedTab == 0 ? Colors.white : Colors.transparent,
+                            borderRadius: BorderRadius.circular(8),
+                            boxShadow: _selectedTab == 0
+                                ? [
+                                    BoxShadow(
+                                      color: Colors.black.withValues(alpha: 0.06),
+                                      blurRadius: 4,
+                                      offset: const Offset(0, 1),
+                                    ),
+                                  ]
+                                : null,
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                isPdf ? Icons.picture_as_pdf : Icons.image,
+                                size: 16,
+                                color: _selectedTab == 0 ? AppTheme.primaryTeal : AppColors.textSecondary,
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                'Original ${isPdf ? "PDF" : "Image"}',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: _selectedTab == 0 ? FontWeight.bold : FontWeight.w500,
+                                  color: _selectedTab == 0 ? AppTheme.primaryTeal : AppColors.textSecondary,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: InkWell(
+                        onTap: () => setState(() => _selectedTab = 1),
+                        borderRadius: BorderRadius.circular(8),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          decoration: BoxDecoration(
+                            color: _selectedTab == 1 ? Colors.white : Colors.transparent,
+                            borderRadius: BorderRadius.circular(8),
+                            boxShadow: _selectedTab == 1
+                                ? [
+                                    BoxShadow(
+                                      color: Colors.black.withValues(alpha: 0.06),
+                                      blurRadius: 4,
+                                      offset: const Offset(0, 1),
+                                    ),
+                                  ]
+                                : null,
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.article_outlined,
+                                size: 16,
+                                color: _selectedTab == 1 ? AppTheme.primaryTeal : AppColors.textSecondary,
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                'Clinical Summary PDF',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: _selectedTab == 1 ? FontWeight.bold : FontWeight.w500,
+                                  color: _selectedTab == 1 ? AppTheme.primaryTeal : AppColors.textSecondary,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+
+            // Content Area
             Expanded(
-              child: record.hasFileAttachment
+              child: _selectedTab == 0 && record.hasFileAttachment
                   ? _buildAttachmentView(isPdf)
-                  : _buildNotesOnlyView(),
+                  : _buildSummaryPdfView(),
             ),
 
             // Actions Footer
@@ -1388,31 +1665,59 @@ class _HealthDocumentViewerDialogState extends State<_HealthDocumentViewerDialog
               ),
               child: Row(
                 children: [
-                  OutlinedButton.icon(
-                    onPressed: () {
-                      Navigator.of(context).pop();
-                      widget.onShare();
-                    },
-                    icon: const Icon(Icons.share_outlined, size: 16),
-                    label: const Text('Share PDF'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: AppTheme.primaryTeal,
-                      side: const BorderSide(color: AppTheme.primaryTeal),
+                  if (_selectedTab == 0 && record.hasFileAttachment) ...[
+                    OutlinedButton.icon(
+                      onPressed: () {
+                        Navigator.of(context).pop();
+                        widget.onShareOriginal();
+                      },
+                      icon: const Icon(Icons.share_outlined, size: 16),
+                      label: const Text('Share Original'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppTheme.primaryTeal,
+                        side: const BorderSide(color: AppTheme.primaryTeal),
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 10),
-                  ElevatedButton.icon(
-                    onPressed: () {
-                      Navigator.of(context).pop();
-                      widget.onDownload();
-                    },
-                    icon: const Icon(Icons.download_rounded, size: 16),
-                    label: const Text('Download PDF'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppTheme.primaryTeal,
-                      foregroundColor: Colors.white,
+                    const SizedBox(width: 8),
+                    ElevatedButton.icon(
+                      onPressed: () {
+                        Navigator.of(context).pop();
+                        widget.onDownloadOriginal();
+                      },
+                      icon: const Icon(Icons.download_rounded, size: 16),
+                      label: const Text('Download Original'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppTheme.primaryTeal,
+                        foregroundColor: Colors.white,
+                      ),
                     ),
-                  ),
+                  ] else ...[
+                    OutlinedButton.icon(
+                      onPressed: () {
+                        Navigator.of(context).pop();
+                        widget.onShareSummary();
+                      },
+                      icon: const Icon(Icons.share_outlined, size: 16),
+                      label: const Text('Share Summary PDF'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppTheme.primaryTeal,
+                        side: const BorderSide(color: AppTheme.primaryTeal),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    ElevatedButton.icon(
+                      onPressed: () {
+                        Navigator.of(context).pop();
+                        widget.onDownloadSummary();
+                      },
+                      icon: const Icon(Icons.download_rounded, size: 16),
+                      label: const Text('Download Summary PDF'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppTheme.primaryTeal,
+                        foregroundColor: Colors.white,
+                      ),
+                    ),
+                  ],
                   const Spacer(),
                   TextButton(
                     onPressed: () => Navigator.of(context).pop(),
@@ -1427,6 +1732,20 @@ class _HealthDocumentViewerDialogState extends State<_HealthDocumentViewerDialog
     );
   }
 
+  Widget _buildSummaryPdfView() {
+    return PdfPreview(
+      build: (format) async {
+        return await PdfExportService().generateHealthRecordSummaryPdf(
+          record: widget.record,
+        );
+      },
+      canChangeOrientation: false,
+      canChangePageFormat: false,
+      canDebug: false,
+      maxPageWidth: 700,
+    );
+  }
+
   Widget _buildAttachmentView(bool isPdf) {
     if (_isLoading) {
       return const Center(
@@ -1435,7 +1754,10 @@ class _HealthDocumentViewerDialogState extends State<_HealthDocumentViewerDialog
           children: [
             CircularProgressIndicator(color: AppTheme.primaryTeal),
             SizedBox(height: 12),
-            Text('Loading secure document from vault...', style: TextStyle(fontSize: 13, color: AppColors.textSecondary)),
+            Text(
+              'Loading secure document from vault...',
+              style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+            ),
           ],
         ),
       );
@@ -1484,6 +1806,9 @@ class _HealthDocumentViewerDialogState extends State<_HealthDocumentViewerDialog
     }
 
     return InteractiveViewer(
+      panEnabled: true,
+      minScale: 0.5,
+      maxScale: 4.0,
       child: Center(
         child: Padding(
           padding: const EdgeInsets.all(12.0),
@@ -1492,34 +1817,6 @@ class _HealthDocumentViewerDialogState extends State<_HealthDocumentViewerDialog
             fit: BoxFit.contain,
           ),
         ),
-      ),
-    );
-  }
-
-  Widget _buildNotesOnlyView() {
-    final record = widget.record;
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (record.doctorName.isNotEmpty) ...[
-            Text('Doctor: Dr. ${record.doctorName}', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 4),
-          ],
-          if (record.hospitalName.isNotEmpty) ...[
-            Text('Medical Facility: ${record.hospitalName}', style: const TextStyle(fontSize: 14, color: AppColors.textSecondary)),
-            const SizedBox(height: 12),
-          ],
-          const Divider(),
-          const SizedBox(height: 8),
-          const Text('Clinical Notes & Summary:', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 6),
-          Text(
-            record.description.isNotEmpty ? record.description : 'No clinical notes provided.',
-            style: const TextStyle(fontSize: 14, height: 1.4),
-          ),
-        ],
       ),
     );
   }

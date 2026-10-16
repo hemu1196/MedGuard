@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../core/api/api_client.dart';
@@ -7,9 +8,12 @@ class MedicineRepository {
   static const String _medicineKey = 'user_medicines_list';
   final ApiClient _apiClient = ApiClient();
 
-  /// Watch medicines stream backed by MongoDB Atlas with local fallback
+  static final StreamController<List<Medicine>> _medicinesStreamController =
+      StreamController<List<Medicine>>.broadcast();
+
+  /// Watch medicines stream backed by MongoDB Atlas with local fallback and real-time broadcast
   Stream<List<Medicine>> watchMedicines(String userId) async* {
-    final localList = await getMedicines(userId: userId);
+    final localList = await _getLocalCache(userId);
     yield localList;
 
     try {
@@ -20,6 +24,8 @@ class MedicineRepository {
     } catch (e) {
       debugPrint('[MEDICINE REPO] watchMedicines API error: $e');
     }
+
+    yield* _medicinesStreamController.stream;
   }
 
   Future<List<Medicine>> getMedicinesFromApi() async {
@@ -30,6 +36,7 @@ class MedicineRepository {
             .map((m) => Medicine.fromMap(Map<String, dynamic>.from(m)))
             .toList();
         await _saveToLocalCache(list);
+        _medicinesStreamController.add(list);
         return list;
       }
     } catch (e) {
@@ -43,14 +50,20 @@ class MedicineRepository {
     if (remoteList.isNotEmpty) {
       return remoteList;
     }
-
-    final prefs = await SharedPreferences.getInstance();
-    final rawList = prefs.getStringList(_medicineKey) ?? [];
-    final allMeds = rawList.map((str) => Medicine.fromJson(str)).toList();
-    return allMeds.where((m) => m.userId == userId || userId.isEmpty).toList();
+    return await _getLocalCache(userId);
   }
 
-  Future<bool> saveMedicine(Medicine medicine) async {
+  Future<List<Medicine>> _getLocalCache(String userId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final key = '${_medicineKey}_$userId';
+    final rawList = prefs.getStringList(key) ?? prefs.getStringList(_medicineKey) ?? [];
+    final allMeds = rawList.map((str) => Medicine.fromJson(str)).toList();
+    return allMeds.where((m) => m.userId == userId || userId.isEmpty || m.userId.isEmpty).toList();
+  }
+
+  /// Save new medicine or update existing medicine in MongoDB Atlas and local cache.
+  /// Returns the saved medicine with its canonical MongoDB _id.
+  Future<Medicine?> saveMedicine(Medicine medicine) async {
     // 1. Save to MongoDB Atlas Backend
     try {
       final body = {
@@ -73,14 +86,19 @@ class MedicineRepository {
       if (res['success'] == true && res['medicine'] != null) {
         final savedMed = Medicine.fromMap(Map<String, dynamic>.from(res['medicine']));
         await _updateSingleLocalMed(savedMed);
-        return true;
+        final fresh = await _getLocalCache(medicine.userId);
+        _medicinesStreamController.add(fresh);
+        return savedMed;
       }
     } catch (e) {
       debugPrint('[MEDICINE REPO] saveMedicine API error (falling back to local): $e');
     }
 
     // 2. Local SharedPreferences fallback
-    return await _updateSingleLocalMed(medicine);
+    await _updateSingleLocalMed(medicine);
+    final fresh = await _getLocalCache(medicine.userId);
+    _medicinesStreamController.add(fresh);
+    return medicine;
   }
 
   Future<bool> logMedicationDose({
@@ -102,6 +120,7 @@ class MedicineRepository {
         if (remainingStock != null) {
           final meds = await getMedicinesFromApi();
           await _saveToLocalCache(meds);
+          _medicinesStreamController.add(meds);
         }
         return true;
       }
@@ -111,36 +130,54 @@ class MedicineRepository {
     return false;
   }
 
+  /// Deletes a medicine from MongoDB Atlas and local cache.
   Future<bool> deleteMedicine(String id, {required String userId}) async {
+    bool remoteSuccess = false;
     try {
       if (id.length == 24) {
-        await _apiClient.delete('/medicines/$id');
+        final res = await _apiClient.delete('/medicines/$id');
+        remoteSuccess = res['success'] == true;
       }
     } catch (e) {
       debugPrint('[MEDICINE REPO] deleteMedicine API error: $e');
     }
 
-    final prefs = await SharedPreferences.getInstance();
-    final rawList = prefs.getStringList(_medicineKey) ?? [];
-    final allMeds = rawList.map((str) => Medicine.fromJson(str)).toList();
-    allMeds.removeWhere((m) => m.id == id);
-    final updatedRawList = allMeds.map((m) => m.toJson()).toList();
-    return await prefs.setStringList(_medicineKey, updatedRawList);
+    // Update local cache
+    bool localSuccess = false;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final key = '${_medicineKey}_$userId';
+      final rawList = prefs.getStringList(key) ?? prefs.getStringList(_medicineKey) ?? [];
+      final allMeds = rawList.map((str) => Medicine.fromJson(str)).toList();
+      allMeds.removeWhere((m) => m.id == id);
+      final updatedRawList = allMeds.map((m) => m.toJson()).toList();
+      await prefs.setStringList(key, updatedRawList);
+      await prefs.setStringList(_medicineKey, updatedRawList);
+
+      _medicinesStreamController.add(allMeds);
+      localSuccess = true;
+    } catch (e) {
+      debugPrint('[MEDICINE REPO] deleteMedicine local update error: $e');
+    }
+
+    return remoteSuccess || localSuccess;
   }
 
   Future<bool> _updateSingleLocalMed(Medicine medicine) async {
     final prefs = await SharedPreferences.getInstance();
-    final rawList = prefs.getStringList(_medicineKey) ?? [];
+    final key = '${_medicineKey}_${medicine.userId}';
+    final rawList = prefs.getStringList(key) ?? prefs.getStringList(_medicineKey) ?? [];
     final allMeds = rawList.map((str) => Medicine.fromJson(str)).toList();
 
     final index = allMeds.indexWhere((m) => m.id == medicine.id);
     if (index >= 0) {
       allMeds[index] = medicine;
     } else {
-      allMeds.add(medicine);
+      allMeds.insert(0, medicine);
     }
 
     final updatedRawList = allMeds.map((m) => m.toJson()).toList();
+    await prefs.setStringList(key, updatedRawList);
     return await prefs.setStringList(_medicineKey, updatedRawList);
   }
 

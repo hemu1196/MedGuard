@@ -124,19 +124,41 @@ class HealthRecordRepository {
 
     if (isExistingMongoRecord) {
       try {
-        final res = await _apiClient.patch(
-          '/health-records/${record.id}',
-          body: {
-            'title': record.title,
-            'category': category,
-            'recordType': record.recordType.name,
-            'doctorName': record.doctorName,
-            'hospitalName': record.hospitalName,
-            'documentDate': record.documentDate.toIso8601String(),
-            'notes': record.description,
-            'tags': record.tags,
-          },
-        );
+        Map<String, dynamic> res;
+        if (fileBytes != null && fileBytes.isNotEmpty) {
+          res = await _apiClient.uploadFile(
+            '/health-records/${record.id}',
+            filePath: record.fileUrl ?? '',
+            fileFieldName: 'file',
+            bytes: fileBytes,
+            filename: fileName ?? (record.title.endsWith('.pdf') ? record.title : '${record.title}.pdf'),
+            fields: {
+              'title': record.title,
+              'category': category,
+              'recordType': record.recordType.name,
+              'doctorName': record.doctorName,
+              'hospitalName': record.hospitalName,
+              'documentDate': record.documentDate.toIso8601String(),
+              'notes': record.description,
+              'tags': record.tags.join(','),
+            },
+            method: 'PATCH',
+          );
+        } else {
+          res = await _apiClient.patch(
+            '/health-records/${record.id}',
+            body: {
+              'title': record.title,
+              'category': category,
+              'recordType': record.recordType.name,
+              'doctorName': record.doctorName,
+              'hospitalName': record.hospitalName,
+              'documentDate': record.documentDate.toIso8601String(),
+              'notes': record.description,
+              'tags': record.tags,
+            },
+          );
+        }
 
         if (res['success'] == true && res['record'] != null) {
           final savedRecord = HealthRecord.fromMap(Map<String, dynamic>.from(res['record']));

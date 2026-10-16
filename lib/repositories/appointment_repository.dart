@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../core/api/api_client.dart';
@@ -7,8 +8,11 @@ class AppointmentRepository {
   static const String _storageKey = 'user_doctor_appointments_list';
   final ApiClient _apiClient = ApiClient();
 
+  static final StreamController<List<Appointment>> _appointmentsStreamController =
+      StreamController<List<Appointment>>.broadcast();
+
   Stream<List<Appointment>> watchAppointments(String userId) async* {
-    final localList = await getAppointments(userId: userId);
+    final localList = await _getLocalCache(userId);
     yield localList;
 
     try {
@@ -19,6 +23,8 @@ class AppointmentRepository {
     } catch (e) {
       debugPrint('[APPOINTMENT REPO] watchAppointments API error: $e');
     }
+
+    yield* _appointmentsStreamController.stream;
   }
 
   Future<List<Appointment>> getAppointmentsFromApi() async {
@@ -29,6 +35,7 @@ class AppointmentRepository {
             .map((a) => Appointment.fromMap(Map<String, dynamic>.from(a)))
             .toList();
         await _saveToLocalCache(list);
+        _appointmentsStreamController.add(list);
         return list;
       }
     } catch (e) {
@@ -42,7 +49,10 @@ class AppointmentRepository {
     if (remoteList.isNotEmpty) {
       return remoteList;
     }
+    return await _getLocalCache(userId);
+  }
 
+  Future<List<Appointment>> _getLocalCache(String userId) async {
     final prefs = await SharedPreferences.getInstance();
     final key = '${_storageKey}_$userId';
     final rawList = prefs.getStringList(key) ?? prefs.getStringList(_storageKey) ?? [];
@@ -50,7 +60,7 @@ class AppointmentRepository {
     return all.where((a) => a.userId == userId || a.userId.isEmpty || userId.isEmpty).toList();
   }
 
-  Future<bool> saveAppointment(String userId, Appointment appointment) async {
+  Future<Appointment?> saveAppointment(String userId, Appointment appointment) async {
     try {
       final formattedTime =
           '${appointment.appointmentDate.hour.toString().padLeft(2, '0')}:${appointment.appointmentDate.minute.toString().padLeft(2, '0')}';
@@ -75,13 +85,18 @@ class AppointmentRepository {
       if (res['success'] == true && res['appointment'] != null) {
         final savedAppt = Appointment.fromMap(Map<String, dynamic>.from(res['appointment']));
         await _updateSingleLocalAppt(userId, savedAppt);
-        return true;
+        final fresh = await _getLocalCache(userId);
+        _appointmentsStreamController.add(fresh);
+        return savedAppt;
       }
     } catch (e) {
       debugPrint('[APPOINTMENT REPO] saveAppointment API error: $e');
     }
 
-    return await _updateSingleLocalAppt(userId, appointment);
+    await _updateSingleLocalAppt(userId, appointment);
+    final fresh = await _getLocalCache(userId);
+    _appointmentsStreamController.add(fresh);
+    return appointment;
   }
 
   Future<bool> updateStatus(
@@ -109,7 +124,7 @@ class AppointmentRepository {
     }
 
     if (!updatedInCloud) {
-      final appointments = await getAppointments(userId: userId);
+      final appointments = await _getLocalCache(userId);
       final index = appointments.indexWhere((a) => a.id == id);
       if (index >= 0) {
         final old = appointments[index];
@@ -135,6 +150,8 @@ class AppointmentRepository {
       }
     }
 
+    final fresh = await _getLocalCache(userId);
+    _appointmentsStreamController.add(fresh);
     return true;
   }
 
@@ -142,45 +159,53 @@ class AppointmentRepository {
     String userId,
     String id,
   ) async {
+    bool remoteSuccess = false;
     try {
       if (id.length == 24) {
-        await _apiClient.delete('/appointments/$id');
+        final res = await _apiClient.delete('/appointments/$id');
+        remoteSuccess = res['success'] == true;
       }
     } catch (e) {
       debugPrint('[APPOINTMENT REPO] deleteAppointment API error: $e');
     }
 
+    bool localSuccess = false;
     try {
       final prefs = await SharedPreferences.getInstance();
       final key = '${_storageKey}_$userId';
-      final rawList = prefs.getStringList(key) ?? [];
+      final rawList = prefs.getStringList(key) ?? prefs.getStringList(_storageKey) ?? [];
       final all = rawList.map((str) => Appointment.fromJson(str)).toList();
       all.removeWhere((a) => a.id == id);
       final updatedRaw = all.map((a) => a.toJson()).toList();
       await prefs.setStringList(key, updatedRaw);
+      await prefs.setStringList(_storageKey, updatedRaw);
+
+      _appointmentsStreamController.add(all);
+      localSuccess = true;
     } catch (e) {
       debugPrint('[APPOINTMENT REPO] Local delete error: $e');
     }
 
-    return true;
+    return remoteSuccess || localSuccess;
   }
 
   Future<bool> _updateSingleLocalAppt(String userId, Appointment appt) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final key = '${_storageKey}_$userId';
-      final rawList = prefs.getStringList(key) ?? [];
+      final rawList = prefs.getStringList(key) ?? prefs.getStringList(_storageKey) ?? [];
       final all = rawList.map((str) => Appointment.fromJson(str)).toList();
 
       final index = all.indexWhere((a) => a.id == appt.id);
       if (index >= 0) {
         all[index] = appt;
       } else {
-        all.add(appt);
+        all.insert(0, appt);
       }
 
       final updatedRaw = all.map((a) => a.toJson()).toList();
       await prefs.setStringList(key, updatedRaw);
+      await prefs.setStringList(_storageKey, updatedRaw);
       return true;
     } catch (_) {
       return false;

@@ -28,6 +28,7 @@ class _MedicinePageState extends State<MedicinePage> {
   }
 
   void _initUser() async {
+    await NotificationService().requestPermission();
     final userId = await _authRepository.getCurrentUserId();
     if (mounted) {
       setState(() {
@@ -227,12 +228,18 @@ class _MedicinePageState extends State<MedicinePage> {
                     dailyConsumption: int.tryParse(dailyConsumptionController.text.trim()) ?? 2,
                   );
 
-                  await _medicineRepository.saveMedicine(newMed);
+                  final savedMed = await _medicineRepository.saveMedicine(newMed);
+                  final targetMed = savedMed ?? newMed;
+
+                  // If updating existing, cancel previous scheduled alarms first
+                  if (existing != null) {
+                    await NotificationService().cancelMedicineReminders(existing.id);
+                  }
 
                   // Trigger exact timezone reminder registration for each reminder time
                   for (final time in reminderTimes) {
                     await NotificationService().scheduleExactMedicineReminder(
-                      medicineId: newMed.id,
+                      medicineId: targetMed.id,
                       medicineName: name,
                       dosage: dosage,
                       timeStr: time,
@@ -273,7 +280,9 @@ class _MedicinePageState extends State<MedicinePage> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Delete Medicine?'),
-        content: const Text('Are you sure you want to delete this reminder?'),
+        content: const Text(
+          'Are you sure you want to delete this reminder? This will cancel all scheduled alarms for this medication.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
@@ -293,12 +302,17 @@ class _MedicinePageState extends State<MedicinePage> {
     if (confirm == true) {
       final userId = _currentUserId ?? await _authRepository.getCurrentUserId();
       await NotificationService().cancelMedicineReminders(id);
-      await _medicineRepository.deleteMedicine(id, userId: userId);
+      final success = await _medicineRepository.deleteMedicine(id, userId: userId);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Medication deleted successfully.'),
-            duration: Duration(seconds: 2),
+          SnackBar(
+            backgroundColor: success ? AppColors.success : AppColors.emergency,
+            content: Text(
+              success
+                  ? 'Medication deleted and reminders cancelled.'
+                  : 'Failed to delete medication from cloud. Please try again.',
+            ),
+            duration: const Duration(seconds: 2),
           ),
         );
         setState(() {});

@@ -60,6 +60,12 @@ const addMedicine = async (req, res) => {
 const updateMedicine = async (req, res) => {
   try {
     const { medicineId } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(medicineId)) {
+      return res.status(404).json({
+        success: false,
+        message: 'Invalid medicine ID format.',
+      });
+    }
     const medicine = await Medicine.findOne({ _id: medicineId, userId: req.userId });
 
     if (!medicine) {
@@ -92,9 +98,18 @@ const updateMedicine = async (req, res) => {
   }
 };
 
+const mongoose = require('mongoose');
+
 const deleteMedicine = async (req, res) => {
   try {
     const { medicineId } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(medicineId)) {
+      return res.status(404).json({
+        success: false,
+        message: 'Invalid medicine ID format.',
+      });
+    }
+
     const medicine = await Medicine.findOne({ _id: medicineId, userId: req.userId });
 
     if (!medicine) {
@@ -104,17 +119,17 @@ const deleteMedicine = async (req, res) => {
       });
     }
 
-    medicine.isActive = false;
-    await medicine.save();
+    await Medicine.deleteOne({ _id: medicineId, userId: req.userId });
 
     return res.status(200).json({
       success: true,
       message: 'Medicine removed successfully.',
     });
   } catch (error) {
+    console.error('Delete Medicine Error:', error);
     return res.status(500).json({
       success: false,
-      message: 'Failed to delete medicine.',
+      message: 'Failed to delete medicine: ' + error.message,
     });
   }
 };

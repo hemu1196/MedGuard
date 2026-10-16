@@ -39,20 +39,27 @@ class ProfileCompletionCard extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Row(
-                children: [
-                  const Icon(Icons.account_circle_outlined, color: AppColors.warning, size: 20),
-                  const SizedBox(width: 8),
-                  Text(
-                    'Complete your health profile',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 13,
-                      color: onSurface,
+              Expanded(
+                child: Row(
+                  children: [
+                    const Icon(Icons.account_circle_outlined, color: AppColors.warning, size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Complete your health profile',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                          color: onSurface,
+                        ),
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
+              const SizedBox(width: 8),
               Text(
                 '$completionPercentage%',
                 style: const TextStyle(

@@ -150,7 +150,7 @@ class InAppNotificationService extends ChangeNotifier {
     String? targetRoute,
   }) async {
     final newItem = InAppNotificationItem(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      id: '${DateTime.now().microsecondsSinceEpoch}_${_items.length}',
       title: title,
       body: body,
       type: type,

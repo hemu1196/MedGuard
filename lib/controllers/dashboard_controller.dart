@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import '../core/utils/bmi_calculator.dart';
@@ -226,7 +227,13 @@ class DashboardController extends ChangeNotifier {
   String get firstName {
     final profile = userProfile ?? ProfileStateManager.instance.currentProfile;
     if (profile == null || profile.name.trim().isEmpty) {
-      final email = _authRepository.currentUser?.email ?? FirebaseAuth.instance.currentUser?.email;
+      String? fbEmail;
+      try {
+        if (Firebase.apps.isNotEmpty) {
+          fbEmail = FirebaseAuth.instance.currentUser?.email;
+        }
+      } catch (_) {}
+      final email = _authRepository.currentUser?.email ?? fbEmail;
       if (email != null && email.contains('@')) {
         return email.split('@').first;
       }

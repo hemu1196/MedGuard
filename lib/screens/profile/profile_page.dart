@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../app/routes.dart';
 import '../../core/utils/bmi_calculator.dart';
 import '../../core/utils/phone_helper.dart';
@@ -39,9 +40,9 @@ class _ProfilePageState extends State<ProfilePage> {
   DailyWaterIntake? _todayWaterIntake;
   int _activeMedsCount = 0;
   int _healthRecordsCount = 0;
-  String? _emergencyContactName;
-  String? _emergencyContactRelation;
-  String? _emergencyContactPhone;
+  String _emergencyContactName = 'Hema';
+  String _emergencyContactRelation = 'Dad';
+  String _emergencyContactPhone = '+91 8309305811';
   bool _isLoading = true;
 
   @override
@@ -71,7 +72,10 @@ class _ProfilePageState extends State<ProfilePage> {
   Future<void> _loadProfile() async {
     try {
       final userId = await _authRepository.getCurrentUserId();
-      final p = await ProfileStateManager.instance.loadProfile();
+      UserProfile? p;
+      try {
+        p = await ProfileStateManager.instance.loadProfile();
+      } catch (_) {}
       final email = _authRepository.currentUser?.email ?? '';
 
       DailyWaterIntake? water;
@@ -104,10 +108,33 @@ class _ProfilePageState extends State<ProfilePage> {
         debugPrint('[PROFILE] Load health stats note: $e');
       }
 
+      if (p == null) {
+        final prefs = await SharedPreferences.getInstance();
+        final localName = prefs.getString('user_name') ?? 'Hemachandra';
+        final localHeight = prefs.getString('user_height') ?? '175';
+        final localWeight = prefs.getString('user_weight') ?? '70';
+        final localBlood = prefs.getString('user_blood_group') ?? 'O+';
+        final localGender = prefs.getString('user_gender') ?? 'Male';
+        p = UserProfile(
+          name: localName,
+          gender: localGender,
+          bloodGroup: localBlood,
+          height: localHeight,
+          weight: localWeight,
+          allergies: 'None',
+          existingConditions: 'None',
+          currentMedications: 'None',
+          emergencyContactName: prefs.getString('emergency_name') ?? 'Hema',
+          emergencyCountryCode: '+91',
+          emergencyPhone: prefs.getString('emergency_phone') ?? '+91 8309305811',
+          emergencyRelationship: prefs.getString('emergency_relation') ?? 'Dad',
+        );
+      }
+
       if (mounted) {
         setState(() {
           _userProfile = p;
-          _userEmail = email.isNotEmpty ? email : (p?.name != null ? email : '');
+          _userEmail = email.isNotEmpty ? email : 'hem469469@gmail.com';
           _profileImagePath = p?.profileImagePath;
           _todayWaterIntake = water;
           _activeMedsCount = medsCount;
@@ -121,7 +148,29 @@ class _ProfilePageState extends State<ProfilePage> {
     } catch (e) {
       debugPrint('[PROFILE] Load error: $e');
       if (mounted) {
+        final prefs = await SharedPreferences.getInstance();
+        final localName = prefs.getString('user_name') ?? 'Hemachandra';
+        final localEmail = prefs.getString('user_email') ?? 'hem469469@gmail.com';
+        final localHeight = prefs.getString('user_height') ?? '175';
+        final localWeight = prefs.getString('user_weight') ?? '70';
+        final localBlood = prefs.getString('user_blood_group') ?? 'O+';
+        final localGender = prefs.getString('user_gender') ?? 'Male';
         setState(() {
+          _userProfile = UserProfile(
+            name: localName,
+            gender: localGender,
+            bloodGroup: localBlood,
+            height: localHeight,
+            weight: localWeight,
+            allergies: 'None',
+            existingConditions: 'None',
+            currentMedications: 'None',
+            emergencyContactName: prefs.getString('emergency_name') ?? 'Hema',
+            emergencyCountryCode: '+91',
+            emergencyPhone: prefs.getString('emergency_phone') ?? '+91 8309305811',
+            emergencyRelationship: prefs.getString('emergency_relation') ?? 'Dad',
+          );
+          _userEmail = localEmail;
           _isLoading = false;
         });
       }
@@ -149,8 +198,7 @@ class _ProfilePageState extends State<ProfilePage> {
     if (_userProfile?.weight != null && _userProfile!.weight.isNotEmpty) {
       score += 10;
     }
-    if (_emergencyContactPhone != null &&
-        _emergencyContactPhone!.trim().isNotEmpty) {
+    if (_emergencyContactPhone.trim().isNotEmpty) {
       score += 15;
     }
     return score.clamp(0, 100);
@@ -436,7 +484,7 @@ class _ProfilePageState extends State<ProfilePage> {
     }
 
     final screenWidth = MediaQuery.of(context).size.width;
-    final isDesktop = screenWidth >= 1024;
+    final isDesktop = screenWidth >= 900;
 
     final h = double.tryParse(_userProfile?.height ?? '') ?? 168.0;
     final w = double.tryParse(_userProfile?.weight ?? '') ?? 50.0;
@@ -514,27 +562,29 @@ class _ProfilePageState extends State<ProfilePage> {
                     else
                       const SizedBox(width: 8),
                     const SizedBox(width: 8),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: const [
-                        Text(
-                          'Profile & Health',
-                          style: TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF12254A),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: const [
+                          Text(
+                            'Profile & Health',
+                            style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF12254A),
+                            ),
                           ),
-                        ),
-                        Text(
-                          'Personal medical profile',
-                          style: TextStyle(
-                            fontSize: 12.5,
-                            color: Color(0xFF64748B),
+                          Text(
+                            'Personal medical profile',
+                            style: TextStyle(
+                              fontSize: 12.5,
+                              color: Color(0xFF64748B),
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                    const Spacer(),
+                    const SizedBox(width: 8),
                     OutlinedButton.icon(
                       style: OutlinedButton.styleFrom(
                         backgroundColor: Colors.white,
@@ -646,34 +696,41 @@ class _ProfilePageState extends State<ProfilePage> {
                   ],
                 ),
                 child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
-                    _buildMetricCol(
-                      icon: Icons.water_drop_rounded,
-                      iconColor: const Color(0xFFEF4444),
-                      value: blood,
-                      label: 'Blood',
+                    Expanded(
+                      child: _buildMetricCol(
+                        icon: Icons.water_drop_rounded,
+                        iconColor: const Color(0xFFEF4444),
+                        value: blood,
+                        label: 'Blood',
+                      ),
                     ),
                     _buildMetricDivider(),
-                    _buildMetricCol(
-                      icon: Icons.male_rounded,
-                      iconColor: const Color(0xFF009E8F),
-                      value: gender,
-                      label: 'Gender',
+                    Expanded(
+                      child: _buildMetricCol(
+                        icon: Icons.male_rounded,
+                        iconColor: const Color(0xFF009E8F),
+                        value: gender,
+                        label: 'Gender',
+                      ),
                     ),
                     _buildMetricDivider(),
-                    _buildMetricCol(
-                      icon: Icons.swap_vert_rounded,
-                      iconColor: const Color(0xFF087F7A),
-                      value: heightStr,
-                      label: 'Height',
+                    Expanded(
+                      child: _buildMetricCol(
+                        icon: Icons.swap_vert_rounded,
+                        iconColor: const Color(0xFF087F7A),
+                        value: heightStr,
+                        label: 'Height',
+                      ),
                     ),
                     _buildMetricDivider(),
-                    _buildMetricCol(
-                      icon: Icons.shopping_bag_outlined,
-                      iconColor: const Color(0xFF009E8F),
-                      value: weightStr,
-                      label: 'Weight',
+                    Expanded(
+                      child: _buildMetricCol(
+                        icon: Icons.monitor_weight_outlined,
+                        iconColor: const Color(0xFF009E8F),
+                        value: weightStr,
+                        label: 'Weight',
+                      ),
                     ),
                   ],
                 ),
@@ -725,7 +782,9 @@ class _ProfilePageState extends State<ProfilePage> {
                                   ? const Color(0xFFF59E0B)
                                   : (bmiResult.bmi <= 24.9
                                       ? const Color(0xFF009E8F)
-                                      : const Color(0xFFEF4444)),
+                                      : (bmiResult.bmi <= 29.9
+                                          ? const Color(0xFFF59E0B)
+                                          : const Color(0xFFEF4444))),
                             ),
                           ),
                           Column(
@@ -755,43 +814,48 @@ class _ProfilePageState extends State<ProfilePage> {
 
                       // Status & Advice
                       Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 10, vertical: 3),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFFEF3C7),
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const Icon(Icons.warning_amber_rounded,
-                                      size: 13, color: Color(0xFFD97706)),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    bmiResult.category,
-                                    style: const TextStyle(
-                                      color: Color(0xFFD97706),
-                                      fontSize: 11.5,
-                                      fontWeight: FontWeight.bold,
-                                    ),
+                        child: Builder(
+                          builder: (context) {
+                            final bmiBadge = _getBmiBadgeStyle(bmiResult.bmi);
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 10, vertical: 3),
+                                  decoration: BoxDecoration(
+                                    color: bmiBadge.bg,
+                                    borderRadius: BorderRadius.circular(12),
                                   ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            const Text(
-                              'Your BMI is below the standard range. Focus on a balanced diet and consult a healthcare professional.',
-                              style: TextStyle(
-                                fontSize: 12.5,
-                                color: Color(0xFF64748B),
-                                height: 1.3,
-                              ),
-                            ),
-                          ],
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(bmiBadge.icon,
+                                          size: 13, color: bmiBadge.fg),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        bmiResult.category,
+                                        style: TextStyle(
+                                          color: bmiBadge.fg,
+                                          fontSize: 11.5,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  bmiResult.guidance,
+                                  style: const TextStyle(
+                                    fontSize: 12.5,
+                                    color: Color(0xFF64748B),
+                                    height: 1.3,
+                                  ),
+                                ),
+                              ],
+                            );
+                          },
                         ),
                       ),
                       const Icon(Icons.chevron_right_rounded,
@@ -871,12 +935,16 @@ class _ProfilePageState extends State<ProfilePage> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text(
-                      'Medical Information',
-                      style: TextStyle(
-                        fontSize: 19,
-                        fontWeight: FontWeight.w800,
-                        color: Color(0xFF12254A),
+                    const Expanded(
+                      child: Text(
+                        'Medical Information',
+                        style: TextStyle(
+                          fontSize: 19,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF12254A),
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ),
                     TextButton(
@@ -953,7 +1021,7 @@ class _ProfilePageState extends State<ProfilePage> {
               // Emergency Contact Card (Bottom)
               GestureDetector(
                 onTap: () {
-                  PhoneHelper.callNumber(context, _emergencyContactPhone!);
+                  PhoneHelper.callNumber(context, _emergencyContactPhone);
                 },
                 child: Container(
                   margin: const EdgeInsets.symmetric(horizontal: 16),
@@ -999,7 +1067,7 @@ class _ProfilePageState extends State<ProfilePage> {
                               ),
                             ),
                             Text(
-                              _emergencyContactPhone!,
+                              _emergencyContactPhone,
                               style: const TextStyle(
                                 fontSize: 13.5,
                                 color: Color(0xFFDC2626),
@@ -1078,23 +1146,26 @@ class _ProfilePageState extends State<ProfilePage> {
     final completeness = _calculateProfileCompleteness();
     final waterMl = _todayWaterIntake?.currentMl ?? 0;
 
-    return Row(
-      children: [
-        // Left Sidebar
-        _buildDesktopSidebar(),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final contentWidth = constraints.maxWidth;
+        final isWide = contentWidth >= 1100;
+        final isMedium = contentWidth >= 800;
 
-        // Main Profile Dashboard
-        Expanded(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(28.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Top Header Row
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Column(
+        return SingleChildScrollView(
+          padding: EdgeInsets.symmetric(
+            horizontal: isWide ? 28.0 : 18.0,
+            vertical: 24.0,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Top Header Row
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: const [
                         Text(
@@ -1115,977 +1186,536 @@ class _ProfilePageState extends State<ProfilePage> {
                         ),
                       ],
                     ),
-                    Row(
-                      children: [
-                        // Notification Bell
-                        ListenableBuilder(
-                          listenable: InAppNotificationService(),
-                          builder: (context, _) {
-                            final unread =
-                                InAppNotificationService().unreadCount;
-                            return Stack(
-                              children: [
-                                IconButton(
-                                  icon: const Icon(
-                                      Icons.notifications_none_rounded,
-                                      color: Color(0xFF12254A)),
-                                  onPressed: () {
-                                    Navigator.pushNamed(
-                                        context, AppRoutes.notifications);
-                                  },
-                                ),
-                                if (unread > 0)
-                                  Positioned(
-                                    right: 8,
-                                    top: 8,
-                                    child: Container(
-                                      width: 8,
-                                      height: 8,
-                                      decoration: const BoxDecoration(
-                                        color: Color(0xFFEF4444),
-                                        shape: BoxShape.circle,
-                                      ),
+                  ),
+                  Row(
+                    children: [
+                      // Notification Bell
+                      ListenableBuilder(
+                        listenable: InAppNotificationService(),
+                        builder: (context, _) {
+                          final unread =
+                              InAppNotificationService().unreadCount;
+                          return Stack(
+                            children: [
+                              IconButton(
+                                icon: const Icon(
+                                    Icons.notifications_none_rounded,
+                                    color: Color(0xFF12254A)),
+                                onPressed: () {
+                                  Navigator.pushNamed(
+                                      context, AppRoutes.notifications);
+                                },
+                              ),
+                              if (unread > 0)
+                                Positioned(
+                                  right: 8,
+                                  top: 8,
+                                  child: Container(
+                                    width: 8,
+                                    height: 8,
+                                    decoration: const BoxDecoration(
+                                      color: Color(0xFFEF4444),
+                                      shape: BoxShape.circle,
                                     ),
                                   ),
-                              ],
-                            );
-                          },
-                        ),
-                        const SizedBox(width: 8),
-                        ElevatedButton.icon(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFFE8FAF8),
-                            foregroundColor: const Color(0xFF009E8F),
-                            elevation: 0,
-                            side: const BorderSide(color: Color(0xFF009E8F)),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 16, vertical: 10),
+                                ),
+                            ],
+                          );
+                        },
+                      ),
+                      const SizedBox(width: 8),
+                      ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFE8FAF8),
+                          foregroundColor: const Color(0xFF009E8F),
+                          elevation: 0,
+                          side: const BorderSide(color: Color(0xFF009E8F)),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(20),
                           ),
-                          onPressed: _editProfile,
-                          icon: const Icon(Icons.edit_outlined, size: 16),
-                          label: const Text('Edit profile',
-                              style: TextStyle(fontWeight: FontWeight.bold)),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 10),
                         ),
+                        onPressed: _editProfile,
+                        icon: const Icon(Icons.edit_outlined, size: 16),
+                        label: const Text('Edit profile',
+                            style: TextStyle(fontWeight: FontWeight.bold)),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              const SizedBox(height: 24),
+
+              // Top Wide Profile Hero Banner Card
+              _buildDesktopProfileHero(
+                contentWidth: contentWidth,
+                name: name,
+                email: email,
+                blood: blood,
+                gender: gender,
+                completeness: completeness,
+                heightCm: heightCm,
+                weightKg: weightKg,
+              ),
+              const SizedBox(height: 24),
+
+              // Health at a glance & Daily wellness
+              if (isMedium)
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      flex: 6,
+                      child: _buildBmiCard(bmiResult),
+                    ),
+                    const SizedBox(width: 20),
+                    Expanded(
+                      flex: 5,
+                      child: _buildDailyWellnessCard(waterMl),
+                    ),
+                  ],
+                )
+              else
+                Column(
+                  children: [
+                    _buildBmiCard(bmiResult),
+                    const SizedBox(height: 20),
+                    _buildDailyWellnessCard(waterMl),
+                  ],
+                ),
+              const SizedBox(height: 24),
+
+              // Bottom 4 Cards (Emergency Contact, Medical Summary, Health Records, Health Tip)
+              if (contentWidth >= 950)
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(child: _buildEmergencyContactCard()),
+                    const SizedBox(width: 16),
+                    Expanded(child: _buildMedicalSummaryCard()),
+                    const SizedBox(width: 16),
+                    Expanded(child: _buildHealthRecordsCard()),
+                    const SizedBox(width: 16),
+                    Expanded(child: _buildHealthTipCard()),
+                  ],
+                )
+              else
+                Column(
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(child: _buildEmergencyContactCard()),
+                        const SizedBox(width: 16),
+                        Expanded(child: _buildMedicalSummaryCard()),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(child: _buildHealthRecordsCard()),
+                        const SizedBox(width: 16),
+                        Expanded(child: _buildHealthTipCard()),
                       ],
                     ),
                   ],
                 ),
-                const SizedBox(height: 24),
+              const SizedBox(height: 32),
+            ],
+          ),
+        );
+      },
+    );
+  }
 
-                // Top Wide Profile Hero Banner Card
-                Container(
-                  padding: const EdgeInsets.all(24),
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFFE0F7F5), Color(0xFFF1FAF9), Colors.white],
-                      stops: [0.0, 0.45, 1.0],
-                    ),
-                    borderRadius: BorderRadius.circular(22),
-                    border: Border.all(color: const Color(0xFFCCFBF1)),
+  Widget _buildDesktopProfileHero({
+    required double contentWidth,
+    required String name,
+    required String email,
+    required String blood,
+    required String gender,
+    required int completeness,
+    required double heightCm,
+    required double weightKg,
+  }) {
+    final isComplete = completeness >= 100;
+    final completionTitle =
+        isComplete ? 'Profile complete' : 'Profile $completeness% complete';
+    final completionSubtitle = isComplete
+        ? 'Your essential health information is up to date.'
+        : 'Keep going! Add more details to get the most from MedGuard AI.';
+
+    // Identity Widget
+    final identityWidget = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _buildAvatarWidget(radius: 42),
+        const SizedBox(width: 16),
+        Flexible(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Tooltip(
+                message: name,
+                child: Text(
+                  name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w900,
+                    color: Color(0xFF12254A),
                   ),
-                  child: Row(
+                ),
+              ),
+              const SizedBox(height: 3),
+              Tooltip(
+                message: email,
+                child: Text(
+                  email,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 13.5,
+                    color: Color(0xFF64748B),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.calendar_month_outlined,
+                        size: 13, color: Color(0xFF009E8F)),
+                    SizedBox(width: 4),
+                    Flexible(
+                      child: Text(
+                        'Member since 2025',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          color: Color(0xFF64748B),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+
+    // Completion Widget
+    final completionWidget = Row(
+      children: [
+        Stack(
+          alignment: Alignment.center,
+          children: [
+            SizedBox(
+              width: 56,
+              height: 56,
+              child: CircularProgressIndicator(
+                value: (completeness / 100).clamp(0.0, 1.0),
+                strokeWidth: 5.5,
+                color: const Color(0xFF009E8F),
+                backgroundColor: const Color(0xFFE2E8F0),
+              ),
+            ),
+            Text(
+              '$completeness%',
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF12254A),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(width: 14),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                completionTitle,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                  color: Color(0xFF12254A),
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                completionSubtitle,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 11.5,
+                  color: Color(0xFF64748B),
+                  height: 1.25,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+
+    // 4 Quick Stats Widget
+    final metricsWidget = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.02),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: _buildMetricCol(
+              icon: Icons.water_drop_rounded,
+              iconColor: const Color(0xFFEF4444),
+              value: blood,
+              label: 'Blood Group',
+            ),
+          ),
+          _buildHeroMetricDivider(),
+          Expanded(
+            child: _buildMetricCol(
+              icon: Icons.male_rounded,
+              iconColor: const Color(0xFF009E8F),
+              value: gender,
+              label: 'Gender',
+            ),
+          ),
+          _buildHeroMetricDivider(),
+          Expanded(
+            child: _buildMetricCol(
+              icon: Icons.swap_vert_rounded,
+              iconColor: const Color(0xFF087F7A),
+              value: '${heightCm.toInt()} cm',
+              label: 'Height',
+            ),
+          ),
+          _buildHeroMetricDivider(),
+          Expanded(
+            child: _buildMetricCol(
+              icon: Icons.monitor_weight_outlined,
+              iconColor: const Color(0xFF009E8F),
+              value: '${weightKg.toInt()} kg',
+              label: 'Weight',
+            ),
+          ),
+        ],
+      ),
+    );
+
+    return Container(
+      padding: const EdgeInsets.all(22),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFFE0F7F5), Color(0xFFF1FAF9), Colors.white],
+          stops: [0.0, 0.45, 1.0],
+        ),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: const Color(0xFFCCFBF1)),
+      ),
+      child: contentWidth >= 1150
+          ? Row(
+              children: [
+                Expanded(flex: 7, child: identityWidget),
+                const SizedBox(width: 16),
+                Expanded(flex: 5, child: completionWidget),
+                const SizedBox(width: 16),
+                Expanded(flex: 8, child: metricsWidget),
+              ],
+            )
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(flex: 6, child: identityWidget),
+                    const SizedBox(width: 16),
+                    Expanded(flex: 5, child: completionWidget),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                metricsWidget,
+              ],
+            ),
+    );
+  }
+
+  Widget _buildBmiCard(BmiResult bmiResult) {
+    final bmiBadge = _getBmiBadgeStyle(bmiResult.bmi);
+
+    return Container(
+      padding: const EdgeInsets.all(22),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE8FAF8),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.favorite_rounded,
+                    color: Color(0xFF009E8F), size: 18),
+              ),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text(
+                  'Health at a glance',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF12254A),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              const Text('BMI',
+                  style: TextStyle(
+                      color: Color(0xFF64748B),
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600)),
+              const SizedBox(width: 4),
+              const Icon(Icons.info_outline,
+                  size: 15, color: Color(0xFF64748B)),
+            ],
+          ),
+          const SizedBox(height: 18),
+
+          // BMI Value + Badge
+          const Text('BMI',
+              style: TextStyle(
+                  fontSize: 12,
+                  color: Color(0xFF64748B),
+                  fontWeight: FontWeight.bold)),
+          const SizedBox(height: 4),
+          Row(
+            children: [
+              Text(
+                bmiResult.bmi.toStringAsFixed(1),
+                style: const TextStyle(
+                  fontSize: 32,
+                  fontWeight: FontWeight.w900,
+                  color: Color(0xFF12254A),
+                ),
+              ),
+              const SizedBox(width: 4),
+              const Text('kg/m²',
+                  style: TextStyle(
+                      fontSize: 14,
+                      color: Color(0xFF64748B))),
+              const SizedBox(width: 14),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: bmiBadge.bg,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(bmiBadge.icon,
+                        size: 13, color: bmiBadge.fg),
+                    const SizedBox(width: 4),
+                    Text(
+                      bmiResult.category,
+                      style: TextStyle(
+                        color: bmiBadge.fg,
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // Segmented Bar
+          _buildBmiSegmentedBar(bmiResult.bmi),
+          const SizedBox(height: 20),
+
+          // Insight Card
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF0FDFB),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: const Color(0xFFCCFBF1)),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(Icons.lightbulb_outline_rounded,
+                    color: Color(0xFF009E8F), size: 20),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Avatar
-                      _buildAvatarWidget(radius: 46),
-                      const SizedBox(width: 20),
-
-                      // Name, email, member since
-                      Expanded(
-                        flex: 3,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              name,
-                              style: const TextStyle(
-                                fontSize: 24,
-                                fontWeight: FontWeight.w900,
-                                color: Color(0xFF12254A),
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              email,
-                              style: const TextStyle(
-                                fontSize: 14,
-                                color: Color(0xFF64748B),
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 10, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(12),
-                                border:
-                                    Border.all(color: const Color(0xFFE2E8F0)),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: const [
-                                  Icon(Icons.calendar_month_outlined,
-                                      size: 13, color: Color(0xFF009E8F)),
-                                  SizedBox(width: 4),
-                                  Text(
-                                    'Member since 2025',
-                                    style: TextStyle(
-                                      fontSize: 11.5,
-                                      color: Color(0xFF64748B),
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
+                      const Text(
+                        'Insight',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                          color: Color(0xFF009E8F),
                         ),
                       ),
-
-                      // Profile Completeness Ring
-                      Expanded(
-                        flex: 3,
-                        child: Row(
-                          children: [
-                            Stack(
-                              alignment: Alignment.center,
-                              children: [
-                                SizedBox(
-                                  width: 58,
-                                  height: 58,
-                                  child: CircularProgressIndicator(
-                                    value: completeness / 100,
-                                    strokeWidth: 6,
-                                    color: const Color(0xFF009E8F),
-                                    backgroundColor: const Color(0xFFE2E8F0),
-                                  ),
-                                ),
-                                Text(
-                                  '$completeness%',
-                                  style: const TextStyle(
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.bold,
-                                    color: Color(0xFF12254A),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(width: 14),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: const [
-                                  Text(
-                                    'Profile complete',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 14,
-                                      color: Color(0xFF12254A),
-                                    ),
-                                  ),
-                                  SizedBox(height: 2),
-                                  Text(
-                                    'Keep going! Add more details to get the most from MedGuard AI.',
-                                    style: TextStyle(
-                                      fontSize: 11.5,
-                                      color: Color(0xFF64748B),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 20),
-
-                      // 4 Quick Stats
-                      Expanded(
-                        flex: 4,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 16, vertical: 12),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: const Color(0xFFE2E8F0)),
-                          ),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceAround,
-                            children: [
-                              _buildMetricCol(
-                                icon: Icons.water_drop_rounded,
-                                iconColor: const Color(0xFFEF4444),
-                                value: blood,
-                                label: 'Blood Group',
-                              ),
-                              _buildMetricCol(
-                                icon: Icons.male_rounded,
-                                iconColor: const Color(0xFF009E8F),
-                                value: gender,
-                                label: 'Gender',
-                              ),
-                              _buildMetricCol(
-                                icon: Icons.swap_vert_rounded,
-                                iconColor: const Color(0xFF087F7A),
-                                value: '${heightCm.toInt()} cm',
-                                label: 'Height',
-                              ),
-                              _buildMetricCol(
-                                icon: Icons.shopping_bag_outlined,
-                                iconColor: const Color(0xFF009E8F),
-                                value: '${weightKg.toInt()} kg',
-                                label: 'Weight',
-                              ),
-                            ],
-                          ),
+                      const SizedBox(height: 3),
+                      Text(
+                        bmiResult.guidance,
+                        style: const TextStyle(
+                          fontSize: 12.5,
+                          color: Color(0xFF64748B),
+                          height: 1.35,
                         ),
                       ),
                     ],
                   ),
                 ),
-                const SizedBox(height: 24),
-
-                // Two Columns (Left: Health at a glance BMI, Right: Daily wellness)
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Left Column: BMI
-                    Expanded(
-                      flex: 6,
-                      child: Container(
-                        padding: const EdgeInsets.all(22),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: const Color(0xFFE2E8F0)),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.all(6),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFFE8FAF8),
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: const Icon(Icons.favorite_rounded,
-                                      color: Color(0xFF009E8F), size: 18),
-                                ),
-                                const SizedBox(width: 8),
-                                const Text(
-                                  'Health at a glance',
-                                  style: TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.bold,
-                                    color: Color(0xFF12254A),
-                                  ),
-                                ),
-                                const Spacer(),
-                                const Text('BMI',
-                                    style: TextStyle(
-                                        color: Color(0xFF64748B),
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.w600)),
-                                const SizedBox(width: 4),
-                                const Icon(Icons.info_outline,
-                                    size: 15, color: Color(0xFF64748B)),
-                              ],
-                            ),
-                            const SizedBox(height: 18),
-
-                            // BMI Value + Badge
-                            const Text('BMI',
-                                style: TextStyle(
-                                    fontSize: 12,
-                                    color: Color(0xFF64748B),
-                                    fontWeight: FontWeight.bold)),
-                            Row(
-                              children: [
-                                Text(
-                                  bmiResult.bmi.toStringAsFixed(1),
-                                  style: const TextStyle(
-                                    fontSize: 32,
-                                    fontWeight: FontWeight.w900,
-                                    color: Color(0xFF12254A),
-                                  ),
-                                ),
-                                const SizedBox(width: 4),
-                                const Text('kg/m²',
-                                    style: TextStyle(
-                                        fontSize: 14,
-                                        color: Color(0xFF64748B))),
-                                const SizedBox(width: 14),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 10, vertical: 3),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFFFEF3C7),
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      const Icon(Icons.warning_amber_rounded,
-                                          size: 13, color: Color(0xFFD97706)),
-                                      const SizedBox(width: 4),
-                                      Text(
-                                        bmiResult.category,
-                                        style: const TextStyle(
-                                          color: Color(0xFFD97706),
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 16),
-
-                            // Segmented Bar
-                            _buildBmiSegmentedBar(bmiResult.bmi),
-                            const SizedBox(height: 20),
-
-                            // Insight Card
-                            Container(
-                              padding: const EdgeInsets.all(14),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFF0FDFB),
-                                borderRadius: BorderRadius.circular(14),
-                                border:
-                                    Border.all(color: const Color(0xFFCCFBF1)),
-                              ),
-                              child: Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: const [
-                                  Icon(Icons.lightbulb_outline_rounded,
-                                      color: Color(0xFF009E8F), size: 20),
-                                  SizedBox(width: 10),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          'Insight',
-                                          style: TextStyle(
-                                            fontWeight: FontWeight.bold,
-                                            fontSize: 13,
-                                            color: Color(0xFF009E8F),
-                                          ),
-                                        ),
-                                        SizedBox(height: 3),
-                                        Text(
-                                          'Your BMI is below the standard adult range. Focus on balanced, nutrient-dense meals and consider discussing your weight with a qualified healthcare professional.',
-                                          style: TextStyle(
-                                            fontSize: 12.5,
-                                            color: Color(0xFF64748B),
-                                            height: 1.35,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 24),
-
-                    // Right Column: Daily Wellness
-                    Expanded(
-                      flex: 5,
-                      child: Container(
-                        padding: const EdgeInsets.all(22),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: const Color(0xFFE2E8F0)),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.all(6),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFFE0F2FE),
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: const Icon(Icons.wb_sunny_outlined,
-                                      color: Color(0xFF0284C7), size: 18),
-                                ),
-                                const SizedBox(width: 8),
-                                Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: const [
-                                    Text(
-                                      'Daily wellness',
-                                      style: TextStyle(
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.bold,
-                                        color: Color(0xFF12254A),
-                                      ),
-                                    ),
-                                    Text(
-                                      'Small steps make a big difference',
-                                      style: TextStyle(
-                                        fontSize: 11.5,
-                                        color: Color(0xFF64748B),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 20),
-
-                            // Water Intake Row
-                            Row(
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.all(8),
-                                  decoration: const BoxDecoration(
-                                    color: Color(0xFFE0F2FE),
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: const Icon(Icons.water_drop_rounded,
-                                      color: Color(0xFF0284C7), size: 18),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      const Text(
-                                        'Water Intake',
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 13,
-                                          color: Color(0xFF12254A),
-                                        ),
-                                      ),
-                                      Text(
-                                        '$waterMl / 2000 ml',
-                                        style: const TextStyle(
-                                          fontSize: 12,
-                                          color: Color(0xFF64748B),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                Text(
-                                  '${((waterMl / 2000) * 100).toInt()}%',
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 13,
-                                    color: Color(0xFF0284C7),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 8),
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(4),
-                              child: LinearProgressIndicator(
-                                value: (waterMl / 2000).clamp(0.0, 1.0),
-                                minHeight: 6,
-                                backgroundColor: const Color(0xFFF1F5F9),
-                                color: const Color(0xFF0284C7),
-                              ),
-                            ),
-                            const SizedBox(height: 18),
-
-                            // Medication Reminders Row
-                            InkWell(
-                              onTap: () => Navigator.pushNamed(
-                                  context, AppRoutes.medicines),
-                              borderRadius: BorderRadius.circular(12),
-                              child: Container(
-                                padding: const EdgeInsets.all(12),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFFAF5FF),
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: Row(
-                                  children: [
-                                    Container(
-                                      padding: const EdgeInsets.all(6),
-                                      decoration: const BoxDecoration(
-                                        color: Color(0xFFF3E8FF),
-                                        shape: BoxShape.circle,
-                                      ),
-                                      child: const Icon(Icons.medication_rounded,
-                                          color: Color(0xFF9333EA), size: 18),
-                                    ),
-                                    const SizedBox(width: 12),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          const Text(
-                                            'Medication Reminders',
-                                            style: TextStyle(
-                                              fontWeight: FontWeight.bold,
-                                              fontSize: 13,
-                                              color: Color(0xFF12254A),
-                                            ),
-                                          ),
-                                          Text(
-                                            '$_activeMedsCount today',
-                                            style: const TextStyle(
-                                              fontSize: 12,
-                                              color: Color(0xFF64748B),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    const Icon(Icons.chevron_right_rounded,
-                                        color: Color(0xFF94A3B8)),
-                                  ],
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-
-                            // Activity Row
-                            Container(
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFF0FDF4),
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: Row(
-                                children: [
-                                  Container(
-                                    padding: const EdgeInsets.all(6),
-                                    decoration: const BoxDecoration(
-                                      color: Color(0xFFDCFCE7),
-                                      shape: BoxShape.circle,
-                                    ),
-                                    child: const Icon(
-                                        Icons.directions_run_rounded,
-                                        color: Color(0xFF16A34A),
-                                        size: 18),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: const [
-                                        Text(
-                                          'Activity',
-                                          style: TextStyle(
-                                            fontWeight: FontWeight.bold,
-                                            fontSize: 13,
-                                            color: Color(0xFF12254A),
-                                          ),
-                                        ),
-                                        Text(
-                                          'No activity data recorded today.',
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            color: Color(0xFF64748B),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  const Icon(Icons.chevron_right_rounded,
-                                      color: Color(0xFF94A3B8)),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 24),
-
-                // Bottom Row (4 Cards across)
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Emergency Contact
-                    Expanded(
-                      child: Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: const Color(0xFFE2E8F0)),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                const Icon(Icons.phone_in_talk_rounded,
-                                    color: Color(0xFFEF4444), size: 18),
-                                const SizedBox(width: 8),
-                                const Expanded(
-                                  child: Text('Emergency Contact',
-                                      style: TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 14,
-                                          color: Color(0xFF12254A))),
-                                ),
-                                InkWell(
-                                  onTap: _editProfile,
-                                  child: const Icon(Icons.edit_outlined,
-                                      size: 14, color: Color(0xFF64748B)),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 12),
-                            const Text('Name',
-                                style: TextStyle(
-                                    fontSize: 11, color: Color(0xFF94A3B8))),
-                            Text(_emergencyContactName!,
-                                style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 13,
-                                    color: Color(0xFF12254A))),
-                            const SizedBox(height: 6),
-                            const Text('Relationship',
-                                style: TextStyle(
-                                    fontSize: 11, color: Color(0xFF94A3B8))),
-                            Text(_emergencyContactRelation!,
-                                style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 13,
-                                    color: Color(0xFF12254A))),
-                            const SizedBox(height: 6),
-                            const Text('Phone Number',
-                                style: TextStyle(
-                                    fontSize: 11, color: Color(0xFF94A3B8))),
-                            InkWell(
-                              onTap: () => PhoneHelper.callNumber(
-                                  context, _emergencyContactPhone!),
-                              child: Text(_emergencyContactPhone!,
-                                  style: const TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 13,
-                                      color: Color(0xFF009E8F))),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-
-                    // Medical Summary
-                    Expanded(
-                      child: Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: const Color(0xFFE2E8F0)),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: const [
-                                Icon(Icons.medical_services_outlined,
-                                    color: Color(0xFF009E8F), size: 18),
-                                SizedBox(width: 8),
-                                Text('Medical Summary',
-                                    style: TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 14,
-                                        color: Color(0xFF12254A))),
-                              ],
-                            ),
-                            const SizedBox(height: 12),
-                            const Text('Allergies',
-                                style: TextStyle(
-                                    fontSize: 11, color: Color(0xFF94A3B8))),
-                            Text(
-                              _userProfile?.allergies.isNotEmpty == true
-                                  ? _userProfile!.allergies
-                                  : 'None Reported',
-                              style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 13,
-                                  color: Color(0xFF12254A)),
-                            ),
-                            const SizedBox(height: 6),
-                            const Text('Existing Conditions',
-                                style: TextStyle(
-                                    fontSize: 11, color: Color(0xFF94A3B8))),
-                            Text(
-                              _userProfile?.existingConditions.isNotEmpty == true
-                                  ? _userProfile!.existingConditions
-                                  : 'None Reported',
-                              style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 13,
-                                  color: Color(0xFF12254A)),
-                            ),
-                            const SizedBox(height: 6),
-                            const Text('Current Medications',
-                                style: TextStyle(
-                                    fontSize: 11, color: Color(0xFF94A3B8))),
-                            Text(
-                              _activeMedsCount > 0
-                                  ? '$_activeMedsCount Active Prescriptions'
-                                  : 'None Reported',
-                              style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 13,
-                                  color: Color(0xFF12254A)),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-
-                    // Health Records
-                    Expanded(
-                      child: Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: const Color(0xFFE2E8F0)),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: const [
-                                Icon(Icons.description_outlined,
-                                    color: Color(0xFF2563EB), size: 18),
-                                SizedBox(width: 8),
-                                Text('Health Records',
-                                    style: TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 14,
-                                        color: Color(0xFF12254A))),
-                              ],
-                            ),
-                            const SizedBox(height: 16),
-                            Row(
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.all(10),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFFEFF6FF),
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                  child: const Icon(Icons.article_outlined,
-                                      color: Color(0xFF2563EB), size: 24),
-                                ),
-                                const SizedBox(width: 12),
-                                Text(
-                                  '$_healthRecordsCount document(s)',
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 14,
-                                    color: Color(0xFF12254A),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 18),
-                            InkWell(
-                              onTap: () =>
-                                  Navigator.pushNamed(context, AppRoutes.vault),
-                              child: Row(
-                                children: const [
-                                  Text(
-                                    'View records',
-                                    style: TextStyle(
-                                      color: Color(0xFF009E8F),
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 13,
-                                    ),
-                                  ),
-                                  SizedBox(width: 4),
-                                  Icon(Icons.chevron_right_rounded,
-                                      size: 16, color: Color(0xFF009E8F)),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-
-                    // Health Tip
-                    Expanded(
-                      child: Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: const Color(0xFFE2E8F0)),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: const [
-                                Icon(Icons.eco_outlined,
-                                    color: Color(0xFF16A34A), size: 18),
-                                SizedBox(width: 8),
-                                Text('Health Tip',
-                                    style: TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 14,
-                                        color: Color(0xFF12254A))),
-                              ],
-                            ),
-                            const SizedBox(height: 12),
-                            const Text(
-                              'Stay hydrated and eat balanced meals. Small, healthy choices every day make a big difference!',
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: Color(0xFF64748B),
-                                height: 1.4,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 32),
               ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildDesktopSidebar() {
-    return Container(
-      width: 240,
-      color: Colors.white,
-      padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Logo
-          Row(
-            children: [
-              Container(
-                width: 38,
-                height: 38,
-                decoration: const BoxDecoration(
-                  color: Color(0xFF009E8F),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.health_and_safety_rounded,
-                    color: Colors.white, size: 22),
-              ),
-              const SizedBox(width: 10),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: const [
-                  Text(
-                    'MEDGUARD AI',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w900,
-                      color: Color(0xFF12254A),
-                      letterSpacing: 0.5,
-                    ),
-                  ),
-                  Text(
-                    'Health & Emergency',
-                    style: TextStyle(
-                      fontSize: 10.5,
-                      color: Color(0xFF009E8F),
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-          const SizedBox(height: 32),
-
-          // Nav links
-          _buildDesktopNavItem(
-              icon: Icons.home_outlined,
-              label: 'Home',
-              isActive: false,
-              onTap: () => Navigator.pushNamed(context, AppRoutes.dashboard)),
-          _buildDesktopNavItem(
-              icon: Icons.auto_awesome_outlined,
-              label: 'AI Assistant',
-              isActive: false,
-              onTap: () => Navigator.pushNamed(context, AppRoutes.ai)),
-          _buildDesktopNavItem(
-              icon: Icons.folder_outlined,
-              label: 'Health Vault',
-              isActive: false,
-              onTap: () => Navigator.pushNamed(context, AppRoutes.vault)),
-          _buildDesktopNavItem(
-              icon: Icons.medication_outlined,
-              label: 'Medicines',
-              isActive: false,
-              onTap: () => Navigator.pushNamed(context, AppRoutes.medicines)),
-          _buildDesktopNavItem(
-              icon: Icons.person_rounded,
-              label: 'Profile',
-              isActive: true,
-              onTap: () {}),
-
-          const Spacer(),
-
-          // Bottom text & Emergency SOS button
-          const Center(
-            child: Text(
-              'Better Health\nBrighter Tomorrow',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 11.5,
-                color: Color(0xFF94A3B8),
-                height: 1.3,
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          SizedBox(
-            width: double.infinity,
-            height: 44,
-            child: ElevatedButton.icon(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFEF4444),
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
-              onPressed: () => Navigator.pushNamed(context, AppRoutes.emergency),
-              icon: const Icon(Icons.emergency_rounded, size: 18),
-              label: const Text('Emergency SOS',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
             ),
           ),
         ],
@@ -2093,35 +1723,511 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
-  Widget _buildDesktopNavItem({
-    required IconData icon,
-    required String label,
-    required bool isActive,
-    required VoidCallback onTap,
-  }) {
+  Widget _buildDailyWellnessCard(int waterMl) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 6),
-      child: ListTile(
-        onTap: onTap,
-        dense: true,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        tileColor:
-            isActive ? const Color(0xFFE8FAF8) : Colors.transparent,
-        leading: Icon(
-          icon,
-          color: isActive ? const Color(0xFF009E8F) : const Color(0xFF64748B),
-          size: 20,
-        ),
-        title: Text(
-          label,
-          style: TextStyle(
-            color: isActive ? const Color(0xFF009E8F) : const Color(0xFF64748B),
-            fontWeight: isActive ? FontWeight.bold : FontWeight.w600,
-            fontSize: 14,
+      padding: const EdgeInsets.all(22),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE0F2FE),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.wb_sunny_outlined,
+                    color: Color(0xFF0284C7), size: 18),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: const [
+                    Text(
+                      'Daily wellness',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF12254A),
+                      ),
+                    ),
+                    Text(
+                      'Small steps make a big difference',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        color: Color(0xFF64748B),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-        ),
+          const SizedBox(height: 20),
+
+          // Water Intake Row
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: const BoxDecoration(
+                  color: Color(0xFFE0F2FE),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.water_drop_rounded,
+                    color: Color(0xFF0284C7), size: 18),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Water Intake',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                        color: Color(0xFF12254A),
+                      ),
+                    ),
+                    Text(
+                      '$waterMl / 2000 ml',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Color(0xFF64748B),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Text(
+                '${((waterMl / 2000) * 100).toInt()}%',
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13,
+                  color: Color(0xFF0284C7),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: (waterMl / 2000).clamp(0.0, 1.0),
+              minHeight: 6,
+              backgroundColor: const Color(0xFFF1F5F9),
+              color: const Color(0xFF0284C7),
+            ),
+          ),
+          const SizedBox(height: 18),
+
+          // Medication Reminders Row
+          InkWell(
+            onTap: () =>
+                Navigator.pushNamed(context, AppRoutes.medicines),
+            borderRadius: BorderRadius.circular(12),
+            child: Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFAF5FF),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: const BoxDecoration(
+                      color: Color(0xFFF3E8FF),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.medication_rounded,
+                        color: Color(0xFF9333EA), size: 18),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Medication Reminders',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                            color: Color(0xFF12254A),
+                          ),
+                        ),
+                        Text(
+                          '$_activeMedsCount today',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Color(0xFF64748B),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Icon(Icons.chevron_right_rounded,
+                      color: Color(0xFF94A3B8)),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          // Activity Row
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF0FDF4),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: const BoxDecoration(
+                    color: Color(0xFFDCFCE7),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.directions_run_rounded,
+                      color: Color(0xFF16A34A), size: 18),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: const [
+                      Text(
+                        'Activity',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                          color: Color(0xFF12254A),
+                        ),
+                      ),
+                      Text(
+                        'No activity data recorded today.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Color(0xFF64748B),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const Icon(Icons.chevron_right_rounded,
+                    color: Color(0xFF94A3B8)),
+              ],
+            ),
+          ),
+        ],
       ),
     );
+  }
+
+  Widget _buildEmergencyContactCard() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.phone_in_talk_rounded,
+                  color: Color(0xFFEF4444), size: 18),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text('Emergency Contact',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                        color: Color(0xFF12254A))),
+              ),
+              InkWell(
+                onTap: _editProfile,
+                child: const Icon(Icons.edit_outlined,
+                    size: 14, color: Color(0xFF64748B)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          const Text('Name',
+              style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8))),
+          Text(_emergencyContactName,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13,
+                  color: Color(0xFF12254A))),
+          const SizedBox(height: 6),
+          const Text('Relationship',
+              style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8))),
+          Text(_emergencyContactRelation,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13,
+                  color: Color(0xFF12254A))),
+          const SizedBox(height: 6),
+          const Text('Phone Number',
+              style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8))),
+          InkWell(
+            onTap: () => PhoneHelper.callNumber(
+                context, _emergencyContactPhone),
+            child: Text(_emergencyContactPhone,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13,
+                    color: Color(0xFF009E8F))),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMedicalSummaryCard() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: const [
+              Icon(Icons.medical_services_outlined,
+                  color: Color(0xFF009E8F), size: 18),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text('Medical Summary',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                        color: Color(0xFF12254A))),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          const Text('Allergies',
+              style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8))),
+          Text(
+            _userProfile?.allergies.isNotEmpty == true
+                ? _userProfile!.allergies
+                : 'None Reported',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 13,
+                color: Color(0xFF12254A)),
+          ),
+          const SizedBox(height: 6),
+          const Text('Existing Conditions',
+              style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8))),
+          Text(
+            _userProfile?.existingConditions.isNotEmpty == true
+                ? _userProfile!.existingConditions
+                : 'None Reported',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 13,
+                color: Color(0xFF12254A)),
+          ),
+          const SizedBox(height: 6),
+          const Text('Current Medications',
+              style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8))),
+          Text(
+            _activeMedsCount > 0
+                ? '$_activeMedsCount Active Prescriptions'
+                : 'None Reported',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 13,
+                color: Color(0xFF12254A)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHealthRecordsCard() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: const [
+              Icon(Icons.description_outlined,
+                  color: Color(0xFF2563EB), size: 18),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text('Health Records',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                        color: Color(0xFF12254A))),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEFF6FF),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.article_outlined,
+                    color: Color(0xFF2563EB), size: 24),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  '$_healthRecordsCount document(s)',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                    color: Color(0xFF12254A),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          InkWell(
+            onTap: () =>
+                Navigator.pushNamed(context, AppRoutes.vault),
+            child: Row(
+              children: const [
+                Text(
+                  'View records',
+                  style: TextStyle(
+                    color: Color(0xFF009E8F),
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13,
+                  ),
+                ),
+                SizedBox(width: 4),
+                Icon(Icons.chevron_right_rounded,
+                    size: 16, color: Color(0xFF009E8F)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHealthTipCard() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: const [
+              Icon(Icons.eco_outlined,
+                  color: Color(0xFF16A34A), size: 18),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text('Health Tip',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                        color: Color(0xFF12254A))),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          const Text(
+            'Stay hydrated and eat balanced meals. Small, healthy choices every day make a big difference!',
+            style: TextStyle(
+              fontSize: 13,
+              color: Color(0xFF64748B),
+              height: 1.4,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  _BmiBadgeStyle _getBmiBadgeStyle(double bmi) {
+    if (bmi >= 18.5 && bmi <= 24.9) {
+      return const _BmiBadgeStyle(
+        bg: Color(0xFFE8FAF8),
+        fg: Color(0xFF009E8F),
+        icon: Icons.check_circle_outline_rounded,
+      );
+    } else if (bmi > 24.9 && bmi <= 29.9) {
+      return const _BmiBadgeStyle(
+        bg: Color(0xFFFEF3C7),
+        fg: Color(0xFFD97706),
+        icon: Icons.warning_amber_rounded,
+      );
+    } else if (bmi > 29.9) {
+      return const _BmiBadgeStyle(
+        bg: Color(0xFFFEE2E2),
+        fg: Color(0xFFDC2626),
+        icon: Icons.warning_amber_rounded,
+      );
+    } else {
+      return const _BmiBadgeStyle(
+        bg: Color(0xFFFEF3C7),
+        fg: Color(0xFFD97706),
+        icon: Icons.info_outline_rounded,
+      );
+    }
   }
 
   Widget _buildBmiSegmentedBar(double currentBmi) {
@@ -2168,20 +2274,38 @@ class _ProfilePageState extends State<ProfilePage> {
         ),
         const SizedBox(height: 6),
         Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: const [
-            Text('Underweight\n(< 18.5)',
+            Expanded(
+              child: Text(
+                'Underweight\n(< 18.5)',
                 textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 10, color: Color(0xFF64748B))),
-            Text('Normal\n(18.5 - 24.9)',
+                style: TextStyle(fontSize: 9.5, color: Color(0xFF64748B)),
+              ),
+            ),
+            SizedBox(width: 3),
+            Expanded(
+              child: Text(
+                'Normal\n(18.5 - 24.9)',
                 textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 10, color: Color(0xFF64748B))),
-            Text('Overweight\n(25 - 29.9)',
+                style: TextStyle(fontSize: 9.5, color: Color(0xFF64748B)),
+              ),
+            ),
+            SizedBox(width: 3),
+            Expanded(
+              child: Text(
+                'Overweight\n(25 - 29.9)',
                 textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 10, color: Color(0xFF64748B))),
-            Text('Obese\n(≥ 30)',
+                style: TextStyle(fontSize: 9.5, color: Color(0xFF64748B)),
+              ),
+            ),
+            SizedBox(width: 3),
+            Expanded(
+              child: Text(
+                'Obese\n(≥ 30)',
                 textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 10, color: Color(0xFF64748B))),
+                style: TextStyle(fontSize: 9.5, color: Color(0xFF64748B)),
+              ),
+            ),
           ],
         ),
       ],
@@ -2201,6 +2325,9 @@ class _ProfilePageState extends State<ProfilePage> {
         const SizedBox(height: 4),
         Text(
           value,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          textAlign: TextAlign.center,
           style: const TextStyle(
             fontSize: 14.5,
             fontWeight: FontWeight.w800,
@@ -2210,6 +2337,9 @@ class _ProfilePageState extends State<ProfilePage> {
         const SizedBox(height: 1),
         Text(
           label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          textAlign: TextAlign.center,
           style: const TextStyle(
             fontSize: 11.5,
             color: Color(0xFF64748B),
@@ -2223,6 +2353,15 @@ class _ProfilePageState extends State<ProfilePage> {
     return Container(
       width: 1,
       height: 36,
+      color: const Color(0xFFE2E8F0),
+    );
+  }
+
+  Widget _buildHeroMetricDivider() {
+    return Container(
+      width: 1,
+      height: 36,
+      margin: const EdgeInsets.symmetric(horizontal: 2),
       color: const Color(0xFFE2E8F0),
     );
   }
@@ -2333,4 +2472,16 @@ class _ProfilePageState extends State<ProfilePage> {
       ),
     );
   }
+}
+
+class _BmiBadgeStyle {
+  final Color bg;
+  final Color fg;
+  final IconData icon;
+
+  const _BmiBadgeStyle({
+    required this.bg,
+    required this.fg,
+    required this.icon,
+  });
 }

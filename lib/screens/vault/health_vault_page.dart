@@ -77,11 +77,15 @@ class _HealthVaultPageState extends State<HealthVaultPage> {
   }
 
   void _initUser() async {
-    final userId = await _authRepository.getCurrentUserId();
-    if (mounted) {
-      setState(() {
-        _currentUserId = userId;
-      });
+    try {
+      final userId = await _authRepository.getCurrentUserId();
+      if (mounted) {
+        setState(() {
+          _currentUserId = userId;
+        });
+      }
+    } catch (e) {
+      debugPrint('[HEALTH VAULT] User auth error: $e');
     }
   }
 

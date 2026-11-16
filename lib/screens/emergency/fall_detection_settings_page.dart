@@ -25,6 +25,9 @@ class _FallDetectionSettingsPageState extends State<FallDetectionSettingsPage> {
   void initState() {
     super.initState();
     _isEnabled = _fallService.isEnabled;
+    _fallService.initialize().then((_) {
+      if (mounted) setState(() => _isEnabled = _fallService.isEnabled);
+    });
   }
 
   @override
@@ -49,7 +52,7 @@ class _FallDetectionSettingsPageState extends State<FallDetectionSettingsPage> {
           _countdownTimer?.cancel();
           _isCountdownActive = false;
           // Trigger emergency SOS
-          Navigator.of(context).pushNamed(AppRoutes.emergency);
+          Navigator.of(context).pushNamed(AppRoutes.emergency, arguments: {'triggerType': 'fall'});
         }
       });
     });
@@ -208,7 +211,7 @@ class _FallDetectionSettingsPageState extends State<FallDetectionSettingsPage> {
                       const Text(
                         '1. Accelerometer sensors detect rapid impact or freefall.\n'
                         '2. A 10-second warning countdown begins with audio alert.\n'
-                        '3. If not cancelled, your emergency contacts and helpline SOS are notified immediately.',
+                        '3. If not cancelled, MEDGUARD prepares an SOS message. Confirm sending it in your SMS app.',
                         style: TextStyle(
                           fontSize: 13,
                           color: AppColors.textSecondary,

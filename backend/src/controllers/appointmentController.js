@@ -84,7 +84,7 @@ const updateAppointment = async (req, res) => {
 
     const updates = req.body;
     Object.keys(updates).forEach((key) => {
-      if (key !== 'userId' && key !== '_id') {
+      if (['doctorName', 'specialty', 'hospitalName', 'appointmentDate', 'appointmentTime', 'reason', 'notes', 'status'].includes(key)) {
         appointment[key] = updates[key];
       }
     });

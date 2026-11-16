@@ -59,7 +59,7 @@ class _SettingsPageState extends State<SettingsPage> {
       _themeMode = prefs.getString('settings_theme_mode') ?? 'System';
 
       _userName = profile?.name ?? prefs.getString('user_name') ?? 'User';
-      _userEmail = prefs.getString('user_email') ?? 'hem469469@gmail.com';
+      _userEmail = prefs.getString('user_email') ?? '';
     });
   }
 
@@ -111,6 +111,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
   void _showChangePasswordDialog() {
     final emailController = TextEditingController(text: _userEmail);
+    final currentPasswordController = TextEditingController();
     final passwordController = TextEditingController();
     final confirmController = TextEditingController();
     String? errorText;
@@ -162,6 +163,12 @@ class _SettingsPageState extends State<SettingsPage> {
                 ),
                 const SizedBox(height: 12),
                 TextField(
+                  controller: currentPasswordController,
+                  obscureText: true,
+                  decoration: const InputDecoration(labelText: 'Current Password'),
+                ),
+                const SizedBox(height: 12),
+                TextField(
                   controller: passwordController,
                   obscureText: true,
                   decoration: const InputDecoration(
@@ -190,8 +197,8 @@ class _SettingsPageState extends State<SettingsPage> {
               onPressed: isSubmitting
                   ? null
                   : () async {
-                      final newPass = passwordController.text.trim();
-                      final confirmPass = confirmController.text.trim();
+                      final newPass = passwordController.text;
+                      final confirmPass = confirmController.text;
                       if (newPass.length < 6) {
                         setDialogState(() => errorText = 'Password must be at least 6 characters.');
                         return;
@@ -207,15 +214,18 @@ class _SettingsPageState extends State<SettingsPage> {
                       });
 
                       try {
-                        await _authRepository.resetPassword(
-                          email: _userEmail.trim(),
+                        await _authRepository.changePassword(
+                          currentPassword: currentPasswordController.text,
                           newPassword: newPass,
                         );
+                        if (!mounted || !dialogCtx.mounted) return;
                         if (dialogCtx.mounted) {
+                          final messenger = ScaffoldMessenger.of(this.context);
                           Navigator.of(dialogCtx).pop();
-                          ScaffoldMessenger.of(context).showSnackBar(
+                          Navigator.of(this.context).pushNamedAndRemoveUntil(AppRoutes.login, (route) => false);
+                          messenger.showSnackBar(
                             const SnackBar(
-                              content: Text('Password updated successfully in MongoDB Atlas.'),
+                              content: Text('Password updated. Please sign in again.'),
                               backgroundColor: AppTheme.primaryTeal,
                             ),
                           );

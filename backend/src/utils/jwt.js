@@ -1,27 +1,18 @@
 const jwt = require('jsonwebtoken');
+const { randomUUID } = require('node:crypto');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'medguard_production_jwt_secret_key_2026_secure';
-const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
+function getSecret() {
+  const secret = process.env.JWT_SECRET;
+  if (!secret || secret.length < 32) {
+    throw new Error('JWT_SECRET must be configured with at least 32 characters.');
+  }
+  return secret;
+}
 
-/**
- * Generate a JWT for a user
- * @param {Object} payload - Data to encode (e.g. { userId, email, role })
- * @returns {string} token
- */
-const generateToken = (payload) => {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
-};
-
-/**
- * Verify a JWT
- * @param {string} token
- * @returns {Object} decoded token payload
- */
-const verifyToken = (token) => {
-  return jwt.verify(token, JWT_SECRET);
-};
-
-module.exports = {
-  generateToken,
-  verifyToken,
-};
+const generateToken = (payload) => jwt.sign(payload, getSecret(), {
+  algorithm: 'HS256',
+  expiresIn: process.env.JWT_EXPIRES_IN || '7d',
+  jwtid: randomUUID(),
+});
+const verifyToken = (token) => jwt.verify(token, getSecret(), { algorithms: ['HS256'] });
+module.exports = { generateToken, verifyToken, getSecret };

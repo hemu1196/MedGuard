@@ -77,7 +77,7 @@ const updateMedicine = async (req, res) => {
 
     const updates = req.body;
     Object.keys(updates).forEach((key) => {
-      if (key !== 'userId' && key !== '_id') {
+      if (['name', 'dosage', 'times', 'frequency', 'totalStock', 'remainingStock', 'instructions', 'startDate', 'endDate'].includes(key)) {
         medicine[key] = updates[key];
       }
     });
@@ -145,6 +145,9 @@ const logMedicationAction = async (req, res) => {
       });
     }
 
+    if (!mongoose.Types.ObjectId.isValid(medicineId) || !['taken', 'skipped', 'missed'].includes(status) || typeof scheduledTime !== 'string') {
+      return res.status(400).json({ success: false, message: 'Valid medicine ID, scheduled time, and medication status are required.' });
+    }
     const medicine = await Medicine.findOne({ _id: medicineId, userId: req.userId });
     if (!medicine) {
       return res.status(404).json({

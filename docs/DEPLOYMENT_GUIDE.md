@@ -17,11 +17,11 @@ npm install
 Ensure `backend/.env` contains the following variables:
 ```env
 MONGODB_USERNAME=hemachandra1196_db_user
-MONGODB_PASSWORD=Hemachandra@1196
+MONGODB_PASSWORD=REPLACE_WITH_MONGODB_PASSWORD
 MONGODB_HOST=medguardcluster.maylg97.mongodb.net
 DB_NAME=medguard
 PORT=5001
-JWT_SECRET=medguard_production_jwt_secret_key_2026_secure
+JWT_SECRET=REPLACE_WITH_JWT_SECRET
 JWT_EXPIRES_IN=7d
 ```
 

@@ -98,6 +98,7 @@ class _LoginPageState extends State<LoginPage> {
 
   void _openForgotPasswordDialog() {
     final resetEmailCtrl = TextEditingController(text: _emailController.text.trim());
+    final recoveryCodeCtrl = TextEditingController();
     final newPassCtrl = TextEditingController();
     final confirmPassCtrl = TextEditingController();
 
@@ -136,7 +137,7 @@ class _LoginPageState extends State<LoginPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text(
-                      'Enter your registered email address and set a new password. All existing health profile and clinical records will be preserved.',
+                      'Request a recovery code at your registered email, then enter the code and a new password. Your health records will be preserved.',
                       style: TextStyle(fontSize: 13, height: 1.4),
                     ),
                     const SizedBox(height: 16),
@@ -178,6 +179,28 @@ class _LoginPageState extends State<LoginPage> {
                       ),
                     ),
                     const SizedBox(height: 12),
+                    TextField(
+                      controller: recoveryCodeCtrl,
+                      decoration: const InputDecoration(labelText: 'Recovery code from email *'),
+                    ),
+                    TextButton(
+                      onPressed: isResetting ? null : () async {
+                        setDialogState(() { isResetting = true; resetError = null; });
+                        try {
+                          await _authRepository.requestPasswordReset(resetEmailCtrl.text);
+                          if (!dialogContext.mounted) return;
+                          setDialogState(() { isResetting = false; });
+                          if (!mounted) return;
+                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                            content: Text('If the account exists, a recovery code has been emailed. Check your inbox.'),
+                          ));
+                        } catch (e) {
+                          if (!dialogContext.mounted) return;
+                          setDialogState(() { isResetting = false; resetError = e is AppException ? e.message : 'Unable to request recovery code.'; });
+                        }
+                      },
+                      child: const Text('Email recovery code'),
+                    ),
                     TextField(
                       controller: newPassCtrl,
                       obscureText: obscureNewPass,
@@ -262,6 +285,7 @@ class _LoginPageState extends State<LoginPage> {
                           await _authRepository.resetPassword(
                             email: email,
                             newPassword: newPass,
+                            recoveryCode: recoveryCodeCtrl.text,
                           );
 
                           if (dialogContext.mounted) {

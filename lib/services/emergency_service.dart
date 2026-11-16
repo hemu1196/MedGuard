@@ -66,7 +66,7 @@ class EmergencyService {
     }
 
     final primaryContact = contacts.first;
-    final cleanPhone = primaryContact.phone.replaceAll(RegExp(r'[^\d+]'), '');
+    final cleanPhone = primaryContact.dialablePhone;
     final fullPhone = primaryContact.displayPhone;
     final UserProfile? profile = await _profileService.getProfile();
     final userName = (profile != null && profile.name.isNotEmpty) ? profile.name : 'MEDGUARD User';
@@ -114,7 +114,7 @@ Please check my location and contact me immediately.'''.trim();
         launched = await launchUrl(smsUri, mode: LaunchMode.externalApplication);
       }
     } catch (e) {
-      debugPrint('[EMERGENCY SERVICE] Could not launch SMS URI ($smsUri): $e');
+      debugPrint('[EMERGENCY SERVICE] Could not open the SMS composer: $e');
     }
 
     await logSosEvent(

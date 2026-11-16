@@ -41,6 +41,10 @@ const getWaterIntake = async (req, res) => {
 const logWaterIntake = async (req, res) => {
   try {
     const { amountMl, date, targetMl } = req.body;
+    if ((amountMl !== undefined && (!Number.isFinite(Number(amountMl)) || Number(amountMl) <= 0)) ||
+        (targetMl !== undefined && (!Number.isFinite(Number(targetMl)) || Number(targetMl) <= 0))) {
+      return res.status(400).json({ success: false, message: 'Water amount and target must be positive finite numbers.' });
+    }
     const todayStr = date || getTodayDateString();
 
     let record = await WaterIntake.findOne({ userId: req.userId, date: todayStr });
@@ -112,7 +116,7 @@ const saveBmiRecord = async (req, res) => {
   try {
     const { weightKg, heightCm } = req.body;
 
-    if (!weightKg || !heightCm) {
+    if (!Number.isFinite(Number(weightKg)) || !Number.isFinite(Number(heightCm)) || Number(weightKg) <= 0 || Number(heightCm) <= 0) {
       return res.status(400).json({
         success: false,
         message: 'Weight (kg) and Height (cm) are required.',

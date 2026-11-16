@@ -223,7 +223,7 @@ const triggerSos = async (req, res) => {
       contactId: c._id,
       name: c.name,
       phone: c.phone,
-      status: 'sent',
+      status: 'pending',
     }));
 
     const mapsUrl = (lat !== 0 || lng !== 0)

@@ -2,7 +2,8 @@ const http = require('http');
 const jwt = require('jsonwebtoken');
 
 const PORT = 5001;
-const JWT_SECRET = process.env.JWT_SECRET || 'medguard_production_jwt_secret_key_2026_secure';
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) throw new Error('Configure JWT_SECRET before running verification.');
 const ORIGIN = 'http://localhost:57624';
 
 function request(options, data) {

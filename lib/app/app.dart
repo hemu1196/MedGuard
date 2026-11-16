@@ -56,7 +56,10 @@ class MedGuardApp extends StatelessWidget {
         AppRoutes.hospitals: (context) => const NearbyHospitalsPage(),
         AppRoutes.ambulance: (context) => const AmbulanceAssistancePage(),
         AppRoutes.map: (context) => const ExploreMapPage(),
-        AppRoutes.emergency: (context) => const EmergencySosPage(),
+        AppRoutes.emergency: (context) {
+          final args = ModalRoute.of(context)?.settings.arguments;
+          return EmergencySosPage(autoTriggerType: args is Map && args['triggerType'] == 'fall' ? 'fall' : null);
+        },
         AppRoutes.profile: (context) =>
             const MainNavigationFrame(initialIndex: 4),
         AppRoutes.settings: (context) => const SettingsPage(),

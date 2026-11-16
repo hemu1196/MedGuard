@@ -15,6 +15,11 @@ migrate_working_dir/
 # Environment / Secret Files
 *.env
 backend/.env
+.env.*
+!.env.example
+!backend/.env.example
+backend/uploads/
+*.zip
 
 # IntelliJ related
 *.iml

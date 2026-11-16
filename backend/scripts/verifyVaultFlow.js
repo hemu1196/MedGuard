@@ -29,7 +29,8 @@ const { getGridFSBucket } = require('../src/services/storageService');
 const healthRecordRoutes = require('../src/routes/healthRecordRoutes');
 
 const TEST_PORT = 5098;
-const JWT_SECRET = process.env.JWT_SECRET || 'medguard_jwt_super_secret_key_2026';
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) throw new Error('Configure JWT_SECRET before running verification.');
 
 function buildMultipartPayload(boundary, fields, file) {
   let parts = [];
@@ -155,6 +156,11 @@ async function runVaultVerification() {
 
     tokenA = jwt.sign({ userId: userA._id.toString() }, JWT_SECRET, { expiresIn: '1h' });
     tokenB = jwt.sign({ userId: userB._id.toString() }, JWT_SECRET, { expiresIn: '1h' });
+    const UserSession = require('../src/models/UserSession');
+    await UserSession.create([
+      { userId: userA._id, token: tokenA, expiresAt: new Date(Date.now() + 3600000) },
+      { userId: userB._id, token: tokenB, expiresAt: new Date(Date.now() + 3600000) },
+    ]);
 
     console.log(`  -> User A created (ID: ${userA._id})`);
     console.log(`  -> User B created (ID: ${userB._id})\n`);
@@ -435,6 +441,7 @@ async function runVaultVerification() {
       if (createdRecordIds.length > 0) {
         await HealthRecord.deleteMany({ _id: { $in: createdRecordIds } });
       }
+      await require('../src/models/UserSession').deleteMany({ token: { $in: [tokenA, tokenB].filter(Boolean) } });
       if (userA) await User.deleteOne({ _id: userA._id });
       if (userB) await User.deleteOne({ _id: userB._id });
       if (server) server.close();

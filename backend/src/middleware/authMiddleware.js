@@ -1,5 +1,6 @@
 const { verifyToken } = require('../utils/jwt');
 const User = require('../models/User');
+const UserSession = require('../models/UserSession');
 
 const authenticateToken = async (req, res, next) => {
   try {
@@ -14,6 +15,8 @@ const authenticateToken = async (req, res, next) => {
     const token = authHeader.split(' ')[1];
     const decoded = verifyToken(token);
 
+    const session = await UserSession.findOne({ token, userId: decoded.userId, isActive: true, expiresAt: { $gt: new Date() } });
+    if (!session) return res.status(401).json({ success: false, message: 'Session expired or revoked. Please sign in again.' });
     const user = await User.findById(decoded.userId);
     if (!user || !user.isActive) {
       return res.status(401).json({

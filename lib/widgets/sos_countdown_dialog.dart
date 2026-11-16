@@ -186,7 +186,7 @@ class _SosCountdownDialogState extends State<SosCountdownDialog>
                   border: Border.all(color: Colors.red.shade200),
                 ),
                 child: Text(
-                  'Keyword Heard: "${widget.triggerWord}"',
+                  'Trigger: "${widget.triggerWord}"',
                   style: TextStyle(
                     color: Colors.red.shade900,
                     fontWeight: FontWeight.w600,
@@ -198,7 +198,7 @@ class _SosCountdownDialogState extends State<SosCountdownDialog>
 
               // Message
               Text(
-                'MEDGUARD will dispatch an emergency SOS alert with live GPS coordinates in $_remainingSeconds second${_remainingSeconds == 1 ? '' : 's'}.',
+                'MEDGUARD will prepare an SOS message with your location in $_remainingSeconds second${_remainingSeconds == 1 ? '' : 's'}.',
                 textAlign: TextAlign.center,
                 style: const TextStyle(
                   fontSize: 14,
@@ -241,7 +241,7 @@ class _SosCountdownDialogState extends State<SosCountdownDialog>
                   onPressed: _handleSendNow,
                   icon: const Icon(Icons.flash_on, size: 18, color: AppTheme.accentRed),
                   label: const Text(
-                    'SEND IMMEDIATELY',
+                    'PREPARE SOS NOW',
                     style: TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w600,

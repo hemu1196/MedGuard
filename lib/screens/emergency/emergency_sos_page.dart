@@ -15,7 +15,8 @@ import '../../widgets/loading_view.dart';
 import '../../widgets/sos_countdown_dialog.dart';
 
 class EmergencySosPage extends StatefulWidget {
-  const EmergencySosPage({super.key});
+  final String? autoTriggerType;
+  const EmergencySosPage({super.key, this.autoTriggerType});
 
   @override
   State<EmergencySosPage> createState() => _EmergencySosPageState();
@@ -54,6 +55,7 @@ class _EmergencySosPageState extends State<EmergencySosPage> {
         _emergencyContacts = contacts;
         _isLoadingContacts = false;
       });
+      if (widget.autoTriggerType != null) _triggerRealSos(triggerType: widget.autoTriggerType!);
     }
   }
 

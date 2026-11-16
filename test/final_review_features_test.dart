@@ -131,9 +131,9 @@ void main() {
       );
 
       expect(find.text('VOICE SOS DETECTED'), findsOneWidget);
-      expect(find.text('Keyword Heard: "HELP ME"'), findsOneWidget);
+      expect(find.text('Trigger: "HELP ME"'), findsOneWidget);
       expect(find.text('CANCEL SOS'), findsOneWidget);
-      expect(find.text('SEND IMMEDIATELY'), findsOneWidget);
+      expect(find.text('PREPARE SOS NOW'), findsOneWidget);
       expect(completed, isFalse);
       expect(cancelled, isFalse);
     });
@@ -162,7 +162,7 @@ void main() {
       expect(completed, isFalse);
     });
 
-    testWidgets('Tapping SEND IMMEDIATELY invokes onCountdownComplete without waiting', (tester) async {
+    testWidgets('Tapping PREPARE SOS NOW invokes onCountdownComplete without waiting', (tester) async {
       bool completed = false;
       bool cancelled = false;
 
@@ -179,7 +179,7 @@ void main() {
         ),
       );
 
-      await tester.tap(find.text('SEND IMMEDIATELY'));
+      await tester.tap(find.text('PREPARE SOS NOW'));
       await tester.pumpAndSettle();
 
       expect(completed, isTrue);

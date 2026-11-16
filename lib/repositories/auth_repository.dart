@@ -80,7 +80,7 @@ class AuthRepository {
         if (fbUser != null && fbUser.uid.isNotEmpty) {
           try {
             final syncRes = await _apiClient.post('/auth/firebase-migrate', body: {
-              'firebaseUid': fbUser.uid,
+              'idToken': await fbUser.getIdToken(),
               'email': fbUser.email,
               'fullName': fbUser.displayName ?? fbUser.email?.split('@')[0] ?? 'User',
             });
@@ -156,7 +156,7 @@ class AuthRepository {
           if (userCred.user != null) {
             debugPrint('[AUTH] Firebase credentials verified! Syncing password to MongoDB Atlas...');
             final syncRes = await _apiClient.post('/auth/firebase-migrate', body: {
-              'firebaseUid': userCred.user!.uid,
+              'idToken': await userCred.user!.getIdToken(),
               'email': cleanEmail,
               'password': password,
               'fullName': userCred.user!.displayName ?? cleanEmail.split('@')[0],
@@ -270,6 +270,7 @@ class AuthRepository {
   Future<void> resetPassword({
     required String email,
     required String newPassword,
+    required String recoveryCode,
   }) async {
     final cleanEmail = email.trim().toLowerCase();
     if (cleanEmail.isEmpty || !cleanEmail.contains('@')) {
@@ -282,11 +283,23 @@ class AuthRepository {
     final res = await _apiClient.post('/auth/reset-password', body: {
       'email': cleanEmail,
       'newPassword': newPassword,
+      'recoveryCode': recoveryCode.trim(),
     });
 
     if (res['success'] != true) {
       throw AuthenticationException(res['message'] ?? 'Failed to reset password.');
     }
+  }
+
+  Future<void> changePassword({required String currentPassword, required String newPassword}) async {
+    await _apiClient.post('/auth/change-password', body: {
+      'currentPassword': currentPassword, 'newPassword': newPassword,
+    });
+    await signOut();
+  }
+
+  Future<void> requestPasswordReset(String email) async {
+    await _apiClient.post('/auth/request-password-reset', body: {'email': email.trim().toLowerCase()});
   }
 
   Future<void> sendPasswordResetEmail(String email) async {

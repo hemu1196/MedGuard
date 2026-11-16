@@ -9,7 +9,7 @@ const emergencyEventSchema = new mongoose.Schema({
   },
   triggerType: {
     type: String,
-    enum: ['voice', 'manual', 'shake'],
+    enum: ['voice', 'manual', 'shake', 'fall'],
     required: true,
   },
   location: {
@@ -21,7 +21,7 @@ const emergencyEventSchema = new mongoose.Schema({
     contactId: { type: mongoose.Schema.Types.ObjectId, ref: 'EmergencyContact' },
     name: { type: String },
     phone: { type: String },
-    status: { type: String, enum: ['pending', 'sent', 'failed'], default: 'sent' },
+    status: { type: String, enum: ['pending', 'sent', 'failed'], default: 'pending' },
   }],
   status: {
     type: String,

@@ -156,13 +156,20 @@ async function runTests() {
 
     // TEST 7: Password Reset flow
     const newPassword = 'NewSecretPassword789!';
+    const recoveryCode = require('crypto').randomBytes(24).toString('hex');
+    const resetUser = await User.findOne({ email: testEmail });
+    await require('../src/models/PasswordReset').findOneAndUpdate({ userId: resetUser._id }, {
+      tokenHash: require('../src/services/passwordRecoveryService').hashToken(recoveryCode),
+      expiresAt: new Date(Date.now() + 900000),
+    }, { upsert: true });
     const resetRes = await makeRequest('POST', '/reset-password', {
       email: testEmail,
       newPassword,
+      recoveryCode,
     });
     assert('Password reset returns HTTP 200', resetRes.status === 200);
     assert('Password reset returns success=true', resetRes.data.success === true);
-    assert('Password reset returns new JWT', typeof resetRes.data.token === 'string');
+    assert('Password reset requires a new login', resetRes.data.token === undefined);
 
     // TEST 8: Old password rejected after reset
     const oldPassLoginRes = await makeRequest('POST', '/login', {

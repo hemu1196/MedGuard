@@ -5,14 +5,20 @@ const { authenticateToken } = require('../middleware/authMiddleware');
 
 const { uploadVault } = require('../services/storageService');
 
+const { rateLimit } = require('express-rate-limit');
+router.use(rateLimit({ windowMs: 15 * 60 * 1000, limit: 60, standardHeaders: 'draft-8', legacyHeaders: false }));
+const recoveryLimit = rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: 'draft-8', legacyHeaders: false });
+router.post('/request-password-reset', recoveryLimit, authController.requestPasswordReset);
+
 // Public routes
 router.post('/register', authController.register);
 router.post('/login', authController.login);
-router.post('/reset-password', authController.resetPassword);
+router.post('/reset-password', recoveryLimit, authController.resetPassword);
 router.post('/firebase-migrate', authController.firebaseMigrate);
 router.get('/:userId/avatar', authController.getAvatar);
 
 // Authenticated routes
+router.post('/change-password', recoveryLimit, authenticateToken, authController.changePassword);
 router.get('/me', authenticateToken, authController.getMe);
 router.get('/profile', authenticateToken, authController.getMe);
 router.get('/verify', authenticateToken, authController.getMe);

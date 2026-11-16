@@ -4,7 +4,55 @@ const UserSession = require('../models/UserSession');
 const AuditEvent = require('../models/AuditEvent');
 const EmergencyContact = require('../models/EmergencyContact');
 const storageService = require('../services/storageService');
-const { generateToken } = require('../utils/jwt');
+const { generateToken, verifyToken } = require('../utils/jwt');
+const { randomBytes } = require('node:crypto');
+const PasswordReset = require('../models/PasswordReset');
+const recovery = require('../services/passwordRecoveryService');
+const firebaseIdentity = require('../services/firebaseIdentityService');
+
+async function saveSession(userId, token, req) {
+  await UserSession.create({
+    userId, token,
+    ipAddress: req.ip || '',
+    deviceInfo: req.headers['user-agent'] || '',
+    expiresAt: new Date(verifyToken(token).exp * 1000),
+  });
+}
+
+const changePassword = async (req, res) => {
+  const { currentPassword, newPassword } = req.body || {};
+  if (typeof currentPassword !== 'string' || typeof newPassword !== 'string' || newPassword.length < 6) {
+    return res.status(400).json({ success: false, message: 'Current password and new password (at least 6 characters) are required.' });
+  }
+  try {
+    const user = await User.findById(req.userId);
+    if (!user || !await user.comparePassword(currentPassword)) {
+      return res.status(401).json({ success: false, message: 'Current password is incorrect.' });
+    }
+    user.password = newPassword;
+    await user.save();
+    await UserSession.updateMany({ userId: user._id }, { $set: { isActive: false } });
+    await PasswordReset.deleteMany({ userId: user._id });
+    return res.json({ success: true, message: 'Password changed. Please sign in again.' });
+  } catch (_) {
+    return res.status(500).json({ success: false, message: 'Unable to change password.' });
+  }
+};
+
+const requestPasswordReset = async (req, res) => {
+  try {
+    const email = req.body?.email;
+    if (typeof email !== 'string' || !email.includes('@')) {
+      return res.status(400).json({ success: false, message: 'A valid email is required.' });
+    }
+    const transport = recovery.getTransport();
+    const user = await User.findOne({ email: email.trim().toLowerCase(), isActive: true });
+    if (user) await recovery.sendReset(user, transport);
+    return res.json({ success: true, message: 'If the account exists, a recovery code has been emailed.' });
+  } catch (error) {
+    return res.status(error.status || 503).json({ success: false, message: 'Password recovery email is unavailable. Contact support.' });
+  }
+};
 
 /**
  * Register new user
@@ -56,13 +104,7 @@ const register = async (req, res) => {
 
     const token = generateToken({ userId: newUser._id, email: newUser.email, role: newUser.role });
 
-    await UserSession.create({
-      userId: newUser._id,
-      token,
-      ipAddress: req.ip || '',
-      deviceInfo: req.headers['user-agent'] || '',
-      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-    });
+    await saveSession(newUser._id, token, req);
 
     await AuditEvent.create({
       userId: newUser._id,
@@ -131,13 +173,7 @@ const login = async (req, res) => {
 
     const token = generateToken({ userId: user._id, email: user.email, role: user.role });
 
-    await UserSession.create({
-      userId: user._id,
-      token,
-      ipAddress: req.ip || '',
-      deviceInfo: req.headers['user-agent'] || '',
-      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-    });
+    await saveSession(user._id, token, req);
 
     await AuditEvent.create({
       userId: user._id,
@@ -405,68 +441,23 @@ const logout = async (req, res) => {
  */
 const resetPassword = async (req, res) => {
   try {
-    const { email, newPassword, password } = req.body;
-    const targetPassword = newPassword || password;
-
-    if (!email || !targetPassword) {
-      return res.status(400).json({
-        success: false,
-        message: 'Email and new password are required.',
-      });
+    const { email, newPassword, recoveryCode } = req.body || {};
+    if (typeof email !== 'string' || typeof newPassword !== 'string' || newPassword.length < 6 ||
+        typeof recoveryCode !== 'string' || !/^[a-f0-9]{48}$/.test(recoveryCode)) {
+      return res.status(400).json({ success: false, message: 'Email, new password (at least 6 characters), and emailed recovery code are required.' });
     }
-
-    const normalizedEmail = String(email).trim().toLowerCase();
-    if (String(targetPassword).length < 6) {
-      return res.status(400).json({
-        success: false,
-        message: 'Password must be at least 6 characters long.',
-      });
-    }
-
-    const user = await User.findOne({ email: normalizedEmail });
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'No registered account found with this email address.',
-      });
-    }
-
-    // Set new password - Mongoose pre('save') hashes via bcrypt with salt 10
-    user.password = String(targetPassword);
-    user.lastLoginAt = new Date();
+    const user = await User.findOne({ email: email.trim().toLowerCase(), isActive: true });
+    const reset = user && await PasswordReset.findOneAndDelete({
+      userId: user._id, tokenHash: recovery.hashToken(recoveryCode), expiresAt: { $gt: new Date() },
+    });
+    if (!reset) return res.status(400).json({ success: false, message: 'Invalid or expired recovery code.' });
+    user.password = newPassword;
     await user.save();
-
-    await AuditEvent.create({
-      userId: user._id,
-      action: 'PASSWORD_RESET',
-      ipAddress: req.ip || '',
-      userAgent: req.headers['user-agent'] || '',
-    });
-
-    const token = generateToken({ userId: user._id, email: user.email, role: user.role });
-
-    await UserSession.create({
-      userId: user._id,
-      token,
-      ipAddress: req.ip || '',
-      deviceInfo: req.headers['user-agent'] || '',
-      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-    });
-
-    return res.status(200).json({
-      success: true,
-      message: 'Password has been reset successfully. You can now log in with your new password.',
-      token,
-      accessToken: token,
-      user: user.toJSON(),
-      profileCompleted: user.profileCompleted,
-    });
-  } catch (error) {
-    console.error('Reset Password Error:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to reset password. ' + error.message,
-    });
+    await UserSession.updateMany({ userId: user._id }, { $set: { isActive: false } });
+    await AuditEvent.create({ userId: user._id, action: 'PASSWORD_RESET', ipAddress: req.ip || '' });
+    return res.json({ success: true, message: 'Password updated. Sign in with your new password.' });
+  } catch (_) {
+    return res.status(500).json({ success: false, message: 'Unable to reset password. Request a new code.' });
   }
 };
 
@@ -475,59 +466,26 @@ const resetPassword = async (req, res) => {
  */
 const firebaseMigrate = async (req, res) => {
   try {
-    const { firebaseUid, email, password, fullName, name, phoneNumber } = req.body;
-    if (!email) {
-      return res.status(400).json({ success: false, message: 'Email is required.' });
+    const identity = await firebaseIdentity.verifyIdentity(req.body?.idToken);
+    const email = identity.email.trim().toLowerCase();
+    let user = await User.findOne({ email });
+    if (user && (!user.isActive || (user.firebaseUid && user.firebaseUid !== identity.uid))) {
+      return res.status(403).json({ success: false, message: 'Account cannot be linked to this identity.' });
     }
-
-    const normalizedEmail = String(email).trim().toLowerCase();
-    const resolvedName = (fullName || name || '').trim();
-    let user = await User.findOne({ email: normalizedEmail });
     if (!user) {
-      const initialPassword = password && String(password).length >= 6
-        ? String(password)
-        : (Math.random().toString(36).slice(-10) + 'A1!');
-      user = new User({
-        email: normalizedEmail,
-        password: initialPassword,
-        fullName: resolvedName || normalizedEmail.split('@')[0],
-        phoneNumber: phoneNumber ? String(phoneNumber).trim() : '',
-        firebaseUid: firebaseUid || null,
-        lastLoginAt: new Date(),
-      });
-      await user.save();
+      user = new User({ email, fullName: identity.name || email.split('@')[0],
+        password: randomBytes(32).toString('hex'), firebaseUid: identity.uid });
     } else {
-      let updated = false;
-      if (firebaseUid && user.firebaseUid !== firebaseUid) {
-        user.firebaseUid = firebaseUid;
-        updated = true;
-      }
-      if (password && String(password).length >= 6) {
-        user.password = String(password);
-        updated = true;
-      }
-      if (updated) {
-        user.lastLoginAt = new Date();
-        await user.save();
-      }
+      user.firebaseUid = identity.uid;
     }
-
+    // Never replace a MongoDB password with unverified client-supplied data.
+    user.lastLoginAt = new Date();
+    await user.save();
     const token = generateToken({ userId: user._id, email: user.email, role: user.role });
-
-    return res.status(200).json({
-      success: true,
-      message: 'Account successfully synchronized to MongoDB Atlas.',
-      token,
-      accessToken: token,
-      user: user.toJSON(),
-      profileCompleted: user.profileCompleted,
-    });
+    await saveSession(user._id, token, req);
+    return res.json({ success: true, token, accessToken: token, user: user.toJSON(), profileCompleted: user.profileCompleted });
   } catch (error) {
-    console.error('Firebase Migrate Error:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Account synchronization failed. ' + error.message,
-    });
+    return res.status(error.status || 500).json({ success: false, message: 'Unable to verify Firebase identity. Verify your email and sign in again.' });
   }
 };
 
@@ -545,6 +503,8 @@ const refreshToken = async (req, res) => {
     }
 
     const token = generateToken({ userId: user._id, email: user.email, role: user.role });
+
+    await saveSession(user._id, token, req);
 
     return res.status(200).json({
       success: true,
@@ -731,6 +691,8 @@ module.exports = {
   register,
   login,
   resetPassword,
+  requestPasswordReset,
+  changePassword,
   getMe,
   updateProfile,
   logout,

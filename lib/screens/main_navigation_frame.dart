@@ -11,6 +11,8 @@ import 'profile/profile_page.dart';
 import 'dart:async';
 import '../services/notification_service.dart';
 import '../widgets/medicine_reminder_dialog.dart';
+import '../widgets/sos_countdown_dialog.dart';
+import '../services/fall_detection_service.dart';
 
 class MainNavigationFrame extends StatefulWidget {
   final int initialIndex;
@@ -24,12 +26,36 @@ class MainNavigationFrame extends StatefulWidget {
 class _MainNavigationFrameState extends State<MainNavigationFrame> {
   late int _currentIndex;
   StreamSubscription<MedicineAlertEvent>? _alertSubscription;
+  StreamSubscription<bool>? _fallSubscription;
+  static bool _fallCountdownActive = false;
 
   @override
   void initState() {
     super.initState();
     _currentIndex = widget.initialIndex;
     _initAlertListener();
+    _fallSubscription = FallDetectionService().onFallDetected.listen((_) => _handleFall());
+    FallDetectionService().initialize().then((_) {
+      if (!mounted) FallDetectionService().stopListening();
+    });
+  }
+
+  Future<void> _handleFall() async {
+    if (!mounted || _fallCountdownActive) return;
+    _fallCountdownActive = true;
+    await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => SosCountdownDialog(
+        totalSeconds: 10,
+        triggerWord: 'Possible fall',
+        onCancel: () {},
+        onCountdownComplete: () {
+          if (mounted) Navigator.of(context).pushNamed(AppRoutes.emergency, arguments: {'triggerType': 'fall'});
+        },
+      ),
+    );
+    _fallCountdownActive = false;
   }
 
   void _initAlertListener() {
@@ -43,6 +69,8 @@ class _MainNavigationFrameState extends State<MainNavigationFrame> {
   @override
   void dispose() {
     _alertSubscription?.cancel();
+    _fallSubscription?.cancel();
+    FallDetectionService().stopListening();
     super.dispose();
   }
 

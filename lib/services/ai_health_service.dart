@@ -201,7 +201,7 @@ class AiHealthService {
         );
       }
     } catch (e) {
-      debugPrint('[AI HEALTH SERVICE] Text response non-JSON fallback: $e');
+      debugPrint('[AI_HEALTH_SERVICE] Operation status changed.');
     }
 
     // 2. Fallback parser for plain text / markdown responses

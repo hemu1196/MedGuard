@@ -53,7 +53,7 @@ class ProfileStateManager extends ChangeNotifier {
         _avatarVersion = DateTime.now().millisecondsSinceEpoch;
       }
     } catch (e) {
-      debugPrint('[PROFILE STATE MANAGER] loadProfile note: $e');
+      debugPrint('[USER_STATE_SERVICE] Operation status changed.');
     } finally {
       _isLoading = false;
       notifyListeners();

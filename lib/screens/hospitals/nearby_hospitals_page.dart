@@ -25,6 +25,11 @@ class _NearbyHospitalsPageState extends State<NearbyHospitalsPage> {
   HospitalSearchState _state = HospitalSearchState.initial;
   String? _errorMessage;
 
+  HealthcareCategory? _categoryFilter;
+  bool _emergencyOnly = false;
+  bool _phoneOnly = false;
+  double _radiusKm = 50;
+
   @override
   void initState() {
     super.initState();
@@ -377,7 +382,11 @@ class _NearbyHospitalsPageState extends State<NearbyHospitalsPage> {
   Widget _buildBody() {
     final onSurface = Theme.of(context).colorScheme.onSurface;
     final onSurfaceVariant = Theme.of(context).colorScheme.onSurfaceVariant;
-    final hospitals = _repository.hospitals;
+    final hospitals = _repository.hospitals.where((h) =>
+      (_categoryFilter == null || h.category == _categoryFilter) &&
+      (!_emergencyOnly || h.emergencyServiceVerified) &&
+      (!_phoneOnly || h.hasValidPhone) && h.distanceKm <= _radiusKm).toList()
+      ..sort((a, b) => a.distanceMeters.compareTo(b.distanceMeters));
 
     switch (_state) {
       case HospitalSearchState.initial:
@@ -391,6 +400,14 @@ class _NearbyHospitalsPageState extends State<NearbyHospitalsPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _buildLocationBadgeHeader(),
+            Wrap(spacing: 8, children: [
+              DropdownButton<HealthcareCategory?>(value: _categoryFilter, hint: const Text('All facilities'), items: [const DropdownMenuItem<HealthcareCategory?>(value: null, child: Text('All facilities')), ...HealthcareCategory.values.map((c) => DropdownMenuItem<HealthcareCategory?>(value: c, child: Text(c.displayName)))], onChanged: (v) => setState(() => _categoryFilter = v)),
+              FilterChip(label: const Text('Emergency reported'), selected: _emergencyOnly, onSelected: (v) => setState(() => _emergencyOnly = v)),
+              FilterChip(label: const Text('Has phone'), selected: _phoneOnly, onSelected: (v) => setState(() => _phoneOnly = v)),
+              DropdownButton<double>(value: _radiusKm, items: [5.0, 10.0, 25.0, 50.0].map((km) => DropdownMenuItem(value: km, child: Text('Within ${km.toInt()} km'))).toList(), onChanged: (v) async { setState(()=>_radiusKm=v??50); final location=_repository.selectedLocation; if(location!=null) {try{await _repository.searchHospitalsForLocation(location,forceRefresh:true,requestedRadiusMeters:(_radiusKm*1000).round());}catch(_){} } }),
+            ]),
+            const Text('OpenStreetMap community data · straight-line distance. Hours and emergency capability are not independently verified. Call to confirm.'),
+            if (hospitals.isEmpty) const Text('No facilities match these filters. Try a wider radius or fewer filters.'),
             const SizedBox(height: 14),
             Expanded(
               child: ListView.builder(
@@ -489,7 +506,7 @@ class _NearbyHospitalsPageState extends State<NearbyHospitalsPage> {
                               ),
                               const SizedBox(width: 4),
                               Text(
-                                h.openingHoursDisplay,
+                                '${h.openingHoursDisplay} · data fetched ${h.lastFetchedAt.toLocal().toString().split('.').first}',
                                 style: const TextStyle(
                                   fontSize: 11,
                                   color: AppTheme.textMuted,

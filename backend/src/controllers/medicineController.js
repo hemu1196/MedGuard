@@ -9,7 +9,7 @@ const getMedicines = async (req, res) => {
       medicines,
     });
   } catch (error) {
-    console.error('Get Medicines Error:', error);
+    console.error('Get Medicines Error:', error.name);
     return res.status(500).json({
       success: false,
       message: 'Failed to fetch medicines. ' + error.message,
@@ -36,6 +36,7 @@ const addMedicine = async (req, res) => {
       frequency: frequency || 'Daily',
       totalStock: totalStock !== undefined ? Number(totalStock) : 30,
       remainingStock: remainingStock !== undefined ? Number(remainingStock) : (totalStock !== undefined ? Number(totalStock) : 30),
+      weekdays: req.body.weekdays || [], dosageQuantity: req.body.dosageQuantity || 1, refillThreshold: req.body.refillThreshold ?? 5,
       instructions: instructions || '',
       startDate: startDate ? new Date(startDate) : new Date(),
       endDate: endDate ? new Date(endDate) : null,
@@ -49,7 +50,7 @@ const addMedicine = async (req, res) => {
       medicine: newMedicine,
     });
   } catch (error) {
-    console.error('Add Medicine Error:', error);
+    console.error('Add Medicine Error:', error.name);
     return res.status(500).json({
       success: false,
       message: 'Failed to add medicine. ' + error.message,
@@ -76,8 +77,11 @@ const updateMedicine = async (req, res) => {
     }
 
     const updates = req.body;
+    if (['times', 'frequency', 'startDate', 'endDate', 'weekdays', 'dosageQuantity'].some(key => Object.hasOwn(updates, key) && JSON.stringify(medicine[key]) !== JSON.stringify(updates[key]))) {
+      medicine.scheduleVersion = (medicine.scheduleVersion || 1) + 1;
+    }
     Object.keys(updates).forEach((key) => {
-      if (['name', 'dosage', 'times', 'frequency', 'totalStock', 'remainingStock', 'instructions', 'startDate', 'endDate'].includes(key)) {
+      if (['name', 'dosage', 'times', 'frequency', 'totalStock', 'remainingStock', 'instructions', 'startDate', 'endDate', 'weekdays', 'dosageQuantity', 'refillThreshold'].includes(key)) {
         medicine[key] = updates[key];
       }
     });
@@ -90,7 +94,7 @@ const updateMedicine = async (req, res) => {
       medicine,
     });
   } catch (error) {
-    console.error('Update Medicine Error:', error);
+    console.error('Update Medicine Error:', error.name);
     return res.status(500).json({
       success: false,
       message: 'Failed to update medicine. ' + error.message,
@@ -126,7 +130,7 @@ const deleteMedicine = async (req, res) => {
       message: 'Medicine removed successfully.',
     });
   } catch (error) {
-    console.error('Delete Medicine Error:', error);
+    console.error('Delete Medicine Error:', error.name);
     return res.status(500).json({
       success: false,
       message: 'Failed to delete medicine: ' + error.message,
@@ -156,35 +160,14 @@ const logMedicationAction = async (req, res) => {
       });
     }
 
-    // Deduct stock if taken
-    if (status === 'taken') {
-      if (medicine.remainingStock > 0) {
-        medicine.remainingStock -= 1;
-        await medicine.save();
-      }
-    }
-
-    const logEntry = new MedicationLog({
-      userId: req.userId,
-      medicineId: medicine._id,
-      medicineName: medicine.name,
-      dosage: medicine.dosage,
-      scheduledTime,
-      status,
-      takenAt: status === 'taken' ? new Date() : null,
-      missedReason: missedReason || '',
+    const result = await require('../services/doseActionService').recordDose({
+      userId: req.userId, medicineId, scheduledTime, scheduledDate: req.body.scheduledDate,
+      status, missedReason,
     });
+    return res.status(result.status).json(result);
 
-    await logEntry.save();
-
-    return res.status(200).json({
-      success: true,
-      message: `Medication marked as ${status}.`,
-      remainingStock: medicine.remainingStock,
-      log: logEntry,
-    });
   } catch (error) {
-    console.error('Log Medication Action Error:', error);
+    console.error('Log Medication Action Error:', error.name);
     return res.status(500).json({
       success: false,
       message: 'Failed to record medication action. ' + error.message,

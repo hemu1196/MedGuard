@@ -1,11 +1,11 @@
-import 'package:shared_preferences/shared_preferences.dart';
+import 'health_preferences.dart';
 import '../models/user_profile.dart';
 
 class ProfileService {
   static const String _profileKey = 'user_health_profile';
 
   Future<UserProfile?> getProfile() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await HealthPreferences.getInstance();
     final jsonStr = prefs.getString(_profileKey);
     if (jsonStr == null || jsonStr.isEmpty) {
       return null;
@@ -18,7 +18,7 @@ class ProfileService {
   }
 
   Future<bool> saveProfile(UserProfile profile) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await HealthPreferences.getInstance();
     return await prefs.setString(_profileKey, profile.toJson());
   }
 

@@ -1,6 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'health_preferences.dart';
 
 enum NotificationType {
   medicine,
@@ -97,7 +97,7 @@ class InAppNotificationService extends ChangeNotifier {
   Future<void> loadNotifications() async {
     if (_initialized) return;
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await HealthPreferences.getInstance();
       final raw = prefs.getString(_storageKey);
       if (raw != null && raw.isNotEmpty) {
         final List decoded = jsonDecode(raw);
@@ -194,7 +194,7 @@ class InAppNotificationService extends ChangeNotifier {
 
   Future<void> _save() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await HealthPreferences.getInstance();
       final encoded = jsonEncode(_items.map((e) => e.toJson()).toList());
       await prefs.setString(_storageKey, encoded);
     } catch (e) {

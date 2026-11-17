@@ -1,0 +1,4 @@
+storePassword=YOUR_PRIVATE_STORE_PASSWORD
+keyPassword=YOUR_PRIVATE_KEY_PASSWORD
+keyAlias=medguard-upload
+storeFile=/absolute/path/to/your/private-upload-keystore.jks

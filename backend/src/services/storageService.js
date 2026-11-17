@@ -116,6 +116,7 @@ async function uploadToVault({ file, userId, title }) {
     throw new Error('No valid file payload received for upload.');
   }
 
+  const scan = await require('./uploadSafety').inspectUpload(file);
   const mimeType = resolveMimeType(file);
   const originalName = file.originalname || 'document.pdf';
   const ext = path.extname(originalName) || (mimeType.includes('pdf') ? '.pdf' : '.jpg');
@@ -143,6 +144,7 @@ async function uploadToVault({ file, userId, title }) {
   });
 
   return {
+    scan,
     storageKey: uploadStream.id.toString(),
     storageType: 'gridfs',
     fileName: originalName,
@@ -150,6 +152,17 @@ async function uploadToVault({ file, userId, title }) {
     mimeType,
     fileSizeBytes: file.size || file.buffer.length,
   };
+}
+
+// Legacy database paths may never grant arbitrary filesystem access.
+function safeLegacyPath(filename) {
+  const absolute = path.resolve(filename);
+  const root = fs.realpathSync(UPLOADS_DIR);
+  const real = fs.realpathSync(absolute);
+  if (!absolute.startsWith(path.resolve(UPLOADS_DIR) + path.sep) || !real.startsWith(root + path.sep)) {
+    throw new Error('Legacy file requires operator review.');
+  }
+  return real;
 }
 
 /**
@@ -176,12 +189,12 @@ async function getDownloadStream(record) {
 
   // Fallback for legacy records stored on server filesystem
   if (record.filePath && fs.existsSync(record.filePath)) {
-    const stream = fs.createReadStream(record.filePath);
+    const stream = fs.createReadStream(safeLegacyPath(record.filePath));
     return {
       stream,
       mimeType: record.mimeType || 'application/octet-stream',
       fileName: record.fileName || path.basename(record.filePath),
-      fileSizeBytes: record.fileSizeBytes || fs.statSync(record.filePath).size,
+      fileSizeBytes: record.fileSizeBytes || fs.statSync(safeLegacyPath(record.filePath)).size,
     };
   }
 
@@ -203,7 +216,7 @@ async function deleteFromVault(record) {
 
   if (record.filePath && fs.existsSync(record.filePath)) {
     try {
-      fs.unlinkSync(record.filePath);
+      fs.unlinkSync(safeLegacyPath(record.filePath));
     } catch (err) {
       console.warn('[STORAGE] Local file unlink note:', err.message);
     }
@@ -289,6 +302,7 @@ async function getAvatarStream(fileId) {
 }
 
 module.exports = {
+  safeLegacyPath,
   UPLOADS_DIR,
   VAULT_DIR,
   PDFS_DIR,

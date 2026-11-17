@@ -66,14 +66,13 @@ class _FamilyHealthDashboardPageState extends State<FamilyHealthDashboardPage> {
 
   void _loadFamilyMembers() async {
     setState(() => _isLoading = true);
-    final userId = await _authRepository.getCurrentUserId();
-    final list = await _familyRepository.getFamilyMembers(userId: userId);
-    if (mounted) {
-      setState(() {
-        _familyMembers = list;
-        _isLoading = false;
-      });
-    }
+    try {
+      final userId = await _authRepository.getCurrentUserId();
+      final list = await _familyRepository.getFamilyMembers(userId: userId);
+      if (mounted) setState(() => _familyMembers = list);
+    } catch (_) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not load family records from the server. Please retry.')));
+    } finally { if (mounted) setState(() => _isLoading = false); }
   }
 
   void _openAddEditMemberDialog([FamilyMember? existing]) {
@@ -474,7 +473,18 @@ class _FamilyHealthDashboardPageState extends State<FamilyHealthDashboardPage> {
                           lastHealthUpdate: DateTime.now(),
                         );
 
-                        await _familyRepository.saveFamilyMember(member);
+                        if (!context.mounted) return;
+                        if (member.age < 18) {
+                          final consent=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(title:const Text('Guardian responsibility'),content:const Text('Confirm that you are an adult parent or authorized guardian responsible for this dependent record. This acknowledgment does not verify legal guardianship. Do not use another adult account as a child account.'),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('Cancel')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('I acknowledge'))]));
+                          if(consent!=true){setDialogState(()=>isSaving=false);return;}
+                        }
+                        try {
+                          await _familyRepository.saveFamilyMember(member);
+                        } catch (_) {
+                          setDialogState(() => isSaving = false);
+                          if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Family record was not saved. Check your connection.')));
+                          return;
+                        }
 
                         if (context.mounted) {
                           Navigator.of(context).pop();
@@ -532,7 +542,8 @@ class _FamilyHealthDashboardPageState extends State<FamilyHealthDashboardPage> {
 
     if (confirm == true) {
       final userId = await _authRepository.getCurrentUserId();
-      await _familyRepository.deleteFamilyMember(member.id, userId: userId);
+      try { await _familyRepository.deleteFamilyMember(member.id, userId: userId); }
+      catch (_) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not delete this family record.'))); return; }
       _loadFamilyMembers();
     }
   }
@@ -681,6 +692,16 @@ class _FamilyHealthDashboardPageState extends State<FamilyHealthDashboardPage> {
         subtitle: 'Manage family health profiles & emergency data',
         showBack: true,
         actions: [
+          IconButton(icon: const Icon(Icons.cloud_upload_outlined), tooltip: 'Import existing local family profiles', onPressed: () async {
+            final confirmed = await showDialog<bool>(context: context, builder: (c) => AlertDialog(title: const Text('Import existing family profiles?'), content: const Text('Upload family records previously saved on this device for your signed-in account to your private cloud account. Existing records with matching identifiers will be updated.'), actions: [TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')), FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Import'))]));
+            if (confirmed != true) return;
+            try {
+              final uid = await _authRepository.getCurrentUserId();
+              final count = await _familyRepository.importLegacyProfiles(uid);
+              if (mounted) ScaffoldMessenger.of(this.context).showSnackBar(SnackBar(content: Text('Imported $count existing profiles.')));
+              _loadFamilyMembers();
+            } catch (_) { if (mounted) ScaffoldMessenger.of(this.context).showSnackBar(const SnackBar(content: Text('Import incomplete. Existing local profiles are preserved; you can retry.'))); }
+          }),
           IconButton(
             icon: const Icon(Icons.person_add_alt_1, color: AppColors.primary),
             onPressed: () => _openAddEditMemberDialog(),

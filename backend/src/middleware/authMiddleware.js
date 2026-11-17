@@ -1,3 +1,4 @@
+const { createHash } = require('node:crypto');
 const { verifyToken } = require('../utils/jwt');
 const User = require('../models/User');
 const UserSession = require('../models/UserSession');
@@ -15,7 +16,8 @@ const authenticateToken = async (req, res, next) => {
     const token = authHeader.split(' ')[1];
     const decoded = verifyToken(token);
 
-    const session = await UserSession.findOne({ token, userId: decoded.userId, isActive: true, expiresAt: { $gt: new Date() } });
+    const tokenHash = createHash('sha256').update(token).digest('hex');
+    const session = await UserSession.findOne({ $or:[{tokenHash},{token}], userId: decoded.userId, isActive: true, expiresAt: { $gt: new Date() } }).select('+tokenHash');
     if (!session) return res.status(401).json({ success: false, message: 'Session expired or revoked. Please sign in again.' });
     const user = await User.findById(decoded.userId);
     if (!user || !user.isActive) {
@@ -25,6 +27,8 @@ const authenticateToken = async (req, res, next) => {
       });
     }
 
+    // In-place additive migration: retire legacy clear token after valid authentication.
+    if (!session.tokenHash) await UserSession.updateOne({_id:session._id},{$set:{tokenHash},$unset:{token:''}});
     req.user = user;
     req.userId = user._id;
     next();

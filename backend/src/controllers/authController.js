@@ -5,14 +5,14 @@ const AuditEvent = require('../models/AuditEvent');
 const EmergencyContact = require('../models/EmergencyContact');
 const storageService = require('../services/storageService');
 const { generateToken, verifyToken } = require('../utils/jwt');
-const { randomBytes } = require('node:crypto');
+const { randomBytes, createHash } = require('node:crypto');
 const PasswordReset = require('../models/PasswordReset');
 const recovery = require('../services/passwordRecoveryService');
 const firebaseIdentity = require('../services/firebaseIdentityService');
 
 async function saveSession(userId, token, req) {
   await UserSession.create({
-    userId, token,
+    userId, tokenHash: createHash('sha256').update(token).digest('hex'),
     ipAddress: req.ip || '',
     deviceInfo: req.headers['user-agent'] || '',
     expiresAt: new Date(verifyToken(token).exp * 1000),
@@ -122,7 +122,7 @@ const register = async (req, res) => {
       profileCompleted: newUser.profileCompleted,
     });
   } catch (error) {
-    console.error('Register Error:', error);
+    console.error('Register Error:', error.name);
     return res.status(500).json({
       success: false,
       message: 'Failed to register user. ' + error.message,
@@ -191,7 +191,7 @@ const login = async (req, res) => {
       profileCompleted: user.profileCompleted,
     });
   } catch (error) {
-    console.error('Login Error:', error);
+    console.error('Login Error:', error.name);
     return res.status(500).json({
       success: false,
       message: 'Login failed. ' + error.message,
@@ -378,7 +378,7 @@ const updateProfile = async (req, res) => {
           });
         }
       } catch (syncErr) {
-        console.warn('[AUTH CONTROLLER] Emergency contact sync note:', syncErr.message);
+        console.warn('[AUTH CONTROLLER] Emergency contact sync note:', syncErr.name);
       }
     }
 
@@ -397,7 +397,7 @@ const updateProfile = async (req, res) => {
       profileCompleted: currentUser.profileCompleted,
     });
   } catch (error) {
-    console.error('Update Profile Error:', error);
+    console.error('Update Profile Error:', error.name);
     return res.status(500).json({
       success: false,
       message: 'Failed to update profile. ' + error.message,
@@ -413,7 +413,7 @@ const logout = async (req, res) => {
     const authHeader = req.headers.authorization;
     if (authHeader && authHeader.startsWith('Bearer ')) {
       const token = authHeader.split(' ')[1];
-      await UserSession.updateMany({ token }, { $set: { isActive: false } });
+      await UserSession.updateMany({ $or: [{tokenHash:createHash('sha256').update(token).digest('hex')},{token}] }, { $set: { isActive: false } });
     }
 
     await AuditEvent.create({
@@ -515,7 +515,7 @@ const refreshToken = async (req, res) => {
       profileCompleted: user.profileCompleted,
     });
   } catch (error) {
-    console.error('Refresh Token Error:', error);
+    console.error('Refresh Token Error:', error.name);
     return res.status(500).json({
       success: false,
       message: 'Failed to refresh token.',
@@ -585,7 +585,7 @@ const uploadAvatar = async (req, res) => {
       profilePictureUrl: currentUser.profilePictureUrl,
     });
   } catch (error) {
-    console.error('Upload Avatar Error:', error);
+    console.error('Upload Avatar Error:', error.name);
     return res.status(500).json({
       success: false,
       message: 'Failed to upload profile photo: ' + error.message,
@@ -620,7 +620,7 @@ const removeAvatar = async (req, res) => {
       profilePictureUrl: '',
     });
   } catch (error) {
-    console.error('Remove Avatar Error:', error);
+    console.error('Remove Avatar Error:', error.name);
     return res.status(500).json({
       success: false,
       message: 'Failed to remove profile photo: ' + error.message,
@@ -679,7 +679,7 @@ const getAvatar = async (req, res) => {
       message: 'No profile avatar set for this user.',
     });
   } catch (error) {
-    console.error('Get Avatar Error:', error);
+    console.error('Get Avatar Error:', error.name);
     return res.status(500).json({
       success: false,
       message: 'Failed to stream profile avatar: ' + error.message,

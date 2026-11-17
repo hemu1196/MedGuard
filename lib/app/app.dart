@@ -13,12 +13,12 @@ import '../screens/ambulance/ambulance_assistance_page.dart';
 import '../screens/emergency/emergency_sos_page.dart';
 import '../screens/maps/explore_map_page.dart';
 import '../screens/settings/settings_page.dart';
+import '../screens/launch/access_center_page.dart';
+import '../screens/launch/offline_card_page.dart';
 
 // Blueprint Feature Screens
 import '../screens/risk/health_risk_prediction_page.dart';
-import '../screens/qr/qr_medical_profile_page.dart';
 import '../screens/family/family_health_dashboard_page.dart';
-import '../screens/emergency/offline_emergency_page.dart';
 import '../screens/emergency/fall_detection_settings_page.dart';
 import '../screens/medicines/medicine_verification_page.dart';
 import '../screens/wellness/water_intake_page.dart';
@@ -63,13 +63,16 @@ class MedGuardApp extends StatelessWidget {
         AppRoutes.profile: (context) =>
             const MainNavigationFrame(initialIndex: 4),
         AppRoutes.settings: (context) => const SettingsPage(),
+        '/privacy-center': (context) => const AccessCenterPage(),
+        '/caregiver-access': (context) => const AccessCenterPage(mode: 'caregiver'),
+        '/vault-sharing': (context) => const AccessCenterPage(mode: 'vault'),
 
         // Blueprint Feature Routes
         AppRoutes.healthRisk: (context) => const HealthRiskPredictionPage(),
-        AppRoutes.qrProfile: (context) => const QrMedicalProfilePage(),
+        AppRoutes.qrProfile: (context) => const AccessCenterPage(mode: 'medical-id'),
         AppRoutes.familyDashboard: (context) =>
             const FamilyHealthDashboardPage(),
-        AppRoutes.offlineEmergency: (context) => const OfflineEmergencyPage(),
+        AppRoutes.offlineEmergency: (context) => const OfflineCardPage(),
         AppRoutes.fallDetection: (context) => const FallDetectionSettingsPage(),
         AppRoutes.medicineVerification: (context) =>
             const MedicineVerificationPage(),

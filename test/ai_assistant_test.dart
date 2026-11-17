@@ -22,14 +22,23 @@ void main() {
       expect(source, isNotEmpty);
     });
 
-    test('Storing key in SharedPreferences works correctly', () async {
-      await AiConfig.setApiKey('AIzaSyTestKey123456');
-      final updatedKey = await AiConfig.getApiKey();
-      final updatedSource = await AiConfig.getApiKeySource();
+    test(
+      'Custom key remains usable without plaintext SharedPreferences storage',
+      () async {
+        await AiConfig.setApiKey('AIzaSyTestKey123456');
+        final updatedKey = await AiConfig.getApiKey();
+        final updatedSource = await AiConfig.getApiKeySource();
 
-      expect(updatedKey, equals('AIzaSyTestKey123456'));
-      expect(updatedSource, contains('SharedPreferences Key'));
-    });
+        expect(updatedKey, equals('AIzaSyTestKey123456'));
+        expect(updatedSource, contains('Protected custom test key'));
+        expect(
+          (await SharedPreferences.getInstance()).getString(
+            'user_configured_gemini_api_key',
+          ),
+          isNull,
+        );
+      },
+    );
   });
 
   group('ChatMessage Unit Tests', () {
@@ -59,20 +68,20 @@ void main() {
     final aiService = AiHealthService();
 
     test('Empty user query throws AppException', () async {
-      expect(
-        () => aiService.askAssistant('   '),
-        throwsA(isA<AppException>()),
-      );
+      expect(() => aiService.askAssistant('   '), throwsA(isA<AppException>()));
     });
 
-    test('GeminiService throws GeminiConfigException when key is missing', () async {
-      final gemini = GeminiService();
-      await AiConfig.setApiKey('');
-      expect(
-        () => gemini.generateResponse(prompt: 'Test prompt'),
-        throwsA(isA<GeminiConfigException>()),
-      );
-    });
+    test(
+      'GeminiService throws GeminiConfigException when key is missing',
+      () async {
+        final gemini = GeminiService();
+        await AiConfig.setApiKey('');
+        expect(
+          () => gemini.generateResponse(prompt: 'Test prompt'),
+          throwsA(isA<GeminiConfigException>()),
+        );
+      },
+    );
 
     test('HealthUrgency labels map correctly', () {
       final greenResp = AiHealthResponse(
@@ -95,7 +104,10 @@ void main() {
         warningSigns: ['Loss of consciousness'],
         whenToSeekMedicalHelp: 'Immediately',
       );
-      expect(redResp.urgencyLabel, equals('EMERGENCY CARE REQUIRED IMMEDIATELY'));
+      expect(
+        redResp.urgencyLabel,
+        equals('EMERGENCY CARE REQUIRED IMMEDIATELY'),
+      );
     });
   });
 
@@ -105,20 +117,34 @@ void main() {
       final res = fallback.generateFallback('What is my BMI?');
       expect(res.category, equals('Body Mass Index (BMI)'));
       expect(res.text, contains('kg/m²'));
-      expect(res.text, isNot(contains('Rest in a comfortable environment and maintain regular fluid intake')));
+      expect(
+        res.text,
+        isNot(
+          contains(
+            'Rest in a comfortable environment and maintain regular fluid intake',
+          ),
+        ),
+      );
     });
 
-    test('Paracetamol query returns safe analgesic guidelines and 4000mg limit', () {
-      final fallback = LocalHealthFallbackService();
-      final res = fallback.generateFallback('Can I take paracetamol for fever?');
-      expect(res.category, equals('Medication: Paracetamol'));
-      expect(res.text, contains('4,000 mg'));
-      expect(res.text, contains('liver'));
-    });
+    test(
+      'Paracetamol query returns safe analgesic guidelines and 4000mg limit',
+      () {
+        final fallback = LocalHealthFallbackService();
+        final res = fallback.generateFallback(
+          'Can I take paracetamol for fever?',
+        );
+        expect(res.category, equals('Medication: Paracetamol'));
+        expect(res.text, contains('4,000 mg'));
+        expect(res.text, contains('liver'));
+      },
+    );
 
     test('Medicine reminders query returns MedGuard feature guidance', () {
       final fallback = LocalHealthFallbackService();
-      final res = fallback.generateFallback('How do medicine reminders work in MedGuard?');
+      final res = fallback.generateFallback(
+        'How do medicine reminders work in MedGuard?',
+      );
       expect(res.category, equals('MedGuard Feature: Medicine Reminders'));
       expect(res.text, contains('Taken'));
       expect(res.text, contains('stock'));
@@ -140,12 +166,15 @@ void main() {
       expect(res.text, contains('140'));
     });
 
-    test('Burn first aid query provides cool water instructions and forbids ice/butter', () {
-      final fallback = LocalHealthFallbackService();
-      final res = fallback.generateFallback('First aid for minor burns');
-      expect(res.category, equals('First Aid: Burns & Scalds'));
-      expect(res.text, contains('cool running tap water'));
-      expect(res.text, contains('Never apply ice'));
-    });
+    test(
+      'Burn first aid query provides cool water instructions and forbids ice/butter',
+      () {
+        final fallback = LocalHealthFallbackService();
+        final res = fallback.generateFallback('First aid for minor burns');
+        expect(res.category, equals('First Aid: Burns & Scalds'));
+        expect(res.text, contains('cool running tap water'));
+        expect(res.text, contains('Never apply ice'));
+      },
+    );
   });
 }

@@ -7,10 +7,9 @@ const userSessionSchema = new mongoose.Schema({
     required: true,
     index: true,
   },
-  token: {
-    type: String,
-    required: true,
-  },
+  // Legacy clear tokens are read only for compatibility and removed on use.
+  token: { type: String, select: false },
+  tokenHash: { type: String, select: false, index: true },
   deviceInfo: {
     type: String,
     default: '',

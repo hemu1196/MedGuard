@@ -63,6 +63,7 @@ class HospitalService {
     SelectedLocation location, {
     Function(String status)? onProgress,
     bool forceRefresh = false,
+    int? requestedRadiusMeters,
   }) async {
     final double lat = location.latitude;
     final double lng = location.longitude;
@@ -73,7 +74,7 @@ class HospitalService {
     }
 
     final String locationKey =
-        '${location.source.name}_${lat.toStringAsFixed(3)}_${lng.toStringAsFixed(3)}_${city ?? ""}';
+        '${location.source.name}_${lat.toStringAsFixed(5)}_${lng.toStringAsFixed(5)}_${city ?? ""}_${requestedRadiusMeters ?? 0}';
 
     if (!forceRefresh && _cache.containsKey(locationKey)) {
       final entry = _cache[locationKey]!;
@@ -95,7 +96,7 @@ class HospitalService {
       try {
         HospitalSearchResult result = await _executeProgressiveHealthcareSearch(
           location: location,
-          onProgress: onProgress,
+          onProgress: onProgress, requestedRadiusMeters:requestedRadiusMeters,
         );
 
         if (result.hospitals.isNotEmpty) {
@@ -115,13 +116,13 @@ class HospitalService {
   /// Progressive healthcare search: 5km -> 10km -> 20km -> 50km
   Future<HospitalSearchResult> _executeProgressiveHealthcareSearch({
     required SelectedLocation location,
-    Function(String status)? onProgress,
+    Function(String status)? onProgress, int? requestedRadiusMeters,
   }) async {
     final double lat = location.latitude;
     final double lng = location.longitude;
     final String? city = location.cityName;
 
-    final List<int> progressiveRadii = [5000, 10000, 20000, 50000];
+    final List<int> progressiveRadii = requestedRadiusMeters==null?[5000,10000,20000,50000]:[requestedRadiusMeters.clamp(1000,50000)];
     final Map<String, Hospital> deduplicatedMap = {};
     int lastUsedRadius = 5000;
 
@@ -130,7 +131,6 @@ class HospitalService {
       final radiusKm = radius ~/ 1000;
 
       onProgress?.call('Searching hospitals within ${radiusKm}km...');
-      debugPrint('[HOSPITAL SERVICE] Searching healthcare for ($lat, $lng), city: "$city", radius: ${radiusKm}km');
 
       // 1. TIER 1: Try Render backend proxy endpoint
       try {
@@ -220,7 +220,7 @@ class HospitalService {
     }
 
     // Sort: Verified emergency first, then by distance
-    final sortedList = deduplicatedMap.values.toList()
+    final sortedList = deduplicatedMap.values.where((h)=>h.distanceMeters<=lastUsedRadius).toList()
       ..sort((a, b) {
         if (a.emergencyServiceVerified != b.emergencyServiceVerified) {
           return a.emergencyServiceVerified ? -1 : 1;
@@ -453,7 +453,7 @@ class HospitalService {
       website: extraTags['website']?.toString() ?? '',
       openingHours: extraTags['opening_hours']?.toString() ?? '',
       emergencyServiceVerified: isEmergencyVerified,
-      emergencyVerificationSource: isEmergencyVerified ? 'OpenStreetMap Verified' : 'unverified',
+      emergencyVerificationSource: isEmergencyVerified ? 'OpenStreetMap community tag' : 'unverified',
       distanceMeters: distanceMeters,
       isDemoData: false,
     );
@@ -529,7 +529,7 @@ class HospitalService {
           tags['healthcare:emergency'] == 'yes';
 
       final String emergencySource = emergencyVerified
-          ? 'OpenStreetMap Verified Emergency'
+          ? 'OpenStreetMap community tag Emergency'
           : 'unverified';
 
       final List<String> addressParts = [];
@@ -592,41 +592,11 @@ class HospitalService {
   HealthcareCategory _determineCategory(Map tags, String name) {
     final amenity = (tags['amenity'] ?? '').toString().toLowerCase();
     final healthcare = (tags['healthcare'] ?? '').toString().toLowerCase();
-    final emergency = (tags['emergency'] ?? '').toString().toLowerCase();
-    final nameLower = name.toLowerCase();
-
-    if (emergency == 'yes' ||
-        nameLower.contains('trauma') ||
-        nameLower.contains('casualty') ||
-        nameLower.contains('emergency center') ||
-        nameLower.contains('emergency hospital')) {
-      return HealthcareCategory.emergencyDepartment;
-    }
-    if (amenity == 'pharmacy' ||
-        healthcare == 'pharmacy' ||
-        nameLower.contains('pharmacy') ||
-        nameLower.contains('medical hall') ||
-        nameLower.contains('chemist')) {
-      return HealthcareCategory.pharmacy;
-    }
-    if (healthcare == 'centre' ||
-        nameLower.contains('primary health') ||
-        nameLower.contains('phc') ||
-        nameLower.contains('community health centre') ||
-        nameLower.contains('dispensary')) {
-      return HealthcareCategory.primaryHealthCentre;
-    }
-    if (amenity == 'clinic' ||
-        healthcare == 'clinic' ||
-        amenity == 'doctors' ||
-        healthcare == 'doctor' ||
-        nameLower.contains('clinic') ||
-        nameLower.contains('polyclinic')) {
-      return HealthcareCategory.clinic;
-    }
-    if (amenity == 'hospital' || healthcare == 'hospital' || nameLower.contains('hospital')) {
-      return HealthcareCategory.hospital;
-    }
+    if (amenity == 'pharmacy' || healthcare == 'pharmacy') return HealthcareCategory.pharmacy;
+    if (healthcare == 'emergency_ward' || amenity == 'emergency_department') return HealthcareCategory.emergencyDepartment;
+    if (amenity == 'hospital' || healthcare == 'hospital') return HealthcareCategory.hospital;
+    if (amenity == 'clinic' || amenity == 'doctors' || healthcare == 'clinic' || healthcare == 'doctor') return HealthcareCategory.clinic;
+    if (healthcare == 'centre') return HealthcareCategory.primaryHealthCentre;
     return HealthcareCategory.otherHealthcareFacility;
   }
 

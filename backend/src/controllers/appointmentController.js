@@ -11,7 +11,7 @@ const getAppointments = async (req, res) => {
       appointments,
     });
   } catch (error) {
-    console.error('Get Appointments Error:', error);
+    console.error('Get Appointments Error:', error.name);
     return res.status(500).json({
       success: false,
       message: 'Failed to fetch appointments.',
@@ -50,7 +50,7 @@ const addAppointment = async (req, res) => {
       appointment.pdfPath = pdfPath;
       await appointment.save();
     } catch (pdfErr) {
-      console.warn('Failed to auto-generate PDF summary:', pdfErr.message);
+      console.warn('Failed to auto-generate PDF summary:', pdfErr.name);
     }
 
     return res.status(201).json({
@@ -59,7 +59,7 @@ const addAppointment = async (req, res) => {
       appointment,
     });
   } catch (error) {
-    console.error('Add Appointment Error:', error);
+    console.error('Add Appointment Error:', error.name);
     return res.status(500).json({
       success: false,
       message: 'Failed to add appointment. ' + error.message,
@@ -97,7 +97,7 @@ const updateAppointment = async (req, res) => {
       appointment.pdfPath = pdfPath;
       await appointment.save();
     } catch (pdfErr) {
-      console.warn('Failed to regenerate PDF summary:', pdfErr.message);
+      console.warn('Failed to regenerate PDF summary:', pdfErr.name);
     }
 
     return res.status(200).json({
@@ -139,7 +139,7 @@ const downloadAppointmentPdf = async (req, res) => {
     res.setHeader('Content-Disposition', `inline; filename="Appointment_${appointment._id}.pdf"`);
     fs.createReadStream(filePath).pipe(res);
   } catch (error) {
-    console.error('Download Appointment PDF Error:', error);
+    console.error('Download Appointment PDF Error:', error.name);
     return res.status(500).json({
       success: false,
       message: 'Failed to generate or download appointment PDF.',
@@ -223,7 +223,7 @@ const patchAppointmentStatus = async (req, res) => {
       appointment,
     });
   } catch (error) {
-    console.error('Patch Appointment Status Error:', error);
+    console.error('Patch Appointment Status Error:', error.name);
     return res.status(500).json({
       success: false,
       message: 'Failed to update appointment status: ' + error.message,

@@ -66,52 +66,25 @@ class AuthRepository {
 
   Future<bool> isAuthenticated() async {
     final token = await _apiClient.getToken();
-    if (token != null && token.isNotEmpty) {
-      final user = await _apiClient.getStoredUser();
-      if (user != null) {
-        return true;
+    if (token == null || (await _apiClient.getStoredUser()) == null) {
+      return false;
+    }
+    try {
+      final response = await _apiClient.get('/auth/verify');
+      final user = response['user'];
+      if (response['success'] != true || user is! Map) {
+        throw AuthenticationException('Unable to verify your session.');
       }
+      return true;
+    } on AuthenticationException {
+      return false;
     }
-
-    // If no valid JWT token, check if we can migrate/recover from Firebase Auth
-    if (_firebaseAuth != null) {
-      try {
-        final fbUser = _firebaseAuth!.currentUser;
-        if (fbUser != null && fbUser.uid.isNotEmpty) {
-          try {
-            final syncRes = await _apiClient.post('/auth/firebase-migrate', body: {
-              'idToken': await fbUser.getIdToken(),
-              'email': fbUser.email,
-              'fullName': fbUser.displayName ?? fbUser.email?.split('@')[0] ?? 'User',
-            });
-            final recoveredToken = syncRes['token'] ?? syncRes['accessToken'];
-            if (recoveredToken != null && syncRes['user'] != null) {
-              final userMap = Map<String, dynamic>.from(syncRes['user']);
-              await _apiClient.saveAuthSession(recoveredToken.toString(), userMap);
-              final prefs = await SharedPreferences.getInstance();
-              await prefs.setBool(_sessionKey, true);
-              if (userMap['_id'] != null) {
-                await prefs.setString(_userIdKey, userMap['_id'].toString());
-              }
-              return true;
-            }
-          } catch (e) {
-            debugPrint('[AUTH] Firebase session recovery note: $e');
-          }
-        }
-      } catch (_) {}
-    }
-
-    // Invalid or missing JWT session: clear stale local flags
-    await clearStaleSession();
-    return false;
+    // A transport failure remains a connection error, never proof of authentication.
   }
 
   Future<void> clearStaleSession() async {
+    // Explicit callers use a full clear. A server 401 uses credential-only invalidation.
     await _apiClient.clearAuthSession();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_sessionKey, false);
-    await prefs.remove(_userIdKey);
   }
 
   Future<String> getCurrentUserId() async {
@@ -125,7 +98,9 @@ class AuthRepository {
     if (localId != null && localId.isNotEmpty) {
       return localId;
     }
-    throw AuthenticationException('Authentication required. No token provided.');
+    throw AuthenticationException(
+      'Authentication required. No token provided.',
+    );
   }
 
   /// Sign In with MongoDB Node.js Backend & Optional Secondary Firebase Sync
@@ -139,29 +114,36 @@ class AuthRepository {
     // 1. Authenticate with MongoDB Backend API
     Map<String, dynamic> res;
     try {
-      res = await _apiClient.post('/auth/login', body: {
-        'email': cleanEmail,
-        'password': password,
-      });
+      res = await _apiClient.post(
+        '/auth/login',
+        body: {'email': cleanEmail, 'password': password},
+      );
     } on AuthenticationException {
       // If MongoDB rejected credentials, check if this is an existing Firebase user
       // whose account has not yet synced their password to MongoDB Atlas.
       if (_firebaseAuth != null) {
         try {
-          debugPrint('[AUTH] Checking secondary Firebase Auth for legacy account: $cleanEmail');
+          debugPrint('[AUTH] Checking explicitly supplied legacy credentials.');
           final userCred = await _firebaseAuth!.signInWithEmailAndPassword(
             email: cleanEmail,
             password: password,
           );
           if (userCred.user != null) {
-            debugPrint('[AUTH] Firebase credentials verified! Syncing password to MongoDB Atlas...');
-            final syncRes = await _apiClient.post('/auth/firebase-migrate', body: {
-              'idToken': await userCred.user!.getIdToken(),
-              'email': cleanEmail,
-              'password': password,
-              'fullName': userCred.user!.displayName ?? cleanEmail.split('@')[0],
-            });
-            if (syncRes['success'] == true && (syncRes['token'] != null || syncRes['accessToken'] != null)) {
+            debugPrint(
+              '[AUTH] Firebase credentials verified! Syncing password to MongoDB Atlas...',
+            );
+            final syncRes = await _apiClient.post(
+              '/auth/firebase-migrate',
+              body: {
+                'idToken': await userCred.user!.getIdToken(),
+                'email': cleanEmail,
+                'password': password,
+                'fullName':
+                    userCred.user!.displayName ?? cleanEmail.split('@')[0],
+              },
+            );
+            if (syncRes['success'] == true &&
+                (syncRes['token'] != null || syncRes['accessToken'] != null)) {
               res = syncRes;
             } else {
               rethrow;
@@ -170,7 +152,7 @@ class AuthRepository {
             rethrow;
           }
         } catch (fbErr) {
-          debugPrint('[AUTH] Secondary Firebase check note: $fbErr');
+          debugPrint('[AUTH_REPOSITORY] Operation status changed.');
           rethrow;
         }
       } else {
@@ -178,10 +160,17 @@ class AuthRepository {
       }
     }
 
-    final token = res['token'] ?? res['accessToken'] ?? res['data']?['token'] ?? res['data']?['accessToken'];
+    final token =
+        res['token'] ??
+        res['accessToken'] ??
+        res['data']?['token'] ??
+        res['data']?['accessToken'];
     if (res['success'] == true && token != null) {
-      final userMap = Map<String, dynamic>.from(res['user'] ?? res['data']?['user'] ?? {});
+      final userMap = Map<String, dynamic>.from(
+        res['user'] ?? res['data']?['user'] ?? {},
+      );
       await _apiClient.saveAuthSession(token.toString(), userMap);
+      ProfileStateManager.instance.clear();
 
       final userId = (userMap['_id'] ?? userMap['id'] ?? '').toString();
       final prefs = await SharedPreferences.getInstance();
@@ -193,9 +182,12 @@ class AuthRepository {
       // 2. Optional secondary Firebase sync
       if (_firebaseAuth != null) {
         try {
-          await _firebaseAuth!.signInWithEmailAndPassword(email: cleanEmail, password: password);
+          await _firebaseAuth!.signInWithEmailAndPassword(
+            email: cleanEmail,
+            password: password,
+          );
         } catch (fbErr) {
-          debugPrint('[AUTH WARNING] Secondary Firebase sign-in skipped: $fbErr');
+          debugPrint('[AUTH_REPOSITORY] Operation status changed.');
         }
       }
 
@@ -204,11 +196,15 @@ class AuthRepository {
         userId: userId,
         email: cleanEmail,
         name: (userMap['fullName'] ?? userMap['name'] ?? '').toString(),
-        profileCompleted: res['profileCompleted'] == true || userMap['profileCompleted'] == true,
+        profileCompleted:
+            res['profileCompleted'] == true ||
+            userMap['profileCompleted'] == true,
         rawUser: userMap,
       );
     } else {
-      throw AuthenticationException(res['message'] ?? 'Invalid email or password.');
+      throw AuthenticationException(
+        res['message'] ?? 'Invalid email or password.',
+      );
     }
   }
 
@@ -221,20 +217,28 @@ class AuthRepository {
     final cleanEmail = email.trim().toLowerCase();
     final cleanName = name.trim();
     if (cleanEmail.isEmpty || password.isEmpty || cleanName.isEmpty) {
-      throw AuthenticationException('All fields (Name, Email, Password) are required.');
+      throw AuthenticationException(
+        'All fields (Name, Email, Password) are required.',
+      );
     }
 
     // 1. Register with MongoDB Backend API
-    final res = await _apiClient.post('/auth/register', body: {
-      'fullName': cleanName,
-      'email': cleanEmail,
-      'password': password,
-    });
+    final res = await _apiClient.post(
+      '/auth/register',
+      body: {'fullName': cleanName, 'email': cleanEmail, 'password': password},
+    );
 
-    final token = res['token'] ?? res['accessToken'] ?? res['data']?['token'] ?? res['data']?['accessToken'];
+    final token =
+        res['token'] ??
+        res['accessToken'] ??
+        res['data']?['token'] ??
+        res['data']?['accessToken'];
     if (res['success'] == true && token != null) {
-      final userMap = Map<String, dynamic>.from(res['user'] ?? res['data']?['user'] ?? {});
+      final userMap = Map<String, dynamic>.from(
+        res['user'] ?? res['data']?['user'] ?? {},
+      );
       await _apiClient.saveAuthSession(token.toString(), userMap);
+      ProfileStateManager.instance.clear();
 
       final userId = (userMap['_id'] ?? userMap['id'] ?? '').toString();
       final prefs = await SharedPreferences.getInstance();
@@ -246,10 +250,13 @@ class AuthRepository {
       // 2. Optional secondary Firebase sync
       if (_firebaseAuth != null) {
         try {
-          final cred = await _firebaseAuth!.createUserWithEmailAndPassword(email: cleanEmail, password: password);
+          final cred = await _firebaseAuth!.createUserWithEmailAndPassword(
+            email: cleanEmail,
+            password: password,
+          );
           await cred.user?.updateDisplayName(cleanName);
         } catch (fbErr) {
-          debugPrint('[AUTH WARNING] Secondary Firebase sign-up skipped: $fbErr');
+          debugPrint('[AUTH_REPOSITORY] Operation status changed.');
         }
       }
 
@@ -258,11 +265,15 @@ class AuthRepository {
         userId: userId,
         email: cleanEmail,
         name: cleanName,
-        profileCompleted: res['profileCompleted'] == true || userMap['profileCompleted'] == true,
+        profileCompleted:
+            res['profileCompleted'] == true ||
+            userMap['profileCompleted'] == true,
         rawUser: userMap,
       );
     } else {
-      throw AuthenticationException(res['message'] ?? 'Failed to register account.');
+      throw AuthenticationException(
+        res['message'] ?? 'Failed to register account.',
+      );
     }
   }
 
@@ -280,26 +291,38 @@ class AuthRepository {
       throw AuthenticationException('Password must be at least 6 characters.');
     }
 
-    final res = await _apiClient.post('/auth/reset-password', body: {
-      'email': cleanEmail,
-      'newPassword': newPassword,
-      'recoveryCode': recoveryCode.trim(),
-    });
+    final res = await _apiClient.post(
+      '/auth/reset-password',
+      body: {
+        'email': cleanEmail,
+        'newPassword': newPassword,
+        'recoveryCode': recoveryCode.trim(),
+      },
+    );
 
     if (res['success'] != true) {
-      throw AuthenticationException(res['message'] ?? 'Failed to reset password.');
+      throw AuthenticationException(
+        res['message'] ?? 'Failed to reset password.',
+      );
     }
   }
 
-  Future<void> changePassword({required String currentPassword, required String newPassword}) async {
-    await _apiClient.post('/auth/change-password', body: {
-      'currentPassword': currentPassword, 'newPassword': newPassword,
-    });
+  Future<void> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    await _apiClient.post(
+      '/auth/change-password',
+      body: {'currentPassword': currentPassword, 'newPassword': newPassword},
+    );
     await signOut();
   }
 
   Future<void> requestPasswordReset(String email) async {
-    await _apiClient.post('/auth/request-password-reset', body: {'email': email.trim().toLowerCase()});
+    await _apiClient.post(
+      '/auth/request-password-reset',
+      body: {'email': email.trim().toLowerCase()},
+    );
   }
 
   Future<void> sendPasswordResetEmail(String email) async {
@@ -335,7 +358,7 @@ class AuthRepository {
     try {
       await NotificationService().cancelAllScheduledReminders();
     } catch (e) {
-      debugPrint('[AUTH] cancelAllScheduledReminders note: $e');
+      debugPrint('[AUTH_REPOSITORY] Operation status changed.');
     }
 
     final prefs = await SharedPreferences.getInstance();
@@ -353,18 +376,26 @@ class AuthRepository {
   AppException parseAuthException(FirebaseAuthException e) {
     switch (e.code) {
       case 'user-not-found':
-        return AuthenticationException('No registered account found with this email address.');
+        return AuthenticationException(
+          'No registered account found with this email address.',
+        );
       case 'wrong-password':
       case 'invalid-credential':
         return AuthenticationException('Incorrect email or password.');
       case 'email-already-in-use':
-        return AuthenticationException('An account already exists with this email.');
+        return AuthenticationException(
+          'An account already exists with this email.',
+        );
       case 'invalid-email':
         return AuthenticationException('Please enter a valid email address.');
       case 'weak-password':
-        return AuthenticationException('Your password is too weak. Please choose a stronger password.');
+        return AuthenticationException(
+          'Your password is too weak. Please choose a stronger password.',
+        );
       case 'network-request-failed':
-        return NetworkException('Unable to connect. Check your internet connection.');
+        return NetworkException(
+          'Unable to connect. Check your internet connection.',
+        );
       default:
         return AuthenticationException(e.message ?? 'Authentication failed.');
     }

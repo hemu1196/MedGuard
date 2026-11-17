@@ -680,8 +680,12 @@ const getClinicalTopicGuidance = (query) => {
 
 const chat = async (req, res) => {
   try {
+    if (req.body.consent !== true) return res.status(400).json({success:false,message:'Explicit AI conversation consent is required.'});
     const rawMessage = req.body.message || req.body.prompt;
     const history = req.body.history || [];
+    if (!Array.isArray(history) || history.length > 40 || history.some(item => !item || typeof item.text !== 'string' || item.text.length > 8000) || (typeof rawMessage === 'string' && rawMessage.length > 8000)) {
+      return res.status(400).json({success:false,message:'Keep the question and recent conversation within the supported size limits.'});
+    }
 
     if (!rawMessage || typeof rawMessage !== 'string' || rawMessage.trim().length === 0) {
       return res.status(400).json({

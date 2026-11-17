@@ -1,8 +1,9 @@
 import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import '../services/health_preferences.dart';
 import '../core/api/api_client.dart';
 import '../core/errors/app_exception.dart';
 import '../models/user_profile.dart';
+import '../services/private_local_store.dart';
 
 class ProfileRepository {
   static const String _profileStoragePrefix = 'user_profile_';
@@ -17,24 +18,37 @@ class ProfileRepository {
     try {
       Map<String, dynamic> res;
       try {
-        res = await _apiClient.get('/users/me');
+        res = await _apiClient.get('/users/me', expectedUserId: userId);
+      } on AuthenticationException {
+        rethrow;
       } catch (_) {
-        res = await _apiClient.get('/auth/me');
+        res = await _apiClient.get('/auth/me', expectedUserId: userId);
       }
 
       if (res['success'] == true && res['user'] != null) {
-        final profile = UserProfile.fromMap(Map<String, dynamic>.from(res['user']));
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('$_profileStoragePrefix$userId', profile.toJson());
+        final profile = UserProfile.fromMap(
+          Map<String, dynamic>.from(res['user']),
+        );
+        final prefs = await HealthPreferences.getInstance();
+        await PrivateLocalStore.write(
+          '$_profileStoragePrefix$userId',
+          profile.toJson(),
+        );
+        await prefs.remove('$_profileStoragePrefix$userId');
         return profile;
       }
+    } on AuthenticationException {
+      rethrow;
     } catch (e) {
-      debugPrint('[PROFILE REPO] getProfile API note: $e');
+      debugPrint('[PROFILE REPO] Cloud refresh unavailable.');
     }
 
     // 2. Local SharedPreferences fallback
-    final prefs = await SharedPreferences.getInstance();
-    final jsonStr = prefs.getString('$_profileStoragePrefix$userId');
+    final prefs = await HealthPreferences.getInstance();
+    final jsonStr = await PrivateLocalStore.read(
+      '$_profileStoragePrefix$userId',
+    );
+    await prefs.remove('$_profileStoragePrefix$userId');
     if (jsonStr == null || jsonStr.isEmpty) {
       return null;
     }
@@ -66,10 +80,18 @@ class ProfileRepository {
       'heightCm': double.tryParse(profile.height),
       'weightKg': double.tryParse(profile.weight),
       'allergies': profile.allergies.isNotEmpty
-          ? profile.allergies.split(',').map((s) => s.trim()).filter((s) => s.isNotEmpty).toList()
+          ? profile.allergies
+                .split(',')
+                .map((s) => s.trim())
+                .filter((s) => s.isNotEmpty)
+                .toList()
           : [],
       'chronicConditions': profile.existingConditions.isNotEmpty
-          ? profile.existingConditions.split(',').map((s) => s.trim()).filter((s) => s.isNotEmpty).toList()
+          ? profile.existingConditions
+                .split(',')
+                .map((s) => s.trim())
+                .filter((s) => s.isNotEmpty)
+                .toList()
           : [],
       'emergencyMedicalInfo': profile.currentMedications,
       'emergencyContactName': profile.emergencyContactName,
@@ -82,12 +104,20 @@ class ProfileRepository {
 
     Map<String, dynamic> res;
     try {
-      res = await _apiClient.put('/auth/profile', body: body);
+      res = await _apiClient.put(
+        '/auth/profile',
+        body: body,
+        expectedUserId: userId,
+      );
     } on AuthenticationException {
       rethrow;
     } catch (_) {
       try {
-        res = await _apiClient.patch('/users/me', body: body);
+        res = await _apiClient.patch(
+          '/users/me',
+          body: body,
+          expectedUserId: userId,
+        );
       } catch (err) {
         debugPrint('[PROFILE REPO ERROR] Save failed: $err');
         rethrow;
@@ -95,13 +125,22 @@ class ProfileRepository {
     }
 
     if (res['success'] == true && res['user'] != null) {
-      final updatedProfile = UserProfile.fromMap(Map<String, dynamic>.from(res['user']));
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('$_profileStoragePrefix$userId', updatedProfile.toJson());
-      
+      final updatedProfile = UserProfile.fromMap(
+        Map<String, dynamic>.from(res['user']),
+      );
+      final prefs = await HealthPreferences.getInstance();
+      await PrivateLocalStore.write(
+        '$_profileStoragePrefix$userId',
+        updatedProfile.toJson(),
+      );
+      await prefs.remove('$_profileStoragePrefix$userId');
+
       final currentToken = await _apiClient.getToken();
       if (currentToken != null && currentToken.isNotEmpty) {
-        await _apiClient.saveAuthSession(currentToken, Map<String, dynamic>.from(res['user']));
+        await _apiClient.saveAuthSession(
+          currentToken,
+          Map<String, dynamic>.from(res['user']),
+        );
       }
       return true;
     } else {
@@ -141,16 +180,28 @@ class ProfileRepository {
     }
 
     if (res['success'] == true && res['user'] != null) {
-      final updatedProfile = UserProfile.fromMap(Map<String, dynamic>.from(res['user']));
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('$_profileStoragePrefix$userId', updatedProfile.toJson());
+      final updatedProfile = UserProfile.fromMap(
+        Map<String, dynamic>.from(res['user']),
+      );
+      final prefs = await HealthPreferences.getInstance();
+      await PrivateLocalStore.write(
+        '$_profileStoragePrefix$userId',
+        updatedProfile.toJson(),
+      );
+      await prefs.remove('$_profileStoragePrefix$userId');
       if (updatedProfile.profileImagePath != null) {
-        await prefs.setString('user_profile_image_$userId', updatedProfile.profileImagePath!);
+        await prefs.setString(
+          'user_profile_image_$userId',
+          updatedProfile.profileImagePath!,
+        );
       }
 
       final currentToken = await _apiClient.getToken();
       if (currentToken != null && currentToken.isNotEmpty) {
-        await _apiClient.saveAuthSession(currentToken, Map<String, dynamic>.from(res['user']));
+        await _apiClient.saveAuthSession(
+          currentToken,
+          Map<String, dynamic>.from(res['user']),
+        );
       }
       return updatedProfile;
     } else {
@@ -168,14 +219,23 @@ class ProfileRepository {
     }
 
     if (res['success'] == true && res['user'] != null) {
-      final updatedProfile = UserProfile.fromMap(Map<String, dynamic>.from(res['user']));
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('$_profileStoragePrefix$userId', updatedProfile.toJson());
+      final updatedProfile = UserProfile.fromMap(
+        Map<String, dynamic>.from(res['user']),
+      );
+      final prefs = await HealthPreferences.getInstance();
+      await PrivateLocalStore.write(
+        '$_profileStoragePrefix$userId',
+        updatedProfile.toJson(),
+      );
+      await prefs.remove('$_profileStoragePrefix$userId');
       await prefs.remove('user_profile_image_$userId');
 
       final currentToken = await _apiClient.getToken();
       if (currentToken != null && currentToken.isNotEmpty) {
-        await _apiClient.saveAuthSession(currentToken, Map<String, dynamic>.from(res['user']));
+        await _apiClient.saveAuthSession(
+          currentToken,
+          Map<String, dynamic>.from(res['user']),
+        );
       }
       return updatedProfile;
     } else {

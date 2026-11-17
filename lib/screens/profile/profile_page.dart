@@ -5,7 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import '../../services/health_preferences.dart';
 import '../../app/routes.dart';
 import '../../core/utils/bmi_calculator.dart';
 import '../../core/utils/phone_helper.dart';
@@ -42,9 +42,9 @@ class _ProfilePageState extends State<ProfilePage> {
   DailyWaterIntake? _todayWaterIntake;
   int _activeMedsCount = 0;
   int _healthRecordsCount = 0;
-  String _emergencyContactName = 'Hema';
-  String _emergencyContactRelation = 'Dad';
-  String _emergencyContactPhone = '+91 8309305811';
+  String _emergencyContactName = 'Not provided';
+  String _emergencyContactRelation = 'Not provided';
+  String _emergencyContactPhone = '';
   bool _isLoading = true;
   StreamSubscription<List<HealthRecord>>? _recordsSub;
 
@@ -75,12 +75,49 @@ class _ProfilePageState extends State<ProfilePage> {
 
   Future<void> _loadProfile() async {
     try {
+      // Render protected local details before waiting for cloud refresh or health statistics.
+      final cached=await HealthPreferences.getInstance();
+      final local=UserProfile(name:cached.getString('user_name')??'User',gender:cached.getString('user_gender')??'Not specified',bloodGroup:cached.getString('user_blood_group')??'Unknown',height:cached.getString('user_height')??'',weight:cached.getString('user_weight')??'',allergies:'Not provided',existingConditions:'Not provided',currentMedications:'Not provided',emergencyContactName:cached.getString('emergency_name')??'',emergencyCountryCode:'+91',emergencyPhone:cached.getString('emergency_phone')??'',emergencyRelationship:cached.getString('emergency_relation')??'');
+      if(mounted)setState((){_userProfile=ProfileStateManager.instance.currentProfile??local;_isLoading=false;});
+
       final userId = await _authRepository.getCurrentUserId();
+      final localPrefs = await HealthPreferences.getInstance();
+      final localProfile = UserProfile(
+        name:localPrefs.getString('user_name')??'User',gender:localPrefs.getString('user_gender')??'',bloodGroup:localPrefs.getString('user_blood_group')??'Unknown',
+        height:localPrefs.getString('user_height')??'',weight:localPrefs.getString('user_weight')??'',allergies:'Not provided',existingConditions:'Not provided',currentMedications:'Not provided',
+        emergencyContactName:localPrefs.getString('emergency_name')??'',emergencyCountryCode:'+91',emergencyPhone:localPrefs.getString('emergency_phone')??'',emergencyRelationship:localPrefs.getString('emergency_relation')??'',
+      );
+      if(mounted)setState((){_userProfile=localProfile;_isLoading=false;});
       UserProfile? p;
       try {
         p = await ProfileStateManager.instance.loadProfile();
       } catch (_) {}
       final email = _authRepository.currentUser?.email ?? '';
+
+      if (p == null) {
+        final prefs = await HealthPreferences.getInstance();
+        final localName = prefs.getString('user_name') ?? 'User';
+        final localHeight = prefs.getString('user_height') ?? '';
+        final localWeight = prefs.getString('user_weight') ?? '';
+        final localBlood = prefs.getString('user_blood_group') ?? 'Unknown';
+        final localGender = prefs.getString('user_gender') ?? 'Not specified';
+        p = UserProfile(
+          name: localName,
+          gender: localGender,
+          bloodGroup: localBlood,
+          height: localHeight,
+          weight: localWeight,
+          allergies: 'None',
+          existingConditions: 'None',
+          currentMedications: 'None',
+          emergencyContactName: prefs.getString('emergency_name') ?? 'Not provided',
+          emergencyCountryCode: '+91',
+          emergencyPhone: prefs.getString('emergency_phone') ?? '',
+          emergencyRelationship: prefs.getString('emergency_relation') ?? 'Not provided',
+        );
+      }
+
+      if(mounted) setState(() { _userProfile=p; _profileImagePath=p?.profileImagePath; _isLoading=false; });
 
       DailyWaterIntake? water;
       int medsCount = 0;
@@ -112,7 +149,7 @@ class _ProfilePageState extends State<ProfilePage> {
           emName = c.name;
           emRel = c.displayRelationship;
           emPhone = c.displayPhone;
-        } else if (p != null && p.emergencyContactName.isNotEmpty) {
+        } else if (p.emergencyContactName.isNotEmpty) {
           emName = p.emergencyContactName;
           emRel = p.emergencyRelationship.isNotEmpty ? p.emergencyRelationship : 'Family';
           emPhone = p.emergencyPhone;
@@ -121,53 +158,31 @@ class _ProfilePageState extends State<ProfilePage> {
         debugPrint('[PROFILE] Load health stats note: $e');
       }
 
-      if (p == null) {
-        final prefs = await SharedPreferences.getInstance();
-        final localName = prefs.getString('user_name') ?? 'Hemachandra';
-        final localHeight = prefs.getString('user_height') ?? '175';
-        final localWeight = prefs.getString('user_weight') ?? '70';
-        final localBlood = prefs.getString('user_blood_group') ?? 'O+';
-        final localGender = prefs.getString('user_gender') ?? 'Male';
-        p = UserProfile(
-          name: localName,
-          gender: localGender,
-          bloodGroup: localBlood,
-          height: localHeight,
-          weight: localWeight,
-          allergies: 'None',
-          existingConditions: 'None',
-          currentMedications: 'None',
-          emergencyContactName: prefs.getString('emergency_name') ?? 'Hema',
-          emergencyCountryCode: '+91',
-          emergencyPhone: prefs.getString('emergency_phone') ?? '+91 8309305811',
-          emergencyRelationship: prefs.getString('emergency_relation') ?? 'Dad',
-        );
-      }
 
       if (mounted) {
         setState(() {
           _userProfile = p;
-          _userEmail = email.isNotEmpty ? email : 'hem469469@gmail.com';
+          _userEmail = email.isNotEmpty ? email : '';
           _profileImagePath = p?.profileImagePath;
           _todayWaterIntake = water;
           _activeMedsCount = medsCount;
           _healthRecordsCount = recordsCount;
-          _emergencyContactName = emName ?? 'Hema';
-          _emergencyContactRelation = emRel ?? 'Dad';
-          _emergencyContactPhone = emPhone ?? '+91 8309305811';
+          _emergencyContactName = emName ?? 'Not provided';
+          _emergencyContactRelation = emRel ?? 'Not provided';
+          _emergencyContactPhone = emPhone ?? '';
           _isLoading = false;
         });
       }
     } catch (e) {
       debugPrint('[PROFILE] Load error: $e');
       if (mounted) {
-        final prefs = await SharedPreferences.getInstance();
-        final localName = prefs.getString('user_name') ?? 'Hemachandra';
-        final localEmail = prefs.getString('user_email') ?? 'hem469469@gmail.com';
-        final localHeight = prefs.getString('user_height') ?? '175';
-        final localWeight = prefs.getString('user_weight') ?? '70';
-        final localBlood = prefs.getString('user_blood_group') ?? 'O+';
-        final localGender = prefs.getString('user_gender') ?? 'Male';
+        final prefs = await HealthPreferences.getInstance();
+        final localName = prefs.getString('user_name') ?? 'User';
+        final localEmail = prefs.getString('user_email') ?? '';
+        final localHeight = prefs.getString('user_height') ?? '';
+        final localWeight = prefs.getString('user_weight') ?? '';
+        final localBlood = prefs.getString('user_blood_group') ?? 'Unknown';
+        final localGender = prefs.getString('user_gender') ?? 'Not specified';
         setState(() {
           _userProfile = UserProfile(
             name: localName,
@@ -178,10 +193,10 @@ class _ProfilePageState extends State<ProfilePage> {
             allergies: 'None',
             existingConditions: 'None',
             currentMedications: 'None',
-            emergencyContactName: prefs.getString('emergency_name') ?? 'Hema',
+            emergencyContactName: prefs.getString('emergency_name') ?? 'Not provided',
             emergencyCountryCode: '+91',
-            emergencyPhone: prefs.getString('emergency_phone') ?? '+91 8309305811',
-            emergencyRelationship: prefs.getString('emergency_relation') ?? 'Dad',
+            emergencyPhone: prefs.getString('emergency_phone') ?? '',
+            emergencyRelationship: prefs.getString('emergency_relation') ?? 'Not provided',
           );
           _userEmail = localEmail;
           _isLoading = false;

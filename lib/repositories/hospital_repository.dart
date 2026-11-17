@@ -37,7 +37,7 @@ class HospitalRepository extends ChangeNotifier {
   Future<HospitalSearchResult> searchHospitalsForLocation(
     SelectedLocation location, {
     Function(String status)? onProgress,
-    bool forceRefresh = false,
+    bool forceRefresh = false, int? requestedRadiusMeters,
   }) async {
     _isLoading = true;
     _errorMessage = null;
@@ -56,7 +56,7 @@ class HospitalRepository extends ChangeNotifier {
           onProgress?.call(status);
           notifyListeners();
         },
-        forceRefresh: forceRefresh,
+        forceRefresh: forceRefresh, requestedRadiusMeters:requestedRadiusMeters,
       );
 
       _lastResult = result;

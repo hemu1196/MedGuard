@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import '../services/health_preferences.dart';
 import '../core/api/api_client.dart';
 import '../models/medicine.dart';
+import '../services/notification_service.dart';
+import '../services/medicine_action_outbox.dart';
 
 class MedicineRepository {
   static const String _medicineKey = 'user_medicines_list';
@@ -30,6 +32,11 @@ class MedicineRepository {
 
   Future<List<Medicine>> getMedicinesFromApi() async {
     try {
+      final user = await _apiClient.getStoredUser();
+      final userId = user?['_id']?.toString();
+      if (userId != null) {
+        unawaited(MedicineActionOutbox.flush(userId).then<void>((_) {}, onError: (Object _) {}));
+      }
       final res = await _apiClient.get('/medicines');
       if (res['success'] == true && res['medicines'] != null) {
         final list = (res['medicines'] as List)
@@ -54,7 +61,7 @@ class MedicineRepository {
   }
 
   Future<List<Medicine>> _getLocalCache(String userId) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await HealthPreferences.getInstance();
     final key = '${_medicineKey}_$userId';
     final rawList = prefs.getStringList(key) ?? prefs.getStringList(_medicineKey) ?? [];
     final allMeds = rawList.map((str) => Medicine.fromJson(str)).toList();
@@ -71,6 +78,8 @@ class MedicineRepository {
         'dosage': medicine.dosage,
         'times': medicine.reminderTimes,
         'frequency': medicine.frequency,
+        'startDate': medicine.startDate?.toIso8601String(), 'endDate': medicine.endDate?.toIso8601String(), 'weekdays': medicine.weekdays,
+        'dosageQuantity': medicine.dosageQuantity, 'refillThreshold': medicine.refillThreshold,
         'totalStock': medicine.quantityAvailable,
         'remainingStock': medicine.quantityAvailable,
         'instructions': medicine.notes,
@@ -101,33 +110,28 @@ class MedicineRepository {
     return medicine;
   }
 
+  static String _canonicalTime(String value) { final (hour, minute) = NotificationService.parseTimeParts(value); return '${hour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')}'; }
+
   Future<bool> logMedicationDose({
     required String medicineId,
     required String scheduledTime,
     required String status, // 'taken' or 'skipped'
     String? missedReason,
+    DateTime? scheduledDate,
   }) async {
-    try {
-      final res = await _apiClient.post('/medicines/log', body: {
-        'medicineId': medicineId,
-        'scheduledTime': scheduledTime,
-        'status': status,
-        'missedReason': missedReason ?? '',
-      });
-
-      if (res['success'] == true) {
-        final remainingStock = res['remainingStock'];
-        if (remainingStock != null) {
-          final meds = await getMedicinesFromApi();
-          await _saveToLocalCache(meds);
-          _medicinesStreamController.add(meds);
-        }
-        return true;
-      }
-    } catch (e) {
-      debugPrint('[MEDICINE REPO] logMedicationDose API error: $e');
-    }
-    return false;
+    final user = await _apiClient.getStoredUser();
+    final userId = user?['_id']?.toString() ?? '';
+    if (userId.isEmpty) return false;
+    final date = scheduledDate ?? DateTime.now();
+    final action = <String, dynamic>{
+      'medicineId': medicineId, 'scheduledTime': _canonicalTime(scheduledTime), 'status': status,
+      'scheduledDate': '${date.year.toString().padLeft(4, '0')}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}',
+      'missedReason': ?missedReason,
+    };
+    // Persist first so process termination or a timeout cannot lose the action.
+    await MedicineActionOutbox.enqueue(userId, action);
+    await MedicineActionOutbox.flush(userId, force: true);
+    return await MedicineActionOutbox.pendingCount(userId) == 0;
   }
 
   /// Deletes a medicine from MongoDB Atlas and local cache.
@@ -145,7 +149,7 @@ class MedicineRepository {
     // Update local cache
     bool localSuccess = false;
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await HealthPreferences.getInstance();
       final key = '${_medicineKey}_$userId';
       final rawList = prefs.getStringList(key) ?? prefs.getStringList(_medicineKey) ?? [];
       final allMeds = rawList.map((str) => Medicine.fromJson(str)).toList();
@@ -164,7 +168,7 @@ class MedicineRepository {
   }
 
   Future<bool> _updateSingleLocalMed(Medicine medicine) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await HealthPreferences.getInstance();
     final key = '${_medicineKey}_${medicine.userId}';
     final rawList = prefs.getStringList(key) ?? prefs.getStringList(_medicineKey) ?? [];
     final allMeds = rawList.map((str) => Medicine.fromJson(str)).toList();
@@ -183,7 +187,7 @@ class MedicineRepository {
 
   Future<void> _saveToLocalCache(List<Medicine> meds) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await HealthPreferences.getInstance();
       final updatedRawList = meds.map((m) => m.toJson()).toList();
       await prefs.setStringList(_medicineKey, updatedRawList);
     } catch (_) {}

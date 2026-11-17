@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../launch/medicine_history_page.dart';
 import '../../app/theme.dart';
 import '../../models/medicine.dart';
 import '../../repositories/auth_repository.dart';
@@ -52,6 +53,10 @@ class _MedicinePageState extends State<MedicinePage> {
       existing?.reminderTimes ?? ['08:30 AM'],
     );
 
+    DateTime startDate = existing?.startDate ?? DateTime.now();
+    DateTime? endDate = existing?.endDate;
+    final weekdays = <int>{...existing?.weekdays ?? []};
+    final doseCountController = TextEditingController(text:'${existing?.dosageQuantity ?? 1}');
     String? errorText;
 
     showDialog(
@@ -138,7 +143,7 @@ class _MedicinePageState extends State<MedicinePage> {
                   DropdownButtonFormField<String>(
                     initialValue: selectedFrequency,
                     decoration: const InputDecoration(labelText: 'Frequency'),
-                    items: ['Once', 'Daily', 'Weekly', 'Specific Days']
+                    items: ['Once', 'Daily', 'Weekly', 'Specific Days', 'As Needed']
                         .map((f) => DropdownMenuItem(value: f, child: Text(f)))
                         .toList(),
                     onChanged: (val) {
@@ -148,6 +153,10 @@ class _MedicinePageState extends State<MedicinePage> {
                     },
                   ),
                   const SizedBox(height: 16),
+                  TextFormField(controller:doseCountController,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'Stock units per dose (whole units)')),
+                  ListTile(title:Text('Starts ${startDate.toLocal().toString().split(' ').first}'),onTap:() async {final picked=await showDatePicker(context:context,initialDate:startDate,firstDate:DateTime(2020),lastDate:DateTime(2100));if(picked!=null)setDialogState(()=>startDate=picked);}),
+                  ListTile(title:Text(endDate==null?'No end date':'Ends ${endDate!.toLocal().toString().split(' ').first}'),trailing:IconButton(icon:const Icon(Icons.clear),onPressed:()=>setDialogState(()=>endDate=null)),onTap:() async {final picked=await showDatePicker(context:context,initialDate:endDate??startDate,firstDate:startDate,lastDate:DateTime(2100));if(picked!=null)setDialogState(()=>endDate=picked);}),
+                  if(selectedFrequency=='Specific Days') Wrap(spacing:4,children:List.generate(7,(i)=>FilterChip(label:Text(['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][i]),selected:weekdays.contains(i+1),onSelected:(v)=>setDialogState((){if(v){weekdays.add(i+1);}else{weekdays.remove(i+1);}})))),
                   const Text(
                     'Reminder Times:',
                     style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
@@ -214,6 +223,8 @@ class _MedicinePageState extends State<MedicinePage> {
                     return;
                   }
 
+                  if(selectedFrequency=='Specific Days' && weekdays.isEmpty){setDialogState(()=>errorText='Select at least one weekday.');return;}
+                  if((int.tryParse(doseCountController.text)??0)<1){setDialogState(()=>errorText='Enter whole stock units per dose.');return;}
                   final userId = _currentUserId ?? await _authRepository.getCurrentUserId();
                   final newMed = Medicine(
                     id: existing?.id ?? DateTime.now().millisecondsSinceEpoch.toString(),
@@ -221,7 +232,7 @@ class _MedicinePageState extends State<MedicinePage> {
                     sourceHealthRecordId: existing?.sourceHealthRecordId,
                     name: name,
                     dosage: dosage,
-                    frequency: selectedFrequency,
+                    frequency: selectedFrequency, startDate:startDate, endDate:endDate, weekdays:weekdays.toList(), dosageQuantity:int.parse(doseCountController.text),
                     reminderTimes: reminderTimes,
                     notes: notesController.text.trim(),
                     quantityAvailable: int.tryParse(stockController.text.trim()) ?? 30,
@@ -238,21 +249,11 @@ class _MedicinePageState extends State<MedicinePage> {
                   }
 
                   // Trigger exact timezone reminder registration for each reminder time
-                  bool allScheduled = true;
-                  for (final time in reminderTimes) {
-                    final ok = await NotificationService().scheduleExactMedicineReminder(
-                      medicineId: targetMed.id,
-                      medicineName: name,
-                      dosage: dosage,
-                      timeStr: time,
-                      frequency: selectedFrequency,
-                    );
-                    if (!ok) allScheduled = false;
-                  }
+                  final allScheduled = await NotificationService().scheduleMedicine(targetMed);
 
                   await InAppNotificationService().addNotification(
                     title: 'Medicine Scheduled: $name',
-                    body: 'Daily reminders active for ${reminderTimes.join(", ")} ($dosage).',
+                    body: '${selectedFrequency == 'As Needed' ? 'No scheduled reminders' : 'Reminder schedule prepared'}: $name. Open the app at least monthly to refresh scheduled alerts.',
                     type: NotificationType.medicine,
                     targetRoute: '/medicines',
                   );
@@ -539,6 +540,7 @@ class _MedicinePageState extends State<MedicinePage> {
                                       ],
                                     ),
                                   ),
+                                  IconButton(tooltip:'Dose history and reminder diagnostics',icon:const Icon(Icons.history),onPressed:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>MedicineHistoryPage(medicineId:med.id,name:med.name)))),
                                   ElevatedButton.icon(
                                     style: ElevatedButton.styleFrom(
                                       visualDensity: VisualDensity.compact,
@@ -555,8 +557,8 @@ class _MedicinePageState extends State<MedicinePage> {
                                       final scheduledTime =
                                           med.reminderTimes.isNotEmpty
                                               ? med.reminderTimes.first
-                                              : 'Now';
-                                      await _medicineRepository
+                                              : '${DateTime.now().hour.toString().padLeft(2, '0')}:${DateTime.now().minute.toString().padLeft(2, '0')}';
+                                      final synced = await _medicineRepository
                                           .logMedicationDose(
                                         medicineId: med.id,
                                         scheduledTime: scheduledTime,
@@ -569,7 +571,7 @@ class _MedicinePageState extends State<MedicinePage> {
                                             backgroundColor:
                                                 AppColors.success,
                                             content: Text(
-                                              '✅ Dose logged for ${med.name}! Stock updated.',
+                                              synced ? 'Dose logged for ${med.name}. Stock updated.' : 'Dose action saved on this device. Server confirmation is pending.',
                                             ),
                                             duration:
                                                 const Duration(seconds: 2),

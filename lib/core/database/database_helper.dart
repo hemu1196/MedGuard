@@ -1,302 +1,234 @@
-import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
+import 'dart:math';
+import 'package:cryptography/cryptography.dart';
+import '../../services/private_local_store.dart';
 import 'package:flutter/foundation.dart';
-import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:path/path.dart' as path;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import '../../models/water_intake.dart';
+import '../../services/health_preferences.dart';
 
+/// New health caches use protected mobile storage or browser memory.
+/// Legacy SQLite records are copied into protected storage and verified; source files are preserved.
 class DatabaseHelper {
   static final DatabaseHelper instance = DatabaseHelper._init();
-  static Database? _database;
-
   DatabaseHelper._init();
-
-  Future<Database?> get database async {
-    if (kIsWeb) return null; // SQLite native not used on Web; web fallback handles persistence
-
-    if (_database != null) return _database!;
-
-    // Desktop/Test environment initialization for sqflite_common_ffi BEFORE opening database
-    if (!kIsWeb &&
-        (defaultTargetPlatform == TargetPlatform.windows ||
-            defaultTargetPlatform == TargetPlatform.linux ||
-            defaultTargetPlatform == TargetPlatform.macOS)) {
-      try {
-        sqfliteFfiInit();
-        databaseFactory = databaseFactoryFfi;
-      } catch (_) {}
+  bool _migrated = false;
+  Future<void> _migrate() async {
+    if ((await SharedPreferences.getInstance()).getBool(
+          'legacy_cache_import_disabled',
+        ) ==
+        true) {
+      return;
     }
-
+    if (_migrated || kIsWeb) return;
     try {
-      _database = await _initDB('medguard_local.db');
-      return _database;
-    } catch (e) {
-      return null;
+      final location = path.join(await getDatabasesPath(), 'medguard_local.db');
+      final candidates = [
+        location,
+        path.join(await getDatabasesPath(), 'medguard.db'),
+      ];
+      for (final filename in candidates) {
+        if (!await databaseExists(filename)) continue;
+        final db = await openDatabase(filename);
+        final cache = await HealthPreferences.getInstance();
+        final tables = (await db.rawQuery(
+          "SELECT name FROM sqlite_master WHERE type='table'",
+        )).map((r) => r['name']).toSet();
+        if (tables.contains('chat_history')) {
+          for (final row in await db.query('chat_history')) {
+            await cache.setString(
+              'ai_chat_history_${row['userId']}',
+              row['data'] as String,
+            );
+          }
+        }
+        if (tables.contains('water_intake')) {
+          for (final row in await db.query('water_intake')) {
+            final key = 'water_logs_${row['userId']}';
+            final list = cache.getStringList(key) ?? [];
+            final item = WaterIntake.fromMap(row);
+            if (!list.any((s) => WaterIntake.fromJson(s).id == item.id)) {
+              list.add(item.toJson());
+            }
+            await cache.setStringList(key, list);
+          }
+        }
+        if (tables.contains('offline_cache')) {
+          for (final row in await db.query('offline_cache')) {
+            await cache.setString(
+              'legacy_offline_${row['key']}',
+              row['value'] as String,
+            );
+          }
+        }
+        // Keep the original database intact. Verify the protected copy before
+        // considering operator-approved cleanup of legacy source files.
+        final verified = await HealthPreferences.getInstance();
+        if (tables.contains('chat_history')) {
+          for (final row in await db.query('chat_history')) {
+            if (verified.getString('ai_chat_history_${row['userId']}') !=
+                row['data']) {
+              throw StateError('Migration verification failed');
+            }
+          }
+        }
+        if (tables.contains('water_intake')) {
+          for (final row in await db.query('water_intake')) {
+            final list =
+                verified.getStringList('water_logs_${row['userId']}') ?? [];
+            if (!list.any((s) => WaterIntake.fromJson(s).id == row['id'])) {
+              throw StateError('Migration verification failed');
+            }
+          }
+        }
+        await db.close();
+      }
+      _migrated = true;
+    } catch (_) {
+      /* Preserve legacy data and retry later if migration cannot finish. */
     }
   }
 
-  Future<Database> _initDB(String filePath) async {
-    final dbPath = await getDatabasesPath();
-    final path = p.join(dbPath, filePath);
+  /// Called only after an explicit in-app confirmation. New encrypted backups are
+  /// round-trip verified with the OS-protected key before any plaintext source is removed.
+  Future<int> cleanupVerifiedLegacyCaches({required bool confirmed}) async {
+    if (!confirmed) throw StateError('Explicit confirmation required.');
+    if (kIsWeb) return 0;
+    final directory = await getDatabasesPath();
+    var count = 0;
+    for (final basename in ['medguard_local.db', 'medguard.db']) {
+      final filename = path.join(directory, basename);
+      if (!await databaseExists(filename)) continue;
+      final db = await openDatabase(filename);
+      try {
+        await db.rawQuery('PRAGMA wal_checkpoint(TRUNCATE)');
+      } finally {
+        await db.close();
+      }
+      final original = await File(filename).readAsBytes();
+      if (original.length > 50 * 1024 * 1024) {
+        throw StateError('Legacy database needs an operator-assisted backup.');
+      }
+      final random = Random.secure();
+      final keyBytes = List<int>.generate(32, (_) => random.nextInt(256));
+      final algorithm = AesGcm.with256bits();
+      final box = await algorithm.encrypt(
+        original,
+        secretKey: SecretKey(keyBytes),
+      );
+      final backup = File('$filename.encrypted-backup');
+      await backup.writeAsString(
+        jsonEncode({
+          'v': 1,
+          'nonce': base64Encode(box.nonce),
+          'cipher': base64Encode(box.cipherText),
+          'mac': base64Encode(box.mac.bytes),
+        }),
+        flush: true,
+      );
+      final keyName = 'legacy_backup_key_$basename';
+      await PrivateLocalStore.write(keyName, base64Encode(keyBytes));
+      final savedKey = await PrivateLocalStore.read(keyName);
+      if (savedKey == null) throw StateError('Backup key verification failed.');
+      final saved = jsonDecode(await backup.readAsString());
+      final restored = await algorithm.decrypt(
+        SecretBox(
+          base64Decode(saved['cipher']),
+          nonce: base64Decode(saved['nonce']),
+          mac: Mac(base64Decode(saved['mac'])),
+        ),
+        secretKey: SecretKey(base64Decode(savedKey)),
+      );
+      if (!listEquals(restored, original)) {
+        throw StateError('Backup verification failed.');
+      }
+      await deleteDatabase(filename);
+      count++;
+    }
+    return count;
+  }
 
-    return await openDatabase(
-      path,
-      version: 1,
-      onCreate: _createDB,
+  Future<void> saveChatHistory(String userId, List<dynamic> messages) async {
+    await _migrate();
+    final cache = await HealthPreferences.getInstance();
+    await cache.setString(
+      'ai_chat_history_$userId',
+      jsonEncode(messages.map((m) => m.toMap()).toList()),
     );
   }
 
-  Future<void> _createDB(Database db, int version) async {
-    await db.execute('''
-      CREATE TABLE water_intake (
-        id TEXT PRIMARY KEY,
-        userId TEXT NOT NULL,
-        amountMl INTEGER NOT NULL,
-        timestamp TEXT NOT NULL
-      )
-    ''');
-
-    await db.execute('''
-      CREATE TABLE offline_cache (
-        key TEXT PRIMARY KEY,
-        value TEXT NOT NULL,
-        updatedAt TEXT NOT NULL
-      )
-    ''');
-
-    await db.execute('''
-      CREATE TABLE chat_history (
-        id TEXT PRIMARY KEY,
-        userId TEXT NOT NULL,
-        data TEXT NOT NULL,
-        updatedAt TEXT NOT NULL
-      )
-    ''');
-  }
-
-  // --- AI Chat History Database Operations ---
-
-  Future<void> saveChatHistory(String userId, List<dynamic> messages) async {
-    final jsonList = messages.map((m) => m.toMap()).toList();
-    final jsonStr = json.encode(jsonList);
-
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('ai_chat_history_$userId', jsonStr);
-
-    if (!kIsWeb) {
-      try {
-        final db = await instance.database;
-        if (db != null) {
-          await db.insert(
-            'chat_history',
-            {
-              'id': 'chat_$userId',
-              'userId': userId,
-              'data': jsonStr,
-              'updatedAt': DateTime.now().toIso8601String(),
-            },
-            conflictAlgorithm: ConflictAlgorithm.replace,
-          );
-        }
-      } catch (_) {}
-    }
-  }
-
   Future<List<Map<String, dynamic>>> getChatHistory(String userId) async {
-    if (!kIsWeb) {
-      try {
-        final db = await instance.database;
-        if (db != null) {
-          final maps = await db.query(
-            'chat_history',
-            where: 'userId = ?',
-            whereArgs: [userId],
-          );
-          if (maps.isNotEmpty) {
-            final jsonStr = maps.first['data'] as String;
-            final decoded = json.decode(jsonStr) as List;
-            return decoded.cast<Map<String, dynamic>>();
-          }
-        }
-      } catch (_) {}
-    }
-
-    final prefs = await SharedPreferences.getInstance();
-    final jsonStr = prefs.getString('ai_chat_history_$userId');
-    if (jsonStr != null && jsonStr.isNotEmpty) {
-      try {
-        final decoded = json.decode(jsonStr) as List;
-        return decoded.cast<Map<String, dynamic>>();
-      } catch (_) {}
-    }
-
-    return [];
+    await _migrate();
+    final cache = await HealthPreferences.getInstance();
+    final raw = cache.getString('ai_chat_history_$userId');
+    return raw == null
+        ? []
+        : (jsonDecode(raw) as List)
+              .map((m) => Map<String, dynamic>.from(m))
+              .toList();
   }
 
   Future<void> clearChatHistory(String userId) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('ai_chat_history_$userId');
-
-    if (!kIsWeb) {
-      try {
-        final db = await instance.database;
-        if (db != null) {
-          await db.delete(
-            'chat_history',
-            where: 'userId = ?',
-            whereArgs: [userId],
-          );
-        }
-      } catch (_) {}
-    }
+    await _migrate();
+    final cache = await HealthPreferences.getInstance();
+    await cache.remove('ai_chat_history_$userId');
   }
 
   Future<void> insertWaterIntake(WaterIntake log) async {
-    if (kIsWeb) {
-      await _insertWaterIntakeWeb(log);
-      return;
-    }
-
-    try {
-      final db = await instance.database;
-      if (db != null) {
-        await db.insert(
-          'water_intake',
-          log.toMap(),
-          conflictAlgorithm: ConflictAlgorithm.replace,
-        );
-        return;
-      }
-    } catch (_) {}
-
-    await _insertWaterIntakeWeb(log);
+    await _migrate();
+    final cache = await HealthPreferences.getInstance();
+    final key = 'water_logs_${log.userId}';
+    final rows =
+        (cache.getStringList(key) ?? [])
+            .where((s) => WaterIntake.fromJson(s).id != log.id)
+            .toList()
+          ..add(log.toJson());
+    await cache.setStringList(key, rows);
   }
 
   Future<List<WaterIntake>> getTodayWaterIntake(String userId) async {
+    await _migrate();
+    final cache = await HealthPreferences.getInstance();
     final now = DateTime.now();
-    final startOfDay = DateTime(now.year, now.month, now.day);
-    final endOfDay = DateTime(now.year, now.month, now.day, 23, 59, 59, 999);
-
-    if (kIsWeb) {
-      return await _getTodayWaterIntakeWeb(userId, startOfDay, endOfDay);
-    }
-
-    try {
-      final db = await instance.database;
-      if (db != null) {
-        final maps = await db.query(
-          'water_intake',
-          where: 'userId = ? AND timestamp >= ? AND timestamp <= ?',
-          whereArgs: [userId, startOfDay.toIso8601String(), endOfDay.toIso8601String()],
-          orderBy: 'timestamp DESC',
-        );
-        return maps.map((m) => WaterIntake.fromMap(m)).toList();
-      }
-    } catch (_) {}
-
-    return await _getTodayWaterIntakeWeb(userId, startOfDay, endOfDay);
+    return (cache.getStringList('water_logs_$userId') ?? [])
+        .map(WaterIntake.fromJson)
+        .where(
+          (w) =>
+              w.userId == userId &&
+              w.timestamp.year == now.year &&
+              w.timestamp.month == now.month &&
+              w.timestamp.day == now.day,
+        )
+        .toList()
+      ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
   }
 
   Future<void> deleteTodayWaterIntake(String userId) async {
-    final now = DateTime.now();
-    final startOfDay = DateTime(now.year, now.month, now.day);
-    final endOfDay = DateTime(now.year, now.month, now.day, 23, 59, 59, 999);
-
-    if (kIsWeb) {
-      await _deleteTodayWaterIntakeWeb(userId, startOfDay, endOfDay);
-      return;
-    }
-
-    try {
-      final db = await instance.database;
-      if (db != null) {
-        await db.delete(
-          'water_intake',
-          where: 'userId = ? AND timestamp >= ? AND timestamp <= ?',
-          whereArgs: [userId, startOfDay.toIso8601String(), endOfDay.toIso8601String()],
-        );
-        return;
-      }
-    } catch (_) {}
-
-    await _deleteTodayWaterIntakeWeb(userId, startOfDay, endOfDay);
+    await _migrate();
+    final cache = await HealthPreferences.getInstance();
+    final ids = (await getTodayWaterIntake(userId)).map((w) => w.id).toSet();
+    await cache.setStringList(
+      'water_logs_$userId',
+      (cache.getStringList('water_logs_$userId') ?? [])
+          .where((s) => !ids.contains(WaterIntake.fromJson(s).id))
+          .toList(),
+    );
   }
 
   Future<void> deleteWaterIntake(String id) async {
-    if (!kIsWeb) {
-      try {
-        final db = await instance.database;
-        if (db != null) {
-          await db.delete('water_intake', where: 'id = ?', whereArgs: [id]);
-          return;
-        }
-      } catch (_) {}
+    await _migrate();
+    final cache = await HealthPreferences.getInstance();
+    for (final key
+        in cache.getKeys().where((k) => k.startsWith('water_logs_')).toList()) {
+      await cache.setStringList(
+        key,
+        (cache.getStringList(key) ?? [])
+            .where((s) => WaterIntake.fromJson(s).id != id)
+            .toList(),
+      );
     }
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      for (final key in prefs.getKeys()) {
-        if (key.startsWith('water_logs_')) {
-          final list = prefs.getStringList(key) ?? [];
-          final filtered = list.where((s) {
-            try {
-              final item = WaterIntake.fromJson(s);
-              return item.id != id;
-            } catch (_) {
-              return true;
-            }
-          }).toList();
-          await prefs.setStringList(key, filtered);
-        }
-      }
-    } catch (_) {}
-  }
-
-  Future<void> _deleteTodayWaterIntakeWeb(
-    String userId,
-    DateTime startOfDay,
-    DateTime endOfDay,
-  ) async {
-    final prefs = await SharedPreferences.getInstance();
-    final key = 'water_logs_$userId';
-    final existing = prefs.getStringList(key) ?? [];
-    final remaining = existing
-        .map((s) => WaterIntake.fromJson(s))
-        .where((l) {
-          final t = l.timestamp;
-          return t.isBefore(startOfDay) || t.isAfter(endOfDay);
-        })
-        .map((l) => l.toJson())
-        .toList();
-    await prefs.setStringList(key, remaining);
-  }
-
-  // Web / Fallback SharedPreferences Storage Helpers
-  Future<void> _insertWaterIntakeWeb(WaterIntake log) async {
-    final prefs = await SharedPreferences.getInstance();
-    final key = 'water_logs_${log.userId}';
-    final existing = prefs.getStringList(key) ?? [];
-    existing.add(log.toJson());
-    await prefs.setStringList(key, existing);
-  }
-
-  Future<List<WaterIntake>> _getTodayWaterIntakeWeb(
-    String userId,
-    DateTime startOfDay,
-    DateTime endOfDay,
-  ) async {
-    final prefs = await SharedPreferences.getInstance();
-    final key = 'water_logs_$userId';
-    final existing = prefs.getStringList(key) ?? [];
-    final logs = existing.map((s) => WaterIntake.fromJson(s)).toList();
-
-    return logs.where((l) {
-      if (l.userId != userId) return false;
-      final t = l.timestamp;
-      final isAfterStart = t.isAfter(startOfDay) || t.isAtSameMomentAs(startOfDay);
-      final isBeforeEnd = t.isBefore(endOfDay) || t.isAtSameMomentAs(endOfDay);
-      return isAfterStart && isBeforeEnd;
-    }).toList()
-      ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
   }
 }

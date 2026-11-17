@@ -9,6 +9,9 @@ class Medicine {
   final String frequency; // Once, Daily, Weekly, Specific Days
   final List<String> reminderTimes; // e.g. ["08:30", "20:00"]
   final String notes;
+  final DateTime? startDate;
+  final DateTime? endDate;
+  final List<int> weekdays;
 
   // Stock Predictor Fields
   final int quantityAvailable;
@@ -25,6 +28,7 @@ class Medicine {
     required this.frequency,
     required this.reminderTimes,
     this.notes = '',
+    this.startDate, this.endDate, this.weekdays = const [],
     this.quantityAvailable = 30,
     this.dosageQuantity = 1,
     this.dailyConsumption = 2,
@@ -49,6 +53,7 @@ class Medicine {
     String? frequency,
     List<String>? reminderTimes,
     String? notes,
+    DateTime? startDate, DateTime? endDate, List<int>? weekdays,
     int? quantityAvailable,
     int? dosageQuantity,
     int? dailyConsumption,
@@ -63,6 +68,7 @@ class Medicine {
       frequency: frequency ?? this.frequency,
       reminderTimes: reminderTimes ?? this.reminderTimes,
       notes: notes ?? this.notes,
+      startDate: startDate ?? this.startDate, endDate: endDate ?? this.endDate, weekdays: weekdays ?? this.weekdays,
       quantityAvailable: quantityAvailable ?? this.quantityAvailable,
       dosageQuantity: dosageQuantity ?? this.dosageQuantity,
       dailyConsumption: dailyConsumption ?? this.dailyConsumption,
@@ -82,6 +88,7 @@ class Medicine {
       'reminderTimes': reminderTimes,
       'times': reminderTimes,
       'notes': notes,
+      'startDate': startDate?.toIso8601String(), 'endDate': endDate?.toIso8601String(), 'weekdays': weekdays,
       'quantityAvailable': quantityAvailable,
       'remainingStock': quantityAvailable,
       'totalStock': quantityAvailable,
@@ -109,6 +116,7 @@ class Medicine {
       dosage: map['dosage'] ?? '',
       frequency: map['frequency'] ?? 'Daily',
       reminderTimes: times,
+      startDate: DateTime.tryParse(map['startDate']?.toString() ?? ''), endDate: DateTime.tryParse(map['endDate']?.toString() ?? ''), weekdays: List<int>.from(map['weekdays'] ?? []),
       notes: map['notes'] ?? map['instructions'] ?? '',
       quantityAvailable: (stock is num) ? stock.toInt() : 30,
       dosageQuantity: map['dosageQuantity'] ?? 1,

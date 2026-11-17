@@ -18,12 +18,11 @@ function getMongoConfig() {
     );
   }
 
-  // Clean host validation - must be hostname only, without protocol or trailing path
-  const host = rawHost.trim().replace(/^https?:\/\//i, "").replace(/\/.*$/, "");
-
-  if (host.includes("://") || host.includes("/")) {
-    throw new Error("MONGODB_HOST must contain only the cluster hostname.");
+  const host = rawHost.trim();
+  if (!/^(?=.{1,253}$)[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/i.test(host) || !host.includes('.') || host.includes('..')) {
+    throw new Error("MONGODB_HOST must contain only the cluster hostname, without scheme, port or path.");
   }
+  if (!/^[A-Za-z0-9_-]{1,63}$/.test(dbName)) throw new Error('DB_NAME is invalid.');
 
   return { username, password, host, dbName };
 }

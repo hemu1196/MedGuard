@@ -1,4 +1,4 @@
-import 'package:shared_preferences/shared_preferences.dart';
+import 'health_preferences.dart';
 import '../models/user_profile.dart';
 
 class EmergencyCachedData {
@@ -48,7 +48,7 @@ class EmergencyCacheService {
       );
     }
 
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await HealthPreferences.getInstance();
     final cachedPhone = prefs.getString('cached_emergency_phone') ?? '';
     return EmergencyCachedData(
       userName: prefs.getString('cached_user_name') ?? 'Patient Profile',

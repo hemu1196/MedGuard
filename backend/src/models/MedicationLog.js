@@ -21,6 +21,8 @@ const medicationLogSchema = new mongoose.Schema({
     type: String,
     default: '',
   },
+  occurrenceId: { type: String },
+  scheduledDate: { type: String },
   scheduledTime: {
     type: String,
     required: true,
@@ -41,5 +43,7 @@ const medicationLogSchema = new mongoose.Schema({
 }, {
   timestamps: true,
 });
+
+medicationLogSchema.index({ userId: 1, occurrenceId: 1 }, { unique: true, partialFilterExpression: { occurrenceId: { $type: 'string' } } });
 
 module.exports = mongoose.model('MedicationLog', medicationLogSchema);

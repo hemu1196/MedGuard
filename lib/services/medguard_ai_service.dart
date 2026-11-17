@@ -9,18 +9,28 @@ import 'local_health_fallback_service.dart';
 
 class MedGuardAIService {
   final AiHealthService _aiHealthService = AiHealthService();
-  final LocalHealthFallbackService _fallbackService = LocalHealthFallbackService();
+  final LocalHealthFallbackService _fallbackService =
+      LocalHealthFallbackService();
   final ApiClient _apiClient = ApiClient();
 
   Future<AIResponse> getGuidance({
     required String userQuery,
     List<ChatMessage> conversationHistory = const [],
     bool forceGemini = false,
+    bool consent = false,
   }) async {
+    if (!consent) {
+      throw StateError(
+        'Consent is required before sending a conversation to an AI provider.',
+      );
+    }
     final cleanQuery = userQuery.trim();
     if (cleanQuery.isEmpty) {
       final rawFallback = _fallbackService.generateFallback('General Health');
-      return HealthSafetyFilter.filter(userQuery: 'General Health', response: rawFallback);
+      return HealthSafetyFilter.filter(
+        userQuery: 'General Health',
+        response: rawFallback,
+      );
     }
 
     // 1. Primary Route: Authenticated Cloud Backend AI Endpoint (Render)
@@ -33,18 +43,23 @@ class MedGuardAIService {
               .map((m) => {'isUser': m.isUser, 'text': m.text})
               .toList();
 
-          final res = await _apiClient.post(
-            '/ai/chat',
-            body: {
-              'message': cleanQuery,
-              'history': historyPayload,
-            },
-          ).timeout(const Duration(seconds: 12));
+          final res = await _apiClient
+              .post(
+                '/ai/chat',
+                body: {
+                  'consent': true,
+                  'message': cleanQuery,
+                  'history': historyPayload,
+                },
+              )
+              .timeout(const Duration(seconds: 12));
 
           if (res['success'] == true && res['reply'] != null) {
             final replyText = res['reply'].toString().trim();
             final isEmergency = res['isEmergency'] == true;
-            final intent = (res['intent'] ?? (isEmergency ? 'emergency' : 'general')).toString();
+            final intent =
+                (res['intent'] ?? (isEmergency ? 'emergency' : 'general'))
+                    .toString();
 
             RecommendedCare? recommendedCare;
             if (res['recommendedCare'] != null) {
@@ -53,7 +68,9 @@ class MedGuardAIService {
               );
             }
 
-            final followUpQuestions = List<String>.from(res['followUpQuestions'] ?? []);
+            final followUpQuestions = List<String>.from(
+              res['followUpQuestions'] ?? [],
+            );
             final warningSigns = List<String>.from(res['warningSigns'] ?? []);
 
             HealthUrgency urgency = HealthUrgency.green;
@@ -75,14 +92,14 @@ class MedGuardAIService {
               category: isEmergency
                   ? 'Emergency Guidance'
                   : (intent == 'greeting'
-                      ? 'Greeting'
-                      : (intent == 'app_help'
-                          ? 'App Guidance'
-                          : (intent == 'education'
-                              ? 'Medical Education'
-                              : (intent == 'medicine'
-                                  ? 'Medication Information'
-                                  : 'Symptom Guidance')))),
+                        ? 'Greeting'
+                        : (intent == 'app_help'
+                              ? 'App Guidance'
+                              : (intent == 'education'
+                                    ? 'Medical Education'
+                                    : (intent == 'medicine'
+                                          ? 'Medication Information'
+                                          : 'Symptom Guidance')))),
               isEmergency: isEmergency,
               urgency: urgency,
               understanding: cleanQuery,
@@ -93,8 +110,8 @@ class MedGuardAIService {
               whenToSeekMedicalHelp: isEmergency
                   ? 'Call emergency medical services immediately (108 / 112).'
                   : (recommendedCare != null
-                      ? 'Consult a ${recommendedCare.clinicianType} for clinical evaluation.'
-                      : ''),
+                        ? 'Consult a ${recommendedCare.clinicianType} for clinical evaluation.'
+                        : ''),
               disclaimer: intent == 'greeting'
                   ? ''
                   : 'This guidance is educational and does not constitute a clinical medical diagnosis.',
@@ -102,11 +119,14 @@ class MedGuardAIService {
               recommendedCare: recommendedCare,
             );
 
-            return HealthSafetyFilter.filter(userQuery: cleanQuery, response: cloudResponse);
+            return HealthSafetyFilter.filter(
+              userQuery: cleanQuery,
+              response: cloudResponse,
+            );
           }
         }
       } catch (e) {
-        debugPrint('[MEDGUARD AI SERVICE] Cloud backend AI request unauthenticated or timed out ($e). Falling back to direct/local pipeline...');
+        debugPrint('[MEDGUARD_AI_SERVICE] Operation status changed.');
       }
     }
 
@@ -117,19 +137,23 @@ class MedGuardAIService {
           .timeout(const Duration(seconds: 8));
 
       final aiResponse = AIResponse(
-        text: geminiRes.rawText.isNotEmpty ? geminiRes.rawText : _formatGeminiText(geminiRes),
+        text: geminiRes.rawText.isNotEmpty
+            ? geminiRes.rawText
+            : _formatGeminiText(geminiRes),
         source: AIResponseSource.gemini,
         isFallback: false,
         category: geminiRes.intent == 'greeting'
             ? 'Greeting'
             : (geminiRes.intent == 'app_help'
-                ? 'App Guidance'
-                : (geminiRes.intent == 'education'
-                    ? 'Medical Education'
-                    : (geminiRes.intent == 'medicine'
-                        ? 'Medication Information'
-                        : 'Gemini AI Guidance'))),
-        isEmergency: geminiRes.urgency == HealthUrgency.red || geminiRes.intent == 'emergency',
+                  ? 'App Guidance'
+                  : (geminiRes.intent == 'education'
+                        ? 'Medical Education'
+                        : (geminiRes.intent == 'medicine'
+                              ? 'Medication Information'
+                              : 'Gemini AI Guidance'))),
+        isEmergency:
+            geminiRes.urgency == HealthUrgency.red ||
+            geminiRes.intent == 'emergency',
         urgency: geminiRes.urgency,
         understanding: geminiRes.understanding,
         followUpQuestions: geminiRes.followUpQuestions,
@@ -142,9 +166,12 @@ class MedGuardAIService {
         recommendedCare: geminiRes.recommendedCare,
       );
 
-      return HealthSafetyFilter.filter(userQuery: cleanQuery, response: aiResponse);
+      return HealthSafetyFilter.filter(
+        userQuery: cleanQuery,
+        response: aiResponse,
+      );
     } catch (e) {
-      debugPrint('[MEDGUARD AI SERVICE] Gemini request failed or timed out ($e). Falling back to offline health guidance.');
+      debugPrint('[MEDGUARD_AI_SERVICE] Operation status changed.');
 
       final rawFallback = _fallbackService.generateFallback(cleanQuery);
 
@@ -167,7 +194,10 @@ class MedGuardAIService {
         recommendedCare: rawFallback.recommendedCare,
       );
 
-      return HealthSafetyFilter.filter(userQuery: cleanQuery, response: fallbackResponse);
+      return HealthSafetyFilter.filter(
+        userQuery: cleanQuery,
+        response: fallbackResponse,
+      );
     }
   }
 

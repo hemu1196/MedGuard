@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import '../services/health_preferences.dart';
 import '../core/api/api_client.dart';
 import '../models/appointment.dart';
 
@@ -53,7 +53,7 @@ class AppointmentRepository {
   }
 
   Future<List<Appointment>> _getLocalCache(String userId) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await HealthPreferences.getInstance();
     final key = '${_storageKey}_$userId';
     final rawList = prefs.getStringList(key) ?? prefs.getStringList(_storageKey) ?? [];
     final all = rawList.map((str) => Appointment.fromJson(str)).toList();
@@ -171,7 +171,7 @@ class AppointmentRepository {
 
     bool localSuccess = false;
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await HealthPreferences.getInstance();
       final key = '${_storageKey}_$userId';
       final rawList = prefs.getStringList(key) ?? prefs.getStringList(_storageKey) ?? [];
       final all = rawList.map((str) => Appointment.fromJson(str)).toList();
@@ -191,7 +191,7 @@ class AppointmentRepository {
 
   Future<bool> _updateSingleLocalAppt(String userId, Appointment appt) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await HealthPreferences.getInstance();
       final key = '${_storageKey}_$userId';
       final rawList = prefs.getStringList(key) ?? prefs.getStringList(_storageKey) ?? [];
       final all = rawList.map((str) => Appointment.fromJson(str)).toList();
@@ -214,7 +214,7 @@ class AppointmentRepository {
 
   Future<void> _saveToLocalCache(List<Appointment> appts) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await HealthPreferences.getInstance();
       final updatedRaw = appts.map((a) => a.toJson()).toList();
       await prefs.setStringList(_storageKey, updatedRaw);
     } catch (_) {}

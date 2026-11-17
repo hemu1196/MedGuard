@@ -1,6 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'health_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../core/api/api_client.dart';
 import '../models/emergency_contact.dart';
@@ -146,7 +146,7 @@ Please check my location and contact me immediately.'''.trim();
     required String status,
   }) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await HealthPreferences.getInstance();
       final existingLogs = prefs.getStringList(_sosLogsKey) ?? [];
 
       final logEntry = {
@@ -174,7 +174,7 @@ Please check my location and contact me immediately.'''.trim();
 
   Future<List<Map<String, dynamic>>> getSosLogs() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await HealthPreferences.getInstance();
       final rawLogs = prefs.getStringList(_sosLogsKey) ?? [];
       return rawLogs.map((item) => json.decode(item) as Map<String, dynamic>).toList();
     } catch (e) {

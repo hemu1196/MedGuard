@@ -1,11 +1,11 @@
-import 'package:shared_preferences/shared_preferences.dart';
+import 'health_preferences.dart';
 import '../models/prescription.dart';
 
 class PrescriptionService {
   static const String _prescriptionsKey = 'user_prescriptions_list';
 
   Future<List<Prescription>> getPrescriptions() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await HealthPreferences.getInstance();
     final list = prefs.getStringList(_prescriptionsKey) ?? [];
     return list.map((item) => Prescription.fromJson(item)).toList();
   }
@@ -28,7 +28,7 @@ class PrescriptionService {
   }
 
   Future<bool> _saveAll(List<Prescription> list) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await HealthPreferences.getInstance();
     final stringList = list.map((p) => p.toJson()).toList();
     return await prefs.setStringList(_prescriptionsKey, stringList);
   }

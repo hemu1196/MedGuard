@@ -55,7 +55,9 @@ class _AiAssistantPageState extends State<AiAssistantPage> {
 
   Future<void> _loadChatHistory() async {
     try {
-      final savedMaps = await DatabaseHelper.instance.getChatHistory('default_user');
+      final savedMaps = await DatabaseHelper.instance.getChatHistory(
+        'default_user',
+      );
       if (savedMaps.isNotEmpty && mounted) {
         setState(() {
           _messages.clear();
@@ -108,7 +110,9 @@ class _AiAssistantPageState extends State<AiAssistantPage> {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
-                content: Text('Microphone permission is required for voice input.'),
+                content: Text(
+                  'Microphone permission is required for voice input.',
+                ),
               ),
             );
           }
@@ -146,16 +150,45 @@ class _AiAssistantPageState extends State<AiAssistantPage> {
     }
   }
 
+  bool _aiConsentGranted = false;
+  bool _askingAIConsent = false;
   void _sendMessage(String query) async {
     final cleanQuery = query.trim();
-    if (cleanQuery.isEmpty || _isThinking) return;
+    if (cleanQuery.isEmpty || _isThinking || _askingAIConsent) return;
+    if (!_aiConsentGranted) {
+      _askingAIConsent = true;
+      final granted = await showDialog<bool>(
+        context: context,
+        builder: (c) => AlertDialog(
+          title: const Text('Share this conversation with AI?'),
+          content: const Text(
+            'Your question and recent conversation will be sent to the MEDGUARD server and may be processed by Google Gemini. Avoid including identifying details or medical documents. AI guidance is general information, not a diagnosis. You can cancel without sending your message. Clearing the chat resets this consent.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(c, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(c, true),
+              child: const Text('Agree and send'),
+            ),
+          ],
+        ),
+      );
+      _askingAIConsent = false;
+      if (!mounted || granted != true) return;
+      _aiConsentGranted = true;
+    }
 
     _inputController.clear();
     setState(() {
       if (_messages.isNotEmpty && _messages.last.isError) {
         _messages.removeLast();
       }
-      if (_messages.isEmpty || !_messages.last.isUser || _messages.last.text != cleanQuery) {
+      if (_messages.isEmpty ||
+          !_messages.last.isUser ||
+          _messages.last.text != cleanQuery) {
         _messages.add(ChatMessage(text: cleanQuery, isUser: true));
       }
       _isThinking = true;
@@ -165,9 +198,12 @@ class _AiAssistantPageState extends State<AiAssistantPage> {
     _scrollToBottom();
 
     try {
-      final historyForPrompt = List<ChatMessage>.from(_messages.where((m) => !m.isError));
+      final historyForPrompt = List<ChatMessage>.from(
+        _messages.where((m) => !m.isError),
+      );
       final response = await _medGuardAIService.getGuidance(
         userQuery: cleanQuery,
+        consent: _aiConsentGranted,
         conversationHistory: historyForPrompt,
       );
 
@@ -201,6 +237,7 @@ class _AiAssistantPageState extends State<AiAssistantPage> {
   }
 
   void _clearChat() async {
+    _aiConsentGranted = false;
     if (_isThinking) return;
     setState(() {
       _messages.clear();
@@ -227,7 +264,8 @@ class _AiAssistantPageState extends State<AiAssistantPage> {
       documentDate: now,
       doctorName: 'MedGuard AI Assistant',
       hospitalName: 'MedGuard AI System',
-      description: 'Symptom Understanding: ${response.understanding}\n\n'
+      description:
+          'Symptom Understanding: ${response.understanding}\n\n'
           'Urgency Level: ${response.urgencyLabel}\n\n'
           'Considerations: ${response.considerations.join(', ')}\n\n'
           'Self-Care Advice: ${response.whatYouCanDoNow.join(', ')}\n\n'
@@ -240,7 +278,9 @@ class _AiAssistantPageState extends State<AiAssistantPage> {
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('AI Health Summary saved successfully to Health Vault!'),
+          content: Text(
+            'AI Health Summary saved successfully to Health Vault!',
+          ),
           backgroundColor: AppTheme.primaryTeal,
         ),
       );
@@ -276,7 +316,11 @@ class _AiAssistantPageState extends State<AiAssistantPage> {
               ),
               child: Row(
                 children: [
-                  const Icon(Icons.info_outline, size: 16, color: AppTheme.textMuted),
+                  const Icon(
+                    Icons.info_outline,
+                    size: 16,
+                    color: AppTheme.textMuted,
+                  ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
@@ -322,7 +366,9 @@ class _AiAssistantPageState extends State<AiAssistantPage> {
                 Navigator.pop(dialogContext);
               }
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Gemini API Key saved successfully.')),
+                const SnackBar(
+                  content: Text('Gemini API Key saved successfully.'),
+                ),
               );
             },
             style: ElevatedButton.styleFrom(
@@ -361,7 +407,10 @@ class _AiAssistantPageState extends State<AiAssistantPage> {
             onPressed: _showApiKeyDialog,
           ),
           IconButton(
-            icon: const Icon(Icons.delete_outline_rounded, color: AppTheme.textMuted),
+            icon: const Icon(
+              Icons.delete_outline_rounded,
+              color: AppTheme.textMuted,
+            ),
             tooltip: 'Clear Chat History',
             onPressed: _clearChat,
           ),
@@ -416,7 +465,10 @@ class _AiAssistantPageState extends State<AiAssistantPage> {
                       } else if (msg.isError) {
                         return _buildAiErrorCard(msg);
                       } else if (msg.structuredResponse != null) {
-                        return _buildStructuredAiResponseCard(msg.structuredResponse!, msg.lastQuery);
+                        return _buildStructuredAiResponseCard(
+                          msg.structuredResponse!,
+                          msg.lastQuery,
+                        );
                       } else if (msg.aiResponse != null) {
                         return _buildLegacyAiResponseCard(msg.aiResponse!);
                       } else {
@@ -461,11 +513,15 @@ class _AiAssistantPageState extends State<AiAssistantPage> {
                             ),
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(24),
-                              borderSide: BorderSide(color: Colors.grey.shade300),
+                              borderSide: BorderSide(
+                                color: Colors.grey.shade300,
+                              ),
                             ),
                             enabledBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(24),
-                              borderSide: BorderSide(color: Colors.grey.shade300),
+                              borderSide: BorderSide(
+                                color: Colors.grey.shade300,
+                              ),
                             ),
                           ),
                         ),
@@ -473,8 +529,12 @@ class _AiAssistantPageState extends State<AiAssistantPage> {
                       const SizedBox(width: 8),
                       IconButton(
                         icon: Icon(
-                          _isListening ? Icons.mic_rounded : Icons.mic_none_rounded,
-                          color: _isListening ? AppColors.emergency : AppTheme.primaryTeal,
+                          _isListening
+                              ? Icons.mic_rounded
+                              : Icons.mic_none_rounded,
+                          color: _isListening
+                              ? AppColors.emergency
+                              : AppTheme.primaryTeal,
                         ),
                         onPressed: _isThinking ? null : _toggleListening,
                       ),
@@ -597,10 +657,7 @@ class _AiAssistantPageState extends State<AiAssistantPage> {
             children: [
               const Row(
                 children: [
-                  Icon(
-                    Icons.error_outline_rounded,
-                    color: AppTheme.accentRed,
-                  ),
+                  Icon(Icons.error_outline_rounded, color: AppTheme.accentRed),
                   SizedBox(width: 8),
                   Text(
                     'AI Assistant Response Error',
@@ -669,7 +726,9 @@ class _AiAssistantPageState extends State<AiAssistantPage> {
       } else {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Cannot place call to $phoneNumber automatically.')),
+            SnackBar(
+              content: Text('Cannot place call to $phoneNumber automatically.'),
+            ),
           );
         }
       }
@@ -716,7 +775,11 @@ class _AiAssistantPageState extends State<AiAssistantPage> {
                       color: AppTheme.primaryTeal.withValues(alpha: 0.12),
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(Icons.auto_awesome, color: AppTheme.primaryTeal, size: 20),
+                    child: const Icon(
+                      Icons.auto_awesome,
+                      color: AppTheme.primaryTeal,
+                      size: 20,
+                    ),
                   ),
                   const SizedBox(width: 10),
                   const Expanded(
@@ -733,13 +796,19 @@ class _AiAssistantPageState extends State<AiAssistantPage> {
                         ),
                         Text(
                           'Your Intelligent Health Companion',
-                          style: TextStyle(fontSize: 11, color: AppTheme.textMuted),
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: AppTheme.textMuted,
+                          ),
                         ),
                       ],
                     ),
                   ),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 4,
+                    ),
                     decoration: BoxDecoration(
                       color: isGemini
                           ? AppTheme.primaryTeal.withValues(alpha: 0.1)
@@ -756,7 +825,9 @@ class _AiAssistantPageState extends State<AiAssistantPage> {
                       style: TextStyle(
                         fontSize: 10.5,
                         fontWeight: FontWeight.bold,
-                        color: isGemini ? AppTheme.primaryTeal : Colors.amber.shade900,
+                        color: isGemini
+                            ? AppTheme.primaryTeal
+                            : Colors.amber.shade900,
                       ),
                     ),
                   ),
@@ -792,7 +863,11 @@ class _AiAssistantPageState extends State<AiAssistantPage> {
                   runSpacing: 8,
                   children: resp.followUpQuestions.map((q) {
                     return ActionChip(
-                      avatar: const Icon(Icons.chat_bubble_outline_rounded, size: 14, color: AppTheme.primaryTeal),
+                      avatar: const Icon(
+                        Icons.chat_bubble_outline_rounded,
+                        size: 14,
+                        color: AppTheme.primaryTeal,
+                      ),
                       label: Text(
                         q,
                         style: const TextStyle(
@@ -801,9 +876,16 @@ class _AiAssistantPageState extends State<AiAssistantPage> {
                           fontWeight: FontWeight.w500,
                         ),
                       ),
-                      backgroundColor: AppTheme.primaryTeal.withValues(alpha: 0.06),
-                      side: BorderSide(color: AppTheme.primaryTeal.withValues(alpha: 0.25)),
-                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                      backgroundColor: AppTheme.primaryTeal.withValues(
+                        alpha: 0.06,
+                      ),
+                      side: BorderSide(
+                        color: AppTheme.primaryTeal.withValues(alpha: 0.25),
+                      ),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 4,
+                        vertical: 2,
+                      ),
                       onPressed: _isThinking ? null : () => _sendMessage(q),
                     );
                   }).toList(),
@@ -816,7 +898,13 @@ class _AiAssistantPageState extends State<AiAssistantPage> {
                 alignment: Alignment.centerRight,
                 child: TextButton.icon(
                   onPressed: () {
-                    Clipboard.setData(ClipboardData(text: resp.text.isNotEmpty ? resp.text : resp.understanding));
+                    Clipboard.setData(
+                      ClipboardData(
+                        text: resp.text.isNotEmpty
+                            ? resp.text
+                            : resp.understanding,
+                      ),
+                    );
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
                         content: Text('Message copied to clipboard ✓'),
@@ -824,8 +912,15 @@ class _AiAssistantPageState extends State<AiAssistantPage> {
                       ),
                     );
                   },
-                  icon: const Icon(Icons.copy_rounded, size: 14, color: AppTheme.textMuted),
-                  label: const Text('Copy', style: TextStyle(fontSize: 11, color: AppTheme.textMuted)),
+                  icon: const Icon(
+                    Icons.copy_rounded,
+                    size: 14,
+                    color: AppTheme.textMuted,
+                  ),
+                  label: const Text(
+                    'Copy',
+                    style: TextStyle(fontSize: 11, color: AppTheme.textMuted),
+                  ),
                 ),
               ),
             ],
@@ -852,7 +947,10 @@ class _AiAssistantPageState extends State<AiAssistantPage> {
             children: [
               // Red Emergency Header Banner
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
                 decoration: BoxDecoration(
                   color: AppTheme.accentRed,
                   borderRadius: BorderRadius.circular(10),
@@ -889,7 +987,11 @@ class _AiAssistantPageState extends State<AiAssistantPage> {
               const SizedBox(height: 8),
               const Text(
                 'Severe emergency symptoms reported. Please seek immediate clinical emergency evaluation. Do not attempt to drive yourself.',
-                style: TextStyle(fontSize: 13, color: AppTheme.textDark, height: 1.4),
+                style: TextStyle(
+                  fontSize: 13,
+                  color: AppTheme.textDark,
+                  height: 1.4,
+                ),
               ),
 
               // Red-Flag Warnings
@@ -905,22 +1007,32 @@ class _AiAssistantPageState extends State<AiAssistantPage> {
                   ),
                 ),
                 const SizedBox(height: 4),
-                ...resp.warningSigns.map((w) => Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 2.0),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Icon(Icons.warning_amber_rounded, size: 16, color: AppTheme.accentRed),
-                      const SizedBox(width: 6),
-                      Expanded(
-                        child: Text(
-                          w,
-                          style: const TextStyle(fontSize: 12.5, color: AppTheme.accentRed, fontWeight: FontWeight.w500),
+                ...resp.warningSigns.map(
+                  (w) => Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 2.0),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(
+                          Icons.warning_amber_rounded,
+                          size: 16,
+                          color: AppTheme.accentRed,
                         ),
-                      ),
-                    ],
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            w,
+                            style: const TextStyle(
+                              fontSize: 12.5,
+                              color: AppTheme.accentRed,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                )),
+                ),
               ],
 
               const SizedBox(height: 16),
@@ -936,7 +1048,10 @@ class _AiAssistantPageState extends State<AiAssistantPage> {
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppTheme.accentRed,
                       foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
                     ),
                   ),
                   OutlinedButton.icon(
@@ -946,26 +1061,37 @@ class _AiAssistantPageState extends State<AiAssistantPage> {
                     style: OutlinedButton.styleFrom(
                       foregroundColor: AppTheme.accentRed,
                       side: const BorderSide(color: AppTheme.accentRed),
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
                     ),
                   ),
                   ElevatedButton.icon(
-                    onPressed: () => Navigator.pushNamed(context, AppRoutes.emergency),
+                    onPressed: () =>
+                        Navigator.pushNamed(context, AppRoutes.emergency),
                     icon: const Icon(Icons.sos_rounded, size: 18),
                     label: const Text('Trigger Emergency SOS'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.red.shade900,
                       foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
                     ),
                   ),
                   OutlinedButton.icon(
-                    onPressed: () => Navigator.pushNamed(context, AppRoutes.hospitals),
+                    onPressed: () =>
+                        Navigator.pushNamed(context, AppRoutes.hospitals),
                     icon: const Icon(Icons.local_hospital_rounded, size: 18),
                     label: const Text('Nearest ER Hospitals'),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: AppTheme.textDark,
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
                     ),
                   ),
                 ],
@@ -1008,13 +1134,19 @@ class _AiAssistantPageState extends State<AiAssistantPage> {
               Row(
                 children: [
                   Icon(
-                    isGemini ? Icons.smart_toy_outlined : Icons.offline_bolt_outlined,
-                    color: isGemini ? AppTheme.primaryTeal : Colors.amber.shade900,
+                    isGemini
+                        ? Icons.smart_toy_outlined
+                        : Icons.offline_bolt_outlined,
+                    color: isGemini
+                        ? AppTheme.primaryTeal
+                        : Colors.amber.shade900,
                   ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      resp.category.isNotEmpty ? resp.category : 'Health Information',
+                      resp.category.isNotEmpty
+                          ? resp.category
+                          : 'Health Information',
                       style: const TextStyle(
                         fontWeight: FontWeight.bold,
                         fontSize: 15,
@@ -1023,7 +1155,10 @@ class _AiAssistantPageState extends State<AiAssistantPage> {
                     ),
                   ),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 4,
+                    ),
                     decoration: BoxDecoration(
                       color: isGemini
                           ? AppTheme.primaryTeal.withValues(alpha: 0.1)
@@ -1040,7 +1175,9 @@ class _AiAssistantPageState extends State<AiAssistantPage> {
                       style: TextStyle(
                         fontSize: 10.5,
                         fontWeight: FontWeight.bold,
-                        color: isGemini ? AppTheme.primaryTeal : Colors.amber.shade900,
+                        color: isGemini
+                            ? AppTheme.primaryTeal
+                            : Colors.amber.shade900,
                       ),
                     ),
                   ),
@@ -1051,7 +1188,11 @@ class _AiAssistantPageState extends State<AiAssistantPage> {
               // Text or Understanding
               Text(
                 resp.text.isNotEmpty ? resp.text : resp.understanding,
-                style: const TextStyle(fontSize: 14, height: 1.5, color: AppTheme.textDark),
+                style: const TextStyle(
+                  fontSize: 14,
+                  height: 1.5,
+                  color: AppTheme.textDark,
+                ),
               ),
 
               // Considerations
@@ -1073,8 +1214,19 @@ class _AiAssistantPageState extends State<AiAssistantPage> {
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text('• ', style: TextStyle(fontWeight: FontWeight.bold, color: AppTheme.primaryTeal)),
-                        Expanded(child: Text(c, style: const TextStyle(fontSize: 13, height: 1.4))),
+                        const Text(
+                          '• ',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: AppTheme.primaryTeal,
+                          ),
+                        ),
+                        Expanded(
+                          child: Text(
+                            c,
+                            style: const TextStyle(fontSize: 13, height: 1.4),
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -1100,9 +1252,18 @@ class _AiAssistantPageState extends State<AiAssistantPage> {
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Icon(Icons.check_circle_outline, size: 16, color: AppTheme.primaryTeal),
+                        const Icon(
+                          Icons.check_circle_outline,
+                          size: 16,
+                          color: AppTheme.primaryTeal,
+                        ),
                         const SizedBox(width: 6),
-                        Expanded(child: Text(a, style: const TextStyle(fontSize: 13, height: 1.4))),
+                        Expanded(
+                          child: Text(
+                            a,
+                            style: const TextStyle(fontSize: 13, height: 1.4),
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -1119,24 +1280,53 @@ class _AiAssistantPageState extends State<AiAssistantPage> {
                 runSpacing: 8,
                 children: [
                   ActionChip(
-                    avatar: const Icon(Icons.copy_rounded, size: 15, color: AppTheme.textDark),
-                    label: const Text('Copy Guidance', style: TextStyle(fontSize: 11)),
+                    avatar: const Icon(
+                      Icons.copy_rounded,
+                      size: 15,
+                      color: AppTheme.textDark,
+                    ),
+                    label: const Text(
+                      'Copy Guidance',
+                      style: TextStyle(fontSize: 11),
+                    ),
                     onPressed: () {
-                      Clipboard.setData(ClipboardData(text: resp.text.isNotEmpty ? resp.text : resp.understanding));
+                      Clipboard.setData(
+                        ClipboardData(
+                          text: resp.text.isNotEmpty
+                              ? resp.text
+                              : resp.understanding,
+                        ),
+                      );
                       ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Guidance copied to clipboard ✓')),
+                        const SnackBar(
+                          content: Text('Guidance copied to clipboard ✓'),
+                        ),
                       );
                     },
                   ),
                   ActionChip(
-                    avatar: const Icon(Icons.bookmark_add_outlined, size: 15, color: AppTheme.primaryBlue),
-                    label: const Text('Save to Health Vault', style: TextStyle(fontSize: 11)),
+                    avatar: const Icon(
+                      Icons.bookmark_add_outlined,
+                      size: 15,
+                      color: AppTheme.primaryBlue,
+                    ),
+                    label: const Text(
+                      'Save to Health Vault',
+                      style: TextStyle(fontSize: 11),
+                    ),
                     onPressed: () => _saveSummaryToVault(resp),
                   ),
                   if (resp.isFallback && lastQuery != null)
                     ActionChip(
-                      avatar: const Icon(Icons.refresh_rounded, size: 15, color: AppTheme.primaryTeal),
-                      label: const Text('Try AI again', style: TextStyle(fontSize: 11)),
+                      avatar: const Icon(
+                        Icons.refresh_rounded,
+                        size: 15,
+                        color: AppTheme.primaryTeal,
+                      ),
+                      label: const Text(
+                        'Try AI again',
+                        style: TextStyle(fontSize: 11),
+                      ),
                       onPressed: () => _retryQuery(lastQuery),
                     ),
                 ],
@@ -1146,7 +1336,11 @@ class _AiAssistantPageState extends State<AiAssistantPage> {
                 const SizedBox(height: 12),
                 Text(
                   resp.disclaimer,
-                  style: const TextStyle(fontSize: 11, fontStyle: FontStyle.italic, color: AppTheme.textMuted),
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontStyle: FontStyle.italic,
+                    color: AppTheme.textMuted,
+                  ),
                 ),
               ],
             ],
@@ -1206,8 +1400,12 @@ class _AiAssistantPageState extends State<AiAssistantPage> {
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   Icon(
-                    isGemini ? Icons.smart_toy_outlined : Icons.offline_bolt_outlined,
-                    color: isGemini ? AppTheme.primaryTeal : Colors.amber.shade900,
+                    isGemini
+                        ? Icons.smart_toy_outlined
+                        : Icons.offline_bolt_outlined,
+                    color: isGemini
+                        ? AppTheme.primaryTeal
+                        : Colors.amber.shade900,
                   ),
                   const SizedBox(width: 8),
                   Expanded(
@@ -1216,12 +1414,17 @@ class _AiAssistantPageState extends State<AiAssistantPage> {
                       style: TextStyle(
                         fontWeight: FontWeight.bold,
                         fontSize: 16,
-                        color: isGemini ? AppTheme.primaryTeal : AppTheme.textDark,
+                        color: isGemini
+                            ? AppTheme.primaryTeal
+                            : AppTheme.textDark,
                       ),
                     ),
                   ),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 4,
+                    ),
                     decoration: BoxDecoration(
                       color: isGemini
                           ? AppTheme.primaryTeal.withValues(alpha: 0.12)
@@ -1238,7 +1441,9 @@ class _AiAssistantPageState extends State<AiAssistantPage> {
                       style: TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.bold,
-                        color: isGemini ? AppTheme.primaryTeal : Colors.amber.shade900,
+                        color: isGemini
+                            ? AppTheme.primaryTeal
+                            : Colors.amber.shade900,
                       ),
                     ),
                   ),
@@ -1248,7 +1453,10 @@ class _AiAssistantPageState extends State<AiAssistantPage> {
 
               // Urgency Classification Banner
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
                 decoration: BoxDecoration(
                   color: urgencyBg,
                   borderRadius: BorderRadius.circular(10),
@@ -1322,7 +1530,10 @@ class _AiAssistantPageState extends State<AiAssistantPage> {
                           ),
                         ),
                         Expanded(
-                          child: Text(item, style: const TextStyle(fontSize: 13)),
+                          child: Text(
+                            item,
+                            style: const TextStyle(fontSize: 13),
+                          ),
                         ),
                       ],
                     ),
@@ -1356,7 +1567,10 @@ class _AiAssistantPageState extends State<AiAssistantPage> {
                         ),
                         const SizedBox(width: 6),
                         Expanded(
-                          child: Text(item, style: const TextStyle(fontSize: 13)),
+                          child: Text(
+                            item,
+                            style: const TextStyle(fontSize: 13),
+                          ),
                         ),
                       ],
                     ),
@@ -1455,20 +1669,43 @@ class _AiAssistantPageState extends State<AiAssistantPage> {
                 runSpacing: 8,
                 children: [
                   ActionChip(
-                    avatar: const Icon(Icons.local_hospital, size: 16, color: AppTheme.primaryTeal),
-                    label: const Text('Nearby Hospital', style: TextStyle(fontSize: 11)),
-                    onPressed: () => Navigator.pushNamed(context, AppRoutes.hospitals),
+                    avatar: const Icon(
+                      Icons.local_hospital,
+                      size: 16,
+                      color: AppTheme.primaryTeal,
+                    ),
+                    label: const Text(
+                      'Nearby Hospital',
+                      style: TextStyle(fontSize: 11),
+                    ),
+                    onPressed: () =>
+                        Navigator.pushNamed(context, AppRoutes.hospitals),
                   ),
                   ActionChip(
-                    avatar: const Icon(Icons.sos_rounded, size: 16, color: AppTheme.accentRed),
-                    label: const Text('Emergency SOS', style: TextStyle(fontSize: 11)),
+                    avatar: const Icon(
+                      Icons.sos_rounded,
+                      size: 16,
+                      color: AppTheme.accentRed,
+                    ),
+                    label: const Text(
+                      'Emergency SOS',
+                      style: TextStyle(fontSize: 11),
+                    ),
                     backgroundColor: const Color(0xFFFEF2F2),
                     side: const BorderSide(color: AppTheme.accentRed),
-                    onPressed: () => Navigator.pushNamed(context, AppRoutes.emergency),
+                    onPressed: () =>
+                        Navigator.pushNamed(context, AppRoutes.emergency),
                   ),
                   ActionChip(
-                    avatar: const Icon(Icons.copy_rounded, size: 16, color: AppTheme.textDark),
-                    label: const Text('Copy Guidance', style: TextStyle(fontSize: 11)),
+                    avatar: const Icon(
+                      Icons.copy_rounded,
+                      size: 16,
+                      color: AppTheme.textDark,
+                    ),
+                    label: const Text(
+                      'Copy Guidance',
+                      style: TextStyle(fontSize: 11),
+                    ),
                     onPressed: () {
                       final fullText = resp.text.isNotEmpty
                           ? resp.text
@@ -1483,20 +1720,44 @@ class _AiAssistantPageState extends State<AiAssistantPage> {
                     },
                   ),
                   ActionChip(
-                    avatar: const Icon(Icons.bookmark_add_outlined, size: 16, color: AppTheme.primaryBlue),
-                    label: const Text('Save to Health Vault', style: TextStyle(fontSize: 11)),
+                    avatar: const Icon(
+                      Icons.bookmark_add_outlined,
+                      size: 16,
+                      color: AppTheme.primaryBlue,
+                    ),
+                    label: const Text(
+                      'Save to Health Vault',
+                      style: TextStyle(fontSize: 11),
+                    ),
                     onPressed: () => _saveSummaryToVault(resp),
                   ),
                   ActionChip(
-                    avatar: const Icon(Icons.alarm_add, size: 16, color: Colors.purple),
-                    label: const Text('Add Medicine Reminder', style: TextStyle(fontSize: 11)),
-                    onPressed: () => Navigator.pushNamed(context, AppRoutes.medicines),
+                    avatar: const Icon(
+                      Icons.alarm_add,
+                      size: 16,
+                      color: Colors.purple,
+                    ),
+                    label: const Text(
+                      'Add Medicine Reminder',
+                      style: TextStyle(fontSize: 11),
+                    ),
+                    onPressed: () =>
+                        Navigator.pushNamed(context, AppRoutes.medicines),
                   ),
                   if (resp.isFallback && lastQuery != null)
                     ActionChip(
-                      avatar: const Icon(Icons.refresh_rounded, size: 16, color: AppTheme.primaryTeal),
-                      label: const Text('Try AI again', style: TextStyle(fontSize: 11)),
-                      backgroundColor: AppTheme.primaryTeal.withValues(alpha: 0.08),
+                      avatar: const Icon(
+                        Icons.refresh_rounded,
+                        size: 16,
+                        color: AppTheme.primaryTeal,
+                      ),
+                      label: const Text(
+                        'Try AI again',
+                        style: TextStyle(fontSize: 11),
+                      ),
+                      backgroundColor: AppTheme.primaryTeal.withValues(
+                        alpha: 0.08,
+                      ),
                       side: const BorderSide(color: AppTheme.primaryTeal),
                       onPressed: () => _retryQuery(lastQuery),
                     ),
@@ -1522,12 +1783,14 @@ class _AiAssistantPageState extends State<AiAssistantPage> {
   }
 
   Widget _buildRecommendedCareCard(AIResponse resp) {
-    final care = resp.recommendedCare ??
+    final care =
+        resp.recommendedCare ??
         RecommendedCare(
           clinicianType: 'General Physician / Primary-Care Doctor',
           urgency: 'routine',
           urgencyLabel: 'Medical Consultation',
-          reason: 'A qualified clinician can physically examine your symptoms and provide personalized diagnosis.',
+          reason:
+              'A qualified clinician can physically examine your symptoms and provide personalized diagnosis.',
         );
 
     return Container(
@@ -1549,7 +1812,11 @@ class _AiAssistantPageState extends State<AiAssistantPage> {
                   color: AppTheme.primaryTeal.withValues(alpha: 0.15),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(Icons.medical_services_rounded, color: AppTheme.primaryTeal, size: 20),
+                child: const Icon(
+                  Icons.medical_services_rounded,
+                  color: AppTheme.primaryTeal,
+                  size: 20,
+                ),
               ),
               const SizedBox(width: 10),
               Expanded(
@@ -1582,7 +1849,9 @@ class _AiAssistantPageState extends State<AiAssistantPage> {
                 decoration: BoxDecoration(
                   color: Colors.teal.shade50,
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: AppTheme.primaryTeal.withValues(alpha: 0.4)),
+                  border: Border.all(
+                    color: AppTheme.primaryTeal.withValues(alpha: 0.4),
+                  ),
                 ),
                 child: Text(
                   care.urgencyLabel,
@@ -1610,14 +1879,17 @@ class _AiAssistantPageState extends State<AiAssistantPage> {
           SizedBox(
             width: double.infinity,
             child: OutlinedButton.icon(
-              onPressed: () => Navigator.pushNamed(context, AppRoutes.hospitals),
+              onPressed: () =>
+                  Navigator.pushNamed(context, AppRoutes.hospitals),
               icon: const Icon(Icons.map_rounded, size: 16),
               label: const Text('Find Nearby Clinics & Hospitals'),
               style: OutlinedButton.styleFrom(
                 foregroundColor: AppTheme.primaryTeal,
                 side: const BorderSide(color: AppTheme.primaryTeal),
                 visualDensity: VisualDensity.compact,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
               ),
             ),
           ),
@@ -1647,7 +1919,11 @@ class _AiAssistantPageState extends State<AiAssistantPage> {
           runSpacing: 8,
           children: questions.map((q) {
             return ActionChip(
-              avatar: const Icon(Icons.help_outline_rounded, size: 14, color: AppTheme.primaryBlue),
+              avatar: const Icon(
+                Icons.help_outline_rounded,
+                size: 14,
+                color: AppTheme.primaryBlue,
+              ),
               label: Text(
                 q,
                 style: const TextStyle(
@@ -1657,7 +1933,9 @@ class _AiAssistantPageState extends State<AiAssistantPage> {
                 ),
               ),
               backgroundColor: AppTheme.primaryBlue.withValues(alpha: 0.08),
-              side: BorderSide(color: AppTheme.primaryBlue.withValues(alpha: 0.3)),
+              side: BorderSide(
+                color: AppTheme.primaryBlue.withValues(alpha: 0.3),
+              ),
               padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
               onPressed: _isThinking ? null : () => _sendMessage(q),
             );

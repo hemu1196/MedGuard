@@ -45,7 +45,7 @@ class GeminiService {
       try {
         return await _sendProxyRequest(proxyUrl, apiKey, prompt, conversationHistory);
       } catch (e) {
-        debugPrint('[GEMINI PROXY ERROR] $e. Falling back to direct API...');
+        debugPrint('[GEMINI_SERVICE] Operation status changed.');
       }
     }
 
@@ -77,7 +77,7 @@ class GeminiService {
           return responseText;
         }
       } catch (e) {
-        debugPrint('[GEMINI SDK MODEL FAILED: $modelName] $e');
+        debugPrint('[GEMINI_SERVICE] Operation status changed.');
         _evaluateAndReThrowSpecificErrors(e);
       }
     }
@@ -90,7 +90,7 @@ class GeminiService {
           return responseText;
         }
       } catch (e) {
-        debugPrint('[GEMINI REST MODEL FAILED: $modelName] $e');
+        debugPrint('[GEMINI_SERVICE] Operation status changed.');
         _evaluateAndReThrowSpecificErrors(e);
       }
     }
@@ -280,7 +280,7 @@ class GeminiService {
           return Map<String, dynamic>.from(decoded);
         }
       } catch (e) {
-        debugPrint('[GEMINI OCR ERROR: $modelName] $e');
+        debugPrint('[GEMINI_SERVICE] Operation status changed.');
       }
     }
 

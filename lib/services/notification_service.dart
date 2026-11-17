@@ -1,4 +1,7 @@
 import 'dart:async';
+import 'dart:convert';
+import '../core/api/api_client.dart';
+import 'medicine_schedule.dart';
 import 'dart:ui';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -19,6 +22,7 @@ class MedicineAlertEvent {
   final String scheduledTime;
   final DateTime timestamp;
   final int? snoozeMinutes;
+  final DateTime? occurrenceDate;
 
   MedicineAlertEvent({
     required this.medicineId,
@@ -26,7 +30,7 @@ class MedicineAlertEvent {
     required this.dosage,
     required this.scheduledTime,
     DateTime? timestamp,
-    this.snoozeMinutes,
+    this.snoozeMinutes, this.occurrenceDate,
   }) : timestamp = timestamp ?? DateTime.now();
 }
 
@@ -211,6 +215,10 @@ class NotificationService {
     final payload = response.payload;
     if (payload == null || payload.isEmpty) return;
 
+    if (payload.startsWith('med_v3:')) {
+      _handleOccurrenceResponse(response, payload.substring(7));
+      return;
+    }
     final parts = payload.split('|');
     if (parts.length >= 4 && parts[0] == 'med_reminder') {
       final medicineId = parts[1];
@@ -263,6 +271,36 @@ class NotificationService {
         ),
       );
     }
+  }
+
+  Future<void> _handleOccurrenceResponse(NotificationResponse response, String raw) async {
+    try {
+      final p = Map<String, dynamic>.from(jsonDecode(utf8.decode(base64Url.decode(base64Url.normalize(raw)))));
+      if ((await ApiClient().getStoredUser())?['_id']?.toString() != p['userId']) return;
+      final day = DateTime.parse(p['day']);
+      if (response.actionId == 'action_taken' || response.actionId == 'action_skip') {
+        await MedicineRepository().logMedicationDose(medicineId:p['id'], scheduledTime:p['time'], scheduledDate:day, status:response.actionId == 'action_taken' ? 'taken' : 'skipped');
+        return;
+      }
+      if (response.actionId == 'action_snooze') {
+        await scheduleExactMedicineReminder(medicineId:p['id'], medicineName:p['name'], dosage:p['dosage'], timeStr:p['time'], snoozeMinutes:10, occurrenceDate:day, oneShot:true);
+        return;
+      }
+      _alertController.add(MedicineAlertEvent(medicineId:p['id'], medicineName:p['name'], dosage:p['dosage'], scheduledTime:p['time'], occurrenceDate:day));
+    } catch (_) { debugPrint('[REMINDER] Invalid or obsolete notification payload.'); }
+  }
+
+  Future<bool> scheduleMedicine(Medicine medicine) async {
+    await init();
+    await cancelMedicineReminders(medicine.id);
+    final doses = MedicineSchedule.upcoming(medicine, tz.local, DateTime.now());
+    if(!kIsWeb && (await getPendingNotifications()).length+doses.length>450) return false;
+    var ok = true;
+    for (final dose in doses) {
+      final scheduled = await scheduleExactMedicineReminder(medicineId:medicine.id, medicineName:medicine.name, dosage:medicine.dosage, timeStr:dose.time, fireAt:dose.instant, occurrenceDate:DateTime(dose.instant.year,dose.instant.month,dose.instant.day), oneShot:true);
+      ok = ok && scheduled;
+    }
+    return ok;
   }
 
   Future<bool> requestPermission() async {
@@ -318,7 +356,8 @@ class NotificationService {
 
   int generateMedicineNotifId(String medicineId, String timeStr) {
     final combined = '$medicineId|$timeStr';
-    return _medicineIdBase + ((combined.hashCode.abs()) % _idRange);
+    var hash=2166136261;for(final unit in combined.codeUnits){hash=((hash^unit)*16777619)&0x7fffffff;}
+    return _medicineIdBase + (hash % _idRange);
   }
 
   int generateAppointmentNotifId(String appointmentId, int offset) {
@@ -401,17 +440,21 @@ class NotificationService {
     String frequency = 'Daily',
     DateTime? startDate,
     int? snoozeMinutes,
+    DateTime? occurrenceDate, DateTime? fireAt, bool oneShot = false,
   }) async {
     await init();
 
-    final scheduledTzTime = computeNextScheduledTzTime(
+    final scheduledTzTime = fireAt != null ? tz.TZDateTime.from(fireAt, tz.local) : computeNextScheduledTzTime(
       timeStr: timeStr,
       startDate: startDate,
       snoozeMinutes: snoozeMinutes,
     );
 
-    final notifId = generateMedicineNotifId(medicineId, timeStr);
-    final payload = 'med_reminder|$medicineId|$medicineName|$dosage|$timeStr';
+    final day = occurrenceDate ?? scheduledTzTime;
+    final dateKey = '${day.year.toString().padLeft(4, '0')}-${day.month.toString().padLeft(2, '0')}-${day.day.toString().padLeft(2, '0')}';
+    final notifId = generateMedicineNotifId(medicineId, oneShot || snoozeMinutes != null ? '$dateKey|$timeStr|${snoozeMinutes != null ? 'snooze' : 'dose'}' : timeStr);
+    final userId = (await ApiClient().getStoredUser())?['_id']?.toString();
+    final payload = 'med_v3:${base64Url.encode(utf8.encode(jsonEncode({'id':medicineId,'name':medicineName,'dosage':dosage,'time':timeStr,'day':dateKey,'userId':userId})))}';
 
     // Store mapped ID for reliable cancellation
     await _recordScheduledId(_scheduledMedicineIdsPrefix, medicineId, notifId);
@@ -431,7 +474,7 @@ class NotificationService {
             medicineName: medicineName,
             dosage: dosage,
             scheduledTime: timeStr,
-            snoozeMinutes: snoozeMinutes,
+            snoozeMinutes: snoozeMinutes, occurrenceDate: occurrenceDate ?? DateTime(scheduledTzTime.year,scheduledTzTime.month,scheduledTzTime.day),
           ),
         );
       });
@@ -451,7 +494,7 @@ class NotificationService {
       enableVibration: true,
       playSound: true,
       channelShowBadge: true,
-      visibility: NotificationVisibility.public,
+      visibility: NotificationVisibility.private,
       ticker: 'MEDGUARD Medicine Reminder',
       actions: <AndroidNotificationAction>[
         AndroidNotificationAction(
@@ -489,7 +532,7 @@ class NotificationService {
 
     // Select repeat match based on frequency
     DateTimeComponents? matchComponents;
-    if (snoozeMinutes != null && snoozeMinutes > 0) {
+    if (oneShot || (snoozeMinutes != null && snoozeMinutes > 0)) {
       matchComponents = null; // One-time snooze
     } else if (frequency.toLowerCase() == 'weekly') {
       matchComponents = DateTimeComponents.dayOfWeekAndTime;
@@ -553,7 +596,7 @@ class NotificationService {
             medicineName: medicineName,
             dosage: dosage,
             scheduledTime: timeStr,
-            snoozeMinutes: snoozeMinutes,
+            snoozeMinutes: snoozeMinutes, occurrenceDate: occurrenceDate ?? DateTime(scheduledTzTime.year,scheduledTzTime.month,scheduledTzTime.day),
           ),
         );
       });
@@ -664,7 +707,7 @@ class NotificationService {
           playSound: true,
           enableVibration: true,
           channelShowBadge: true,
-          visibility: NotificationVisibility.public,
+          visibility: NotificationVisibility.private,
         );
         const details = NotificationDetails(android: androidDetails);
         final payload = 'appointment|$appointmentId|$doctorName|$timeStr';
@@ -760,20 +803,17 @@ class NotificationService {
     required List<Appointment> appointments,
   }) async {
     await init();
+    // Re-read the IANA zone on foreground resume; rebuild dated alerts in the current zone.
+    try {final zone=await FlutterTimezone.getLocalTimezone();if(tz.timeZoneDatabase.locations.containsKey(zone.identifier))tz.setLocalLocation(tz.getLocation(zone.identifier));}catch(_){}
+    final activeIds=medicines.map((m)=>m.id).toSet();
+    final prefs=await SharedPreferences.getInstance();
+    for(final key in prefs.getKeys().where((k)=>k.startsWith(_scheduledMedicineIdsPrefix)).toList()) {
+      final id=key.substring(_scheduledMedicineIdsPrefix.length);if(!activeIds.contains(id))await cancelMedicineReminders(id);
+    }
     debugPrint('[NOTIFICATION SERVICE] Reconciling schedules: ${medicines.length} medicines, ${appointments.length} appointments');
 
-    // 1. Reschedule all active medicines
-    for (final med in medicines) {
-      for (final time in med.reminderTimes) {
-        await scheduleExactMedicineReminder(
-          medicineId: med.id,
-          medicineName: med.name,
-          dosage: med.dosage,
-          timeStr: time,
-          frequency: med.frequency,
-        );
-      }
-    }
+    // Dated one-shot notifications preserve end dates and original occurrence IDs.
+    for (final med in medicines) { await scheduleMedicine(med); }
 
     // 2. Reschedule all upcoming appointments
     for (final appt in appointments) {
@@ -850,7 +890,7 @@ class NotificationService {
       enableVibration: true,
       playSound: true,
       channelShowBadge: true,
-      visibility: NotificationVisibility.public,
+      visibility: NotificationVisibility.private,
       ticker: 'MEDGUARD Diagnostic Alert',
     );
 
@@ -910,7 +950,7 @@ class NotificationService {
       enableVibration: true,
       playSound: true,
       channelShowBadge: true,
-      visibility: NotificationVisibility.public,
+      visibility: NotificationVisibility.private,
       ticker: 'MEDGUARD Scheduled Diagnostic',
     );
 

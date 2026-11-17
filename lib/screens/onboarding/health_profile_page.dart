@@ -7,12 +7,11 @@ import '../../app/theme.dart';
 import '../../core/api/api_client.dart';
 import '../../core/errors/app_exception.dart';
 import '../../core/utils/bmi_calculator.dart';
-import '../../models/emergency_contact.dart';
 import '../../models/user_profile.dart';
 import '../../repositories/auth_repository.dart';
-import '../../repositories/emergency_contact_repository.dart';
 import '../../repositories/profile_repository.dart';
 import '../../services/user_state_service.dart';
+import '../../services/profile_draft_store.dart';
 import '../../widgets/app_header.dart';
 
 class HealthProfilePage extends StatefulWidget {
@@ -26,7 +25,8 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
   int _currentStep = 0;
   final _profileRepository = ProfileRepository();
   final _authRepository = AuthRepository();
-  final _emergencyContactRepository = EmergencyContactRepository();
+  String? _draftUserId;
+  bool _hasUserEdits = false;
 
   // Step 1 Controllers & State
   final _nameController = TextEditingController();
@@ -85,23 +85,38 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
   @override
   void initState() {
     super.initState();
+    for (final controller in [
+      _nameController,
+      _heightController,
+      _weightController,
+      _allergiesController,
+      _conditionsController,
+      _medicationsController,
+      _emergencyNameController,
+      _emergencyPhoneController,
+    ]) {
+      controller.addListener(() => _hasUserEdits = true);
+    }
     _checkAuthAndLoadProfile();
   }
 
   void _checkAuthAndLoadProfile() async {
-    final isAuth = await _authRepository.isAuthenticated();
+    _draftUserId = (await ApiClient().getStoredUser())?['_id']?.toString();
+    // The gate/login already verified this session. Preserve local form access while offline.
+    final isAuth = await ApiClient().getToken() != null;
     if (!isAuth) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Authentication required. Please sign in to continue.'),
+            content: Text(
+              'Authentication required. Please sign in to continue.',
+            ),
             backgroundColor: AppTheme.accentRed,
           ),
         );
-        Navigator.of(context).pushNamedAndRemoveUntil(
-          AppRoutes.login,
-          (route) => false,
-        );
+        Navigator.of(
+          context,
+        ).pushNamedAndRemoveUntil(AppRoutes.login, (route) => false);
       }
       return;
     }
@@ -111,28 +126,45 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
   void _loadExistingProfile() async {
     try {
       final userId = await _authRepository.getCurrentUserId();
-      final existing = await _profileRepository.getProfile(userId: userId);
+      _draftUserId = userId;
+      final draft = await ProfileDraftStore.read(userId);
+      UserProfile? existing = draft;
+      if (existing == null) {
+        try {
+          existing = await _profileRepository.getProfile(userId: userId);
+        } on AuthenticationException {
+          return;
+        }
+      }
       final prefs = await SharedPreferences.getInstance();
       final savedPath = prefs.getString('user_profile_image_$userId');
 
-      if (existing != null && mounted) {
+      final loadedProfile = existing;
+      if (loadedProfile != null && mounted && !_hasUserEdits) {
         setState(() {
-          _nameController.text = existing.name;
-          _selectedDob = existing.dateOfBirth;
-          _selectedGender = _genders.contains(existing.gender) ? existing.gender : 'Male';
-          _selectedBloodGroup = _bloodGroups.contains(existing.bloodGroup) ? existing.bloodGroup : 'O+';
-          _heightController.text = existing.height;
-          _weightController.text = existing.weight;
-          _allergiesController.text = existing.allergies;
-          _conditionsController.text = existing.existingConditions;
-          _medicationsController.text = existing.currentMedications;
-          _emergencyNameController.text = existing.emergencyContactName;
-          _selectedCountryCode = existing.emergencyCountryCode.isNotEmpty ? existing.emergencyCountryCode : '+91';
-          _emergencyPhoneController.text = existing.emergencyPhone;
-          _selectedRelationship = _relationships.contains(existing.emergencyRelationship)
-              ? existing.emergencyRelationship
+          _nameController.text = loadedProfile.name;
+          _selectedDob = loadedProfile.dateOfBirth;
+          _selectedGender = _genders.contains(loadedProfile.gender)
+              ? loadedProfile.gender
+              : 'Male';
+          _selectedBloodGroup = _bloodGroups.contains(loadedProfile.bloodGroup)
+              ? loadedProfile.bloodGroup
+              : 'O+';
+          _heightController.text = loadedProfile.height;
+          _weightController.text = loadedProfile.weight;
+          _allergiesController.text = loadedProfile.allergies;
+          _conditionsController.text = loadedProfile.existingConditions;
+          _medicationsController.text = loadedProfile.currentMedications;
+          _emergencyNameController.text = loadedProfile.emergencyContactName;
+          _selectedCountryCode = loadedProfile.emergencyCountryCode.isNotEmpty
+              ? loadedProfile.emergencyCountryCode
+              : '+91';
+          _emergencyPhoneController.text = loadedProfile.emergencyPhone;
+          _selectedRelationship =
+              _relationships.contains(loadedProfile.emergencyRelationship)
+              ? loadedProfile.emergencyRelationship
               : 'Dad';
-          _existingImagePath = savedPath ?? existing.profileImagePath;
+          _existingImagePath = savedPath ?? loadedProfile.profileImagePath;
         });
       }
     } catch (e) {
@@ -156,7 +188,8 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
   int _calculateAge(DateTime dob) {
     final now = DateTime.now();
     int age = now.year - dob.year;
-    if (now.month < dob.month || (now.month == dob.month && now.day < dob.day)) {
+    if (now.month < dob.month ||
+        (now.month == dob.month && now.day < dob.day)) {
       age--;
     }
     return age;
@@ -172,6 +205,7 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
     );
     if (picked != null) {
       setState(() {
+        _hasUserEdits = true;
         _selectedDob = picked;
       });
     }
@@ -205,7 +239,11 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
     final heightVal = double.tryParse(heightText);
     if (heightText.isEmpty || heightVal == null || heightVal <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter a valid positive height in cm (e.g. 174)')),
+        const SnackBar(
+          content: Text(
+            'Please enter a valid positive height in cm (e.g. 174)',
+          ),
+        ),
       );
       setState(() => _currentStep = 1);
       return;
@@ -216,7 +254,9 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
     final weightVal = double.tryParse(weightText);
     if (weightText.isEmpty || weightVal == null || weightVal <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter a valid positive weight in kg (e.g. 68)')),
+        const SnackBar(
+          content: Text('Please enter a valid positive weight in kg (e.g. 68)'),
+        ),
       );
       setState(() => _currentStep = 1);
       return;
@@ -226,7 +266,11 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
     final phoneText = _emergencyPhoneController.text.trim();
     if (phoneText.isNotEmpty && !RegExp(r'^\d{7,15}$').hasMatch(phoneText)) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Invalid phone number. Digits only expected (e.g. 9876543210)')),
+        const SnackBar(
+          content: Text(
+            'Invalid phone number. Digits only expected (e.g. 9876543210)',
+          ),
+        ),
       );
       setState(() => _currentStep = 2);
       return;
@@ -237,11 +281,7 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
     });
 
     try {
-      final token = await ApiClient().getToken();
-      if (token == null || token.isEmpty) {
-        throw AuthenticationException('Authentication required. No token provided.');
-      }
-      final userId = await _authRepository.getCurrentUserId();
+      final userId = _draftUserId ?? await _authRepository.getCurrentUserId();
 
       final profile = UserProfile(
         name: _nameController.text.trim(),
@@ -261,7 +301,14 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
         profileCompleted: true,
       );
 
-      debugPrint('PROFILE: saving profile to MongoDB Atlas');
+      await ProfileDraftStore.save(userId, profile);
+      final token = await ApiClient().getToken();
+      if (token == null) {
+        throw AuthenticationException(
+          'Please sign in again to save this profile. Your draft is preserved.',
+        );
+      }
+      debugPrint('PROFILE: saving profile');
       final saved = await _profileRepository.createProfile(
         uid: userId,
         profile: profile,
@@ -273,20 +320,9 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
       debugPrint('PROFILE: profile save completed');
       await ProfileStateManager.instance.loadProfile(force: true);
 
-      // Also save emergency contact to repository if phone is provided
-      if (phoneText.isNotEmpty) {
-        debugPrint('PROFILE: saving emergency contact');
-        final contact = EmergencyContact(
-          name: _emergencyNameController.text.trim().isNotEmpty
-              ? _emergencyNameController.text.trim()
-              : 'Emergency Contact',
-          countryCode: _selectedCountryCode,
-          phone: phoneText,
-          relationship: _selectedRelationship,
-        );
-        await _emergencyContactRepository.saveEmergencyContact(userId, contact);
-        debugPrint('PROFILE: emergency contact save completed');
-      }
+      // The authenticated backend profile update synchronizes the primary contact.
+      // Do not create a second contact from the client after an acknowledged save.
+      await ProfileDraftStore.remove(userId);
 
       if (!mounted) return;
 
@@ -300,28 +336,28 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
       if (Navigator.canPop(context)) {
         Navigator.pop(context, true);
       } else {
-        Navigator.of(context).pushNamedAndRemoveUntil(
-          AppRoutes.dashboard,
-          (route) => false,
-        );
+        Navigator.of(
+          context,
+        ).pushNamedAndRemoveUntil(AppRoutes.dashboard, (route) => false);
       }
-    } catch (e, stackTrace) {
-      debugPrint('PROFILE COMPLETION ERROR: $e');
-      debugPrint('$stackTrace');
+    } catch (e) {
+      debugPrint('PROFILE: save could not complete.');
       if (!mounted) return;
 
       final rawMsg = e.toString().replaceAll('Exception: ', '');
-      final isAuthError = rawMsg.toLowerCase().contains('authentication required') ||
-                          rawMsg.toLowerCase().contains('token expired') ||
-                          rawMsg.toLowerCase().contains('invalid token') ||
-                          rawMsg.toLowerCase().contains('no token') ||
-                          rawMsg.toLowerCase().contains('sign in again');
+      final isAuthError =
+          e is AuthenticationException ||
+          rawMsg.toLowerCase().contains('authentication required') ||
+          rawMsg.toLowerCase().contains('token expired') ||
+          rawMsg.toLowerCase().contains('invalid token') ||
+          rawMsg.toLowerCase().contains('no token') ||
+          rawMsg.toLowerCase().contains('sign in again');
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
             isAuthError
-                ? 'Session expired or authentication missing. Please sign in to save your profile.'
+                ? 'Please sign in again. Your profile draft has been preserved for this account.'
                 : 'Unable to save profile: $rawMsg',
           ),
           backgroundColor: AppTheme.accentRed,
@@ -356,7 +392,11 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
     if (h <= 0 || w <= 0) return const SizedBox.shrink();
 
     final userAge = _selectedDob != null ? _calculateAge(_selectedDob!) : 25;
-    final bmiResult = BmiCalculator.evaluate(heightCm: h, weightKg: w, age: userAge);
+    final bmiResult = BmiCalculator.evaluate(
+      heightCm: h,
+      weightKg: w,
+      age: userAge,
+    );
 
     Color badgeColor;
     if (bmiResult.bmi < 18.5) {
@@ -382,12 +422,18 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              alignment: WrapAlignment.spaceBetween,
               children: [
                 Row(
                   children: [
-                    Icon(Icons.monitor_weight_rounded, color: badgeColor, size: 20),
+                    Icon(
+                      Icons.monitor_weight_rounded,
+                      color: badgeColor,
+                      size: 20,
+                    ),
                     const SizedBox(width: 8),
                     const Text(
                       'BMI OVERVIEW',
@@ -400,7 +446,10 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
                   ],
                 ),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: badgeColor,
                     borderRadius: BorderRadius.circular(12),
@@ -470,370 +519,409 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
       child: Scaffold(
         appBar: const AppHeader(title: 'Complete Your Health Profile'),
         body: SafeArea(
-        child: Stepper(
-          type: StepperType.horizontal,
-          currentStep: _currentStep,
-          onStepTapped: (step) {
-            if (!_isSaving) {
-              setState(() => _currentStep = step);
-            }
-          },
-          onStepContinue: () {
-            if (_currentStep < 3) {
-              setState(() => _currentStep += 1);
-            } else {
-              _saveProfile();
-            }
-          },
-          onStepCancel: () {
-            if (_currentStep > 0 && !_isSaving) {
-              setState(() => _currentStep -= 1);
-            }
-          },
-          controlsBuilder: (context, details) {
-            final isLastStep = _currentStep == 3;
-            return Padding(
-              padding: const EdgeInsets.only(top: 24.0),
-              child: Row(
-                children: [
-                  if (_currentStep > 0)
-                    OutlinedButton(
-                      onPressed: _isSaving ? null : details.onStepCancel,
-                      child: const Text('Back'),
-                    ),
-                  const SizedBox(width: 12),
-                  ElevatedButton(
-                    onPressed: _isSaving ? null : details.onStepContinue,
-                    child: _isSaving
-                        ? const Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(
-                                  color: Colors.white,
-                                  strokeWidth: 2,
+          child: Stepper(
+            type: MediaQuery.sizeOf(context).width < 600
+                ? StepperType.vertical
+                : StepperType.horizontal,
+            currentStep: _currentStep,
+            onStepTapped: (step) {
+              if (!_isSaving) {
+                setState(() => _currentStep = step);
+              }
+            },
+            onStepContinue: () {
+              if (_currentStep < 3) {
+                setState(() => _currentStep += 1);
+              } else {
+                _saveProfile();
+              }
+            },
+            onStepCancel: () {
+              if (_currentStep > 0 && !_isSaving) {
+                setState(() => _currentStep -= 1);
+              }
+            },
+            controlsBuilder: (context, details) {
+              if (details.stepIndex != _currentStep) {
+                return const SizedBox.shrink();
+              }
+              final isLastStep = _currentStep == 3;
+              return Padding(
+                padding: const EdgeInsets.only(top: 24.0),
+                child: Wrap(
+                  spacing: 12,
+                  runSpacing: 8,
+                  children: [
+                    if (_currentStep > 0)
+                      OutlinedButton(
+                        onPressed: _isSaving ? null : details.onStepCancel,
+                        child: const Text('Back'),
+                      ),
+                    const SizedBox(width: 12),
+                    ElevatedButton(
+                      onPressed: _isSaving ? null : details.onStepContinue,
+                      child: _isSaving
+                          ? const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    color: Colors.white,
+                                    strokeWidth: 2,
+                                  ),
                                 ),
-                              ),
-                              SizedBox(width: 8),
-                              Text('Saving...'),
-                            ],
-                          )
-                        : Text(isLastStep ? 'Complete Profile' : 'Next Step'),
-                  ),
-                ],
-              ),
-            );
-          },
-          steps: [
-            // Step 1: Personal Info
-            Step(
-              title: const Text('Personal'),
-              isActive: _currentStep >= 0,
-              content: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  TextFormField(
-                    controller: _nameController,
-                    decoration: const InputDecoration(
-                      labelText: 'Full Name *',
-                      prefixIcon: Icon(Icons.person),
+                                SizedBox(width: 8),
+                                Text('Saving...'),
+                              ],
+                            )
+                          : Text(isLastStep ? 'Complete Profile' : 'Next Step'),
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                  InkWell(
-                    onTap: _pickDateOfBirth,
-                    borderRadius: BorderRadius.circular(12),
-                    child: InputDecorator(
+                  ],
+                ),
+              );
+            },
+            steps: [
+              // Step 1: Personal Info
+              Step(
+                title: const Text('Personal'),
+                isActive: _currentStep >= 0,
+                content: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    TextFormField(
+                      controller: _nameController,
                       decoration: const InputDecoration(
-                        labelText: 'Date of Birth *',
-                        prefixIcon: Icon(Icons.calendar_month),
+                        labelText: 'Full Name *',
+                        prefixIcon: Icon(Icons.person),
                       ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(
-                            _selectedDob != null
-                                ? DateFormat('MMM dd, yyyy').format(_selectedDob!)
-                                : 'Select Date of Birth',
-                          ),
-                          if (_selectedDob != null)
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 4,
-                              ),
-                              decoration: BoxDecoration(
-                                color: AppTheme.primaryTeal.withValues(alpha: 0.1),
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: Text(
-                                'Age: ${_calculateAge(_selectedDob!)} yrs',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  color: AppTheme.primaryTeal,
-                                  fontSize: 12,
+                    ),
+                    const SizedBox(height: 16),
+                    InkWell(
+                      onTap: _pickDateOfBirth,
+                      borderRadius: BorderRadius.circular(12),
+                      child: InputDecorator(
+                        decoration: const InputDecoration(
+                          labelText: 'Date of Birth *',
+                          prefixIcon: Icon(Icons.calendar_month),
+                        ),
+                        child: Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          alignment: WrapAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              _selectedDob != null
+                                  ? DateFormat(
+                                      'MMM dd, yyyy',
+                                    ).format(_selectedDob!)
+                                  : 'Select Date of Birth',
+                            ),
+                            if (_selectedDob != null)
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: AppTheme.primaryTeal.withValues(
+                                    alpha: 0.1,
+                                  ),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Text(
+                                  'Age: ${_calculateAge(_selectedDob!)} yrs',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    color: AppTheme.primaryTeal,
+                                    fontSize: 12,
+                                  ),
                                 ),
                               ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    DropdownButtonFormField<String>(
+                      isExpanded: true,
+                      initialValue: _selectedGender,
+                      decoration: const InputDecoration(
+                        labelText: 'Gender',
+                        prefixIcon: Icon(Icons.people_outline),
+                      ),
+                      items: _genders
+                          .map(
+                            (g) => DropdownMenuItem(value: g, child: Text(g)),
+                          )
+                          .toList(),
+                      onChanged: (val) {
+                        if (val != null) setState(() => _selectedGender = val);
+                      },
+                    ),
+                  ],
+                ),
+              ),
+
+              // Step 2: Health Info + BMI
+              Step(
+                title: const Text('Health'),
+                isActive: _currentStep >= 1,
+                content: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    DropdownButtonFormField<String>(
+                      isExpanded: true,
+                      initialValue: _selectedBloodGroup,
+                      decoration: const InputDecoration(
+                        labelText: 'Blood Group',
+                        prefixIcon: Icon(Icons.bloodtype_outlined),
+                      ),
+                      items: _bloodGroups
+                          .map(
+                            (bg) =>
+                                DropdownMenuItem(value: bg, child: Text(bg)),
+                          )
+                          .toList(),
+                      onChanged: (val) {
+                        if (val != null) {
+                          setState(() => _selectedBloodGroup = val);
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextFormField(
+                            controller: _heightController,
+                            keyboardType: TextInputType.number,
+                            inputFormatters: [
+                              FilteringTextInputFormatter.allow(
+                                RegExp(r'^\d*\.?\d*'),
+                              ),
+                            ],
+                            decoration: const InputDecoration(
+                              labelText: 'Height (cm)',
+                              prefixIcon: Icon(Icons.height),
                             ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  DropdownButtonFormField<String>(
-                    initialValue: _selectedGender,
-                    decoration: const InputDecoration(
-                      labelText: 'Gender',
-                      prefixIcon: Icon(Icons.people_outline),
-                    ),
-                    items: _genders
-                        .map((g) => DropdownMenuItem(value: g, child: Text(g)))
-                        .toList(),
-                    onChanged: (val) {
-                      if (val != null) setState(() => _selectedGender = val);
-                    },
-                  ),
-                ],
-              ),
-            ),
-
-            // Step 2: Health Info + BMI
-            Step(
-              title: const Text('Health'),
-              isActive: _currentStep >= 1,
-              content: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  DropdownButtonFormField<String>(
-                    initialValue: _selectedBloodGroup,
-                    decoration: const InputDecoration(
-                      labelText: 'Blood Group',
-                      prefixIcon: Icon(Icons.bloodtype_outlined),
-                    ),
-                    items: _bloodGroups
-                        .map((bg) => DropdownMenuItem(value: bg, child: Text(bg)))
-                        .toList(),
-                    onChanged: (val) {
-                      if (val != null) {
-                        setState(() => _selectedBloodGroup = val);
-                      }
-                    },
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextFormField(
-                          controller: _heightController,
-                          keyboardType: TextInputType.number,
-                          inputFormatters: [
-                            FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*')),
-                          ],
-                          decoration: const InputDecoration(
-                            labelText: 'Height (cm)',
-                            prefixIcon: Icon(Icons.height),
+                            onChanged: (_) => setState(() {}),
                           ),
-                          onChanged: (_) => setState(() {}),
                         ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: TextFormField(
-                          controller: _weightController,
-                          keyboardType: TextInputType.number,
-                          inputFormatters: [
-                            FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*')),
-                          ],
-                          decoration: const InputDecoration(
-                            labelText: 'Weight (kg)',
-                            prefixIcon: Icon(Icons.monitor_weight_outlined),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: TextFormField(
+                            controller: _weightController,
+                            keyboardType: TextInputType.number,
+                            inputFormatters: [
+                              FilteringTextInputFormatter.allow(
+                                RegExp(r'^\d*\.?\d*'),
+                              ),
+                            ],
+                            decoration: const InputDecoration(
+                              labelText: 'Weight (kg)',
+                              prefixIcon: Icon(Icons.monitor_weight_outlined),
+                            ),
+                            onChanged: (_) => setState(() {}),
                           ),
-                          onChanged: (_) => setState(() {}),
                         ),
+                      ],
+                    ),
+                    _buildBmiOverviewCard(),
+                    const SizedBox(height: 16),
+                    TextFormField(
+                      controller: _allergiesController,
+                      decoration: const InputDecoration(
+                        labelText: 'Known Allergies',
+                        hintText: 'e.g. Penicillin, Peanuts (None if N/A)',
+                        prefixIcon: Icon(Icons.warning_amber),
                       ),
-                    ],
-                  ),
-                  _buildBmiOverviewCard(),
-                  const SizedBox(height: 16),
-                  TextFormField(
-                    controller: _allergiesController,
-                    decoration: const InputDecoration(
-                      labelText: 'Known Allergies',
-                      hintText: 'e.g. Penicillin, Peanuts (None if N/A)',
-                      prefixIcon: Icon(Icons.warning_amber),
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                  TextFormField(
-                    controller: _conditionsController,
-                    decoration: const InputDecoration(
-                      labelText: 'Existing Conditions',
-                      hintText: 'e.g. Asthma, Hypertension (None if N/A)',
-                      prefixIcon: Icon(Icons.medical_services_outlined),
+                    const SizedBox(height: 16),
+                    TextFormField(
+                      controller: _conditionsController,
+                      decoration: const InputDecoration(
+                        labelText: 'Existing Conditions',
+                        hintText: 'e.g. Asthma, Hypertension (None if N/A)',
+                        prefixIcon: Icon(Icons.medical_services_outlined),
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                  TextFormField(
-                    controller: _medicationsController,
-                    decoration: const InputDecoration(
-                      labelText: 'Current Medications',
-                      hintText: 'e.g. Inhaler, Vitamin D (None if N/A)',
-                      prefixIcon: Icon(Icons.medication_outlined),
+                    const SizedBox(height: 16),
+                    TextFormField(
+                      controller: _medicationsController,
+                      decoration: const InputDecoration(
+                        labelText: 'Current Medications',
+                        hintText: 'e.g. Inhaler, Vitamin D (None if N/A)',
+                        prefixIcon: Icon(Icons.medication_outlined),
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
 
-            // Step 3: Emergency Contact
-            Step(
-              title: const Text('Emergency'),
-              isActive: _currentStep >= 2,
-              content: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  TextFormField(
-                    controller: _emergencyNameController,
-                    decoration: const InputDecoration(
-                      labelText: 'Emergency Contact Name',
-                      prefixIcon: Icon(Icons.person_pin),
+              // Step 3: Emergency Contact
+              Step(
+                title: const Text('Emergency'),
+                isActive: _currentStep >= 2,
+                content: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    TextFormField(
+                      controller: _emergencyNameController,
+                      decoration: const InputDecoration(
+                        labelText: 'Emergency Contact Name',
+                        prefixIcon: Icon(Icons.person_pin),
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                  DropdownButtonFormField<String>(
-                    initialValue: _selectedRelationship,
-                    decoration: const InputDecoration(
-                      labelText: 'Relationship',
-                      prefixIcon: Icon(Icons.family_restroom),
+                    const SizedBox(height: 16),
+                    DropdownButtonFormField<String>(
+                      isExpanded: true,
+                      initialValue: _selectedRelationship,
+                      decoration: const InputDecoration(
+                        labelText: 'Relationship',
+                        prefixIcon: Icon(Icons.family_restroom),
+                      ),
+                      items: _relationships
+                          .map(
+                            (r) => DropdownMenuItem(value: r, child: Text(r)),
+                          )
+                          .toList(),
+                      onChanged: (val) {
+                        if (val != null) {
+                          setState(() => _selectedRelationship = val);
+                        }
+                      },
                     ),
-                    items: _relationships
-                        .map((r) => DropdownMenuItem(value: r, child: Text(r)))
-                        .toList(),
-                    onChanged: (val) {
-                      if (val != null) setState(() => _selectedRelationship = val);
-                    },
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      SizedBox(
-                        width: 130,
-                        child: DropdownButtonFormField<String>(
-                          initialValue: _selectedCountryCode,
-                          decoration: const InputDecoration(labelText: 'Code'),
-                          items: _countryCodes
-                              .map((c) => DropdownMenuItem(
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        SizedBox(
+                          width: 130,
+                          child: DropdownButtonFormField<String>(
+                            initialValue: _selectedCountryCode,
+                            isExpanded: true,
+                            decoration: const InputDecoration(
+                              labelText: 'Code',
+                            ),
+                            items: _countryCodes
+                                .map(
+                                  (c) => DropdownMenuItem(
                                     value: c['code'],
-                                    child: Text('${c['flag']} ${c['code']}'),
-                                  ))
-                              .toList(),
-                          onChanged: (val) {
-                            if (val != null) {
-                              setState(() => _selectedCountryCode = val);
-                            }
-                          },
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: TextFormField(
-                          controller: _emergencyPhoneController,
-                          keyboardType: TextInputType.phone,
-                          inputFormatters: [
-                            FilteringTextInputFormatter.digitsOnly,
-                            LengthLimitingTextInputFormatter(10),
-                          ],
-                          decoration: const InputDecoration(
-                            labelText: 'Phone Number (10 Digits)',
-                            hintText: 'e.g. 9123456789',
-                            prefixIcon: Icon(Icons.phone),
+                                    child: Text(
+                                      '${c['flag']} ${c['code']}',
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                )
+                                .toList(),
+                            onChanged: (val) {
+                              if (val != null) {
+                                setState(() => _selectedCountryCode = val);
+                              }
+                            },
                           ),
                         ),
-                      ),
-                    ],
-                  ),
-                ],
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: TextFormField(
+                            controller: _emergencyPhoneController,
+                            keyboardType: TextInputType.phone,
+                            inputFormatters: [
+                              FilteringTextInputFormatter.digitsOnly,
+                              LengthLimitingTextInputFormatter(10),
+                            ],
+                            decoration: const InputDecoration(
+                              labelText: 'Phone Number (10 Digits)',
+                              hintText: 'e.g. 9123456789',
+                              prefixIcon: Icon(Icons.phone),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
-            ),
 
-            // Step 4: Review
-            Step(
-              title: const Text('Review'),
-              isActive: _currentStep >= 3,
-              content: Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Review Health Profile Summary',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                          color: Theme.of(context).colorScheme.onSurface,
-                        ),
-                      ),
-                      const Divider(height: 24),
-                      _buildReviewRow(
-                        'Name',
-                        _nameController.text.trim(),
-                        Icons.person,
-                      ),
-                      _buildReviewRow(
-                        'Age / DOB',
-                        _selectedDob != null
-                            ? '${_calculateAge(_selectedDob!)} yrs (${DateFormat('MMM dd, yyyy').format(_selectedDob!)})'
-                            : 'Not set',
-                        Icons.cake,
-                      ),
-                      _buildReviewRow('Gender', _selectedGender, Icons.wc),
-                      _buildReviewRow(
-                        'Blood Group',
-                        _selectedBloodGroup,
-                        Icons.bloodtype,
-                      ),
-                      _buildReviewRow(
-                        'Height / Weight',
-                        '${_heightController.text.trim()} cm / ${_weightController.text.trim()} kg',
-                        Icons.straighten,
-                      ),
-                      _buildReviewRow(
-                        'Allergies',
-                        _allergiesController.text.trim().isEmpty
-                            ? 'None'
-                            : _allergiesController.text.trim(),
-                        Icons.warning,
-                      ),
-                      _buildReviewRow(
-                        'Emergency Contact',
-                        '${_emergencyNameController.text.trim()} ($_selectedRelationship, $_selectedCountryCode ${_emergencyPhoneController.text.trim()})',
-                        Icons.contact_phone,
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          TextButton.icon(
-                            onPressed: _isSaving ? null : () => setState(() => _currentStep = 0),
-                            icon: const Icon(Icons.edit, size: 18),
-                            label: const Text('Edit Details'),
+              // Step 4: Review
+              Step(
+                title: const Text('Review'),
+                isActive: _currentStep >= 3,
+                content: Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Review Health Profile Summary',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                            color: Theme.of(context).colorScheme.onSurface,
                           ),
-                        ],
-                      ),
-                    ],
+                        ),
+                        const Divider(height: 24),
+                        _buildReviewRow(
+                          'Name',
+                          _nameController.text.trim(),
+                          Icons.person,
+                        ),
+                        _buildReviewRow(
+                          'Age / DOB',
+                          _selectedDob != null
+                              ? '${_calculateAge(_selectedDob!)} yrs (${DateFormat('MMM dd, yyyy').format(_selectedDob!)})'
+                              : 'Not set',
+                          Icons.cake,
+                        ),
+                        _buildReviewRow('Gender', _selectedGender, Icons.wc),
+                        _buildReviewRow(
+                          'Blood Group',
+                          _selectedBloodGroup,
+                          Icons.bloodtype,
+                        ),
+                        _buildReviewRow(
+                          'Height / Weight',
+                          '${_heightController.text.trim()} cm / ${_weightController.text.trim()} kg',
+                          Icons.straighten,
+                        ),
+                        _buildReviewRow(
+                          'Allergies',
+                          _allergiesController.text.trim().isEmpty
+                              ? 'None'
+                              : _allergiesController.text.trim(),
+                          Icons.warning,
+                        ),
+                        _buildReviewRow(
+                          'Emergency Contact',
+                          '${_emergencyNameController.text.trim()} ($_selectedRelationship, $_selectedCountryCode ${_emergencyPhoneController.text.trim()})',
+                          Icons.contact_phone,
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            TextButton.icon(
+                              onPressed: _isSaving
+                                  ? null
+                                  : () => setState(() => _currentStep = 0),
+                              icon: const Icon(Icons.edit, size: 18),
+                              label: const Text('Edit Details'),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
-    ),
-  );
-}
+    );
+  }
 
   Widget _buildReviewRow(String label, String value, IconData icon) {
     final onSurface = Theme.of(context).colorScheme.onSurface;
@@ -859,10 +947,7 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
           Expanded(
             child: Text(
               value.isEmpty ? 'Not specified' : value,
-              style: TextStyle(
-                fontWeight: FontWeight.w500,
-                color: onSurface,
-              ),
+              style: TextStyle(fontWeight: FontWeight.w500, color: onSurface),
             ),
           ),
         ],

@@ -10,6 +10,9 @@ import 'profile/profile_page.dart';
 
 import 'dart:async';
 import '../services/notification_service.dart';
+import '../repositories/auth_repository.dart';
+import '../repositories/medicine_repository.dart';
+import '../repositories/appointment_repository.dart';
 import '../widgets/medicine_reminder_dialog.dart';
 import '../widgets/sos_countdown_dialog.dart';
 import '../services/fall_detection_service.dart';
@@ -23,7 +26,7 @@ class MainNavigationFrame extends StatefulWidget {
   State<MainNavigationFrame> createState() => _MainNavigationFrameState();
 }
 
-class _MainNavigationFrameState extends State<MainNavigationFrame> {
+class _MainNavigationFrameState extends State<MainNavigationFrame> with WidgetsBindingObserver {
   late int _currentIndex;
   StreamSubscription<MedicineAlertEvent>? _alertSubscription;
   StreamSubscription<bool>? _fallSubscription;
@@ -32,6 +35,8 @@ class _MainNavigationFrameState extends State<MainNavigationFrame> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _refreshReminderSchedules();
     _currentIndex = widget.initialIndex;
     _initAlertListener();
     _fallSubscription = FallDetectionService().onFallDetected.listen((_) => _handleFall());
@@ -40,6 +45,17 @@ class _MainNavigationFrameState extends State<MainNavigationFrame> {
     });
   }
 
+  bool _refreshingReminders=false;
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) { if(state==AppLifecycleState.resumed) _refreshReminderSchedules(); }
+  Future<void> _refreshReminderSchedules() async {
+    if(_refreshingReminders)return;_refreshingReminders=true;
+    try {final uid=await AuthRepository().getCurrentUserId();if(uid.isEmpty)return;
+      final meds=await MedicineRepository().getMedicines(userId:uid);
+      final appointments=await AppointmentRepository().getAppointments(userId:uid);
+      await NotificationService().reconcileSchedules(medicines:meds,appointments:appointments);
+    }catch(_){/* Existing schedules remain when offline. */}finally{_refreshingReminders=false;}
+  }
   Future<void> _handleFall() async {
     if (!mounted || _fallCountdownActive) return;
     _fallCountdownActive = true;
@@ -68,6 +84,7 @@ class _MainNavigationFrameState extends State<MainNavigationFrame> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _alertSubscription?.cancel();
     _fallSubscription?.cancel();
     FallDetectionService().stopListening();

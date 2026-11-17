@@ -251,99 +251,6 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
-  void _showPrivacyModal() {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) => Padding(
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: AppTheme.primaryTeal.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: const Icon(Icons.shield_outlined, color: AppTheme.primaryTeal),
-                ),
-                const SizedBox(width: 12),
-                const Expanded(
-                  child: Text(
-                    'Privacy & Medical Data Safety',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF12254A)),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              'MEDGUARD is committed to absolute medical privacy:',
-              style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-            ),
-            const SizedBox(height: 12),
-            _buildPrivacyBullet(
-              icon: Icons.lock_outline,
-              title: 'Authenticated Private Storage',
-              description: 'Medical vault documents and files are stored in MongoDB GridFS with strict per-user JWT authorization.',
-            ),
-            const SizedBox(height: 8),
-            _buildPrivacyBullet(
-              icon: Icons.phone_android_outlined,
-              title: 'Local-First Alarm Scheduling',
-              description: 'Medicine & appointment alerts operate directly via Android alarm channels and never share device location or private logs.',
-            ),
-            const SizedBox(height: 8),
-            _buildPrivacyBullet(
-              icon: Icons.security_rounded,
-              title: 'Zero Third-Party Telemetry',
-              description: 'Your health records, emergency contacts, and vital stats are never sold or shared with external ad platforms.',
-            ),
-            const SizedBox(height: 20),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Understood'),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildPrivacyBullet({
-    required IconData icon,
-    required String title,
-    required String description,
-  }) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Icon(icon, size: 18, color: AppTheme.primaryTeal),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-              const SizedBox(height: 2),
-              Text(description, style: const TextStyle(fontSize: 12, color: AppTheme.textMuted)),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
   void _logout() async {
     final confirm = await showDialog<bool>(
       context: context,
@@ -725,6 +632,12 @@ class _SettingsPageState extends State<SettingsPage> {
 
                 // SECTION 5: Privacy & About
                 _buildSectionHeader('Privacy & About', Icons.info_outline),
+                Card(child: Column(children: [
+                  ListTile(leading: const Icon(Icons.qr_code), title: const Text('Emergency Medical ID QR'), onTap: () => Navigator.pushNamed(context, AppRoutes.qrProfile)),
+                  ListTile(leading: const Icon(Icons.family_restroom), title: const Text('Family Caregiver Access'), onTap: () => Navigator.pushNamed(context, '/caregiver-access')),
+                  ListTile(leading: const Icon(Icons.folder_shared), title: const Text('Secure Vault Sharing'), onTap: () => Navigator.pushNamed(context, '/vault-sharing')),
+                  ListTile(leading: const Icon(Icons.offline_bolt), title: const Text('Offline Emergency Card'), onTap: () => Navigator.pushNamed(context, AppRoutes.offlineEmergency)),
+                ])),
                 Card(
                   elevation: 0,
                   shape: RoundedRectangleBorder(
@@ -735,10 +648,10 @@ class _SettingsPageState extends State<SettingsPage> {
                     children: [
                       ListTile(
                         leading: const Icon(Icons.shield_outlined, color: AppTheme.primaryTeal),
-                        title: const Text('Privacy & Medical Data Safety', style: TextStyle(fontWeight: FontWeight.w600)),
+                        title: const Text('Privacy Center', style: TextStyle(fontWeight: FontWeight.w600)),
                         subtitle: const Text('Review our medical data protection commitments'),
                         trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14),
-                        onTap: _showPrivacyModal,
+                        onTap: () => Navigator.pushNamed(context, '/privacy-center'),
                       ),
                       const Divider(height: 1),
                       ListTile(

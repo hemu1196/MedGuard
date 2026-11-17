@@ -1,5 +1,5 @@
 import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import '../services/health_preferences.dart';
 import '../core/api/api_client.dart';
 import '../core/database/database_helper.dart';
 import '../models/water_intake.dart';
@@ -9,7 +9,7 @@ class WaterRepository {
 
   Future<int> getTargetMl(String userId) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await HealthPreferences.getInstance();
       return prefs.getInt('water_target_$userId') ?? 2000;
     } catch (e) {
       return 2000;
@@ -18,7 +18,7 @@ class WaterRepository {
 
   Future<void> _setTargetMl(String userId, int targetMl) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await HealthPreferences.getInstance();
       await prefs.setInt('water_target_$userId', targetMl);
     } catch (e) {
       debugPrint('[WATER REPO] Error saving target: $e');

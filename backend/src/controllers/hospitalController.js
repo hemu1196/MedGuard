@@ -9,7 +9,7 @@ function getCacheKey(lat, lng, radius, city) {
   if (city && (!lat || !lng)) {
     return `city_${city.toLowerCase().trim()}_${radius}`;
   }
-  return `geo_${Number(lat).toFixed(2)}_${Number(lng).toFixed(2)}_${radius}_${(city || '').toLowerCase().trim()}`;
+  return `geo_${Number(lat).toFixed(5)}_${Number(lng).toFixed(5)}_${radius}_${(city || '').toLowerCase().trim()}`;
 }
 
 function cleanExpiredCache() {
@@ -38,7 +38,16 @@ function calculateDistanceMeters(lat1, lon1, lat2, lon2) {
 }
 
 // Helper to make HTTPS requests with timeout and user agent
-function fetchJson(urlStr, timeoutMs = 8000) {
+let nextProviderRequestAt = 0;
+async function fetchJson(urlStr, timeoutMs = 8000) {
+  if(process.env.NODE_ENV==='production' && !process.env.HOSPITAL_PROVIDER_CONTACT) {const error=new Error('Healthcare provider contact is not configured.');error.status=503;throw error;}
+  const now=Date.now();const wait=Math.max(0,nextProviderRequestAt-now);
+  if(wait>5000) {const e=new Error('Geographic provider busy. Retry shortly.');e.status=503;throw e;}
+  nextProviderRequestAt=now+wait+1100;
+  if(wait)await new Promise(resolve=>setTimeout(resolve,wait));
+  return fetchProviderJson(urlStr,timeoutMs);
+}
+function fetchProviderJson(urlStr, timeoutMs = 8000) {
   return new Promise((resolve, reject) => {
     const url = new URL(urlStr);
     const client = url.protocol === 'https:' ? https : http;
@@ -47,7 +56,7 @@ function fetchJson(urlStr, timeoutMs = 8000) {
       url,
       {
         headers: {
-          'User-Agent': 'MEDGUARD-Healthcare-Assistant/2.0 (contact@medguard.app)',
+          'User-Agent': 'MEDGUARD/3.0' + (process.env.HOSPITAL_PROVIDER_CONTACT ? ' ('+process.env.HOSPITAL_PROVIDER_CONTACT+')' : ''),
           Accept: 'application/json',
         },
         timeout: timeoutMs,
@@ -96,50 +105,14 @@ function cleanPhoneNumber(raw) {
   return '';
 }
 
-function determineCategory(item, extraTags, name) {
-  const amenity = String(item.type || item.class || '').toLowerCase();
+function determineCategory(item, extraTags) {
+  const type = String(item.type || '').toLowerCase();
   const healthcare = String(extraTags.healthcare || '').toLowerCase();
-  const emergency = String(extraTags.emergency || '').toLowerCase();
-  const nameLower = String(name || '').toLowerCase();
-
-  if (
-    emergency === 'yes' ||
-    nameLower.includes('trauma') ||
-    nameLower.includes('casualty') ||
-    nameLower.includes('emergency')
-  ) {
-    return 'emergencyDepartment';
-  }
-  if (
-    amenity === 'pharmacy' ||
-    healthcare === 'pharmacy' ||
-    nameLower.includes('pharmacy') ||
-    nameLower.includes('chemist') ||
-    nameLower.includes('drugstore')
-  ) {
-    return 'pharmacy';
-  }
-  if (
-    healthcare === 'centre' ||
-    nameLower.includes('primary health') ||
-    nameLower.includes('phc') ||
-    nameLower.includes('dispensary')
-  ) {
-    return 'primaryHealthCentre';
-  }
-  if (
-    amenity === 'clinic' ||
-    healthcare === 'clinic' ||
-    amenity === 'doctors' ||
-    healthcare === 'doctor' ||
-    nameLower.includes('clinic') ||
-    nameLower.includes('polyclinic')
-  ) {
-    return 'clinic';
-  }
-  if (amenity === 'hospital' || healthcare === 'hospital' || nameLower.includes('hospital')) {
-    return 'hospital';
-  }
+  if (type === 'pharmacy' || healthcare === 'pharmacy') return 'pharmacy';
+  if (type === 'emergency_ward_entrance' || healthcare === 'emergency_ward') return 'emergencyDepartment';
+  if (type === 'hospital' || healthcare === 'hospital') return 'hospital';
+  if (type === 'clinic' || type === 'doctors' || ['clinic', 'doctor'].includes(healthcare)) return 'clinic';
+  if (healthcare === 'centre') return 'primaryHealthCentre';
   return 'otherHealthcareFacility';
 }
 
@@ -196,7 +169,7 @@ function parseNominatimItem(item, searchLat, searchLng) {
 
   const category = determineCategory(item, extraTags, facilityName);
 
-  const distanceMeters = (searchLat && searchLng)
+  const distanceMeters = (Number.isFinite(searchLat) && Number.isFinite(searchLng))
     ? calculateDistanceMeters(searchLat, searchLng, itemLat, itemLon)
     : 0;
 
@@ -213,7 +186,7 @@ function parseNominatimItem(item, searchLat, searchLng) {
     website,
     openingHours,
     emergencyServiceVerified: isEmergencyVerified,
-    emergencyVerificationSource: isEmergencyVerified ? 'OpenStreetMap Verified' : 'unverified',
+    emergencyVerificationSource: isEmergencyVerified ? 'OpenStreetMap tag (not independently verified)' : 'unverified',
     distanceMeters,
     lastFetchedAt: new Date().toISOString(),
     isDemoData: false,
@@ -235,6 +208,7 @@ exports.getNearbyHospitals = async (req, res) => {
     if (isNaN(radius) || radius <= 0) radius = 6000;
     if (radius > 50000) radius = 50000;
 
+    if (city && city.length > 150) return res.status(400).json({success:false,message:'City name too long.'});
     // If city is provided without coordinates, geocode city first
     if ((isNaN(lat) || isNaN(lng) || (lat === 0 && lng === 0)) && city) {
       const geoUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(city)}&format=json&limit=1`;
@@ -245,11 +219,11 @@ exports.getNearbyHospitals = async (req, res) => {
           lng = parseFloat(geoResults[0].lon);
         }
       } catch (err) {
-        console.warn(`[HOSPITAL CONTROLLER] City geocode failed for "${city}":`, err.message);
+        console.warn(`[HOSPITAL CONTROLLER] City geocode failed for "${city}":`, err.name);
       }
     }
 
-    if (isNaN(lat) || isNaN(lng) || (lat === 0 && lng === 0)) {
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
       return res.status(400).json({
         success: false,
         message: 'Valid coordinates (lat, lng) or a verifiable city name are required.',
@@ -303,7 +277,7 @@ exports.getNearbyHospitals = async (req, res) => {
         }
       }
     } catch (e) {
-      console.warn('[HOSPITAL CONTROLLER] Nominatim hospital search note:', e.message);
+      console.warn('[HOSPITAL CONTROLLER] Nominatim hospital search note:', e.name);
     }
 
     // 2. If results are sparse (< 5), query clinics in the same viewbox
@@ -320,7 +294,7 @@ exports.getNearbyHospitals = async (req, res) => {
           }
         }
       } catch (e) {
-        console.warn('[HOSPITAL CONTROLLER] Nominatim clinic search note:', e.message);
+        console.warn('[HOSPITAL CONTROLLER] Nominatim clinic search note:', e.name);
       }
     }
 
@@ -338,12 +312,12 @@ exports.getNearbyHospitals = async (req, res) => {
           }
         }
       } catch (e) {
-        console.warn('[HOSPITAL CONTROLLER] Nominatim city text search note:', e.message);
+        console.warn('[HOSPITAL CONTROLLER] Nominatim city text search note:', e.name);
       }
     }
 
     // Sort: Verified emergency first, then by distance ascending
-    const hospitalList = Array.from(deduplicated.values());
+    const hospitalList = Array.from(deduplicated.values()).filter(h => h.distanceMeters <= radius);
     hospitalList.sort((a, b) => {
       if (a.emergencyServiceVerified !== b.emergencyServiceVerified) {
         return a.emergencyServiceVerified ? -1 : 1;
@@ -351,8 +325,11 @@ exports.getNearbyHospitals = async (req, res) => {
       return a.distanceMeters - b.distanceMeters;
     });
 
+    if (searchCache.size >= 200) searchCache.delete(searchCache.keys().next().value);
+
     // Save in cache if results found
     if (hospitalList.length > 0) {
+      if(searchCache.size>=200)searchCache.delete(searchCache.keys().next().value);
       searchCache.set(cacheKey, { timestamp: Date.now(), data: hospitalList });
     }
 
@@ -369,7 +346,7 @@ exports.getNearbyHospitals = async (req, res) => {
       hospitals: hospitalList,
     });
   } catch (error) {
-    console.error('[HOSPITAL CONTROLLER ERROR]:', error);
+    console.error('[HOSPITAL CONTROLLER ERROR]:', error.name);
     return res.status(500).json({
       success: false,
       message: 'Failed to search healthcare facilities.',
@@ -377,3 +354,6 @@ exports.getNearbyHospitals = async (req, res) => {
     });
   }
 };
+
+exports.determineCategory = determineCategory;
+exports.parseNominatimItem = parseNominatimItem;

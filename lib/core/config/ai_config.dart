@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../services/private_local_store.dart';
 
 /// Configuration manager for AI Assistant services.
 /// In production, AI requests are securely routed through the authenticated
@@ -17,12 +18,15 @@ class AiConfig {
   static Future<String> getGeminiApiKey() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final savedKey = prefs.getString(_prefKey);
+      final savedKey =
+          await PrivateLocalStore.read(_prefKey) ?? prefs.getString(_prefKey);
+      if (savedKey != null) await PrivateLocalStore.write(_prefKey, savedKey);
+      await prefs.remove(_prefKey);
       if (savedKey != null && savedKey.trim().isNotEmpty) {
         return savedKey.trim();
       }
     } catch (e) {
-      debugPrint('[AI CONFIG] SharedPreferences read error: $e');
+      debugPrint('[AI_CONFIG] Operation status changed.');
     }
     return '';
   }
@@ -41,14 +45,14 @@ class AiConfig {
   static Future<String> getApiKeySource() async {
     final customKey = await getGeminiApiKey();
     if (customKey.isNotEmpty) {
-      return 'SharedPreferences Key';
+      return 'Protected custom test key';
     }
     return 'Secure Cloud Backend (Render)';
   }
 
   /// Indicates whether the AI service is ready to handle queries.
   /// Always returns true because the authenticated Render cloud backend
-  /// proxies Gemini queries with automatic clinical-grade offline triage fallback.
+  /// routes requests to the server; each request still checks actual availability.
   static Future<bool> hasApiKey() async {
     return true;
   }
@@ -57,13 +61,14 @@ class AiConfig {
   static Future<void> saveGeminiApiKey(String apiKey) async {
     try {
       final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_prefKey);
       if (apiKey.trim().isEmpty) {
-        await prefs.remove(_prefKey);
+        await PrivateLocalStore.remove(_prefKey);
       } else {
-        await prefs.setString(_prefKey, apiKey.trim());
+        await PrivateLocalStore.write(_prefKey, apiKey.trim());
       }
     } catch (e) {
-      debugPrint('[AI CONFIG] SharedPreferences write error: $e');
+      debugPrint('[AI_CONFIG] Operation status changed.');
     }
   }
 

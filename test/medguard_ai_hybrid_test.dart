@@ -27,51 +27,68 @@ void main() {
     });
 
     test('Identifies combined headache and vomiting category', () {
-      final res = fallbackService.generateFallback('I have a severe headache and vomiting');
+      final res = fallbackService.generateFallback(
+        'I have a severe headache and vomiting',
+      );
       expect(res.category, equals('Headache + Vomiting'));
       expect(res.urgency, equals(HealthUrgency.orange));
     });
 
     test('Identifies emergency chest pain and sets RED urgency', () {
-      final res = fallbackService.generateFallback('I have chest pain and difficulty breathing');
+      final res = fallbackService.generateFallback(
+        'I have chest pain and difficulty breathing',
+      );
       expect(res.isEmergency, isTrue);
       expect(res.urgency, equals(HealthUrgency.red));
     });
 
     test('Identifies medication questions and includes safety advice', () {
-      final res = fallbackService.generateFallback('What medicine should I take for fever?');
+      final res = fallbackService.generateFallback(
+        'What medicine should I take for fever?',
+      );
       expect(res.category, equals('Medication Safety'));
-      expect(res.considerations.any((c) => c.contains('pharmacist') || c.contains('doctor\'s')), isTrue);
+      expect(
+        res.considerations.any(
+          (c) => c.contains('pharmacist') || c.contains('doctor\'s'),
+        ),
+        isTrue,
+      );
     });
   });
 
   group('HealthSafetyFilter Unit Tests', () {
-    test('Forces RED urgency and emergency guidance on chest pain red flag', () {
-      final baseResponse = AIResponse(
-        text: 'Sample text',
-        source: AIResponseSource.localFallback,
-        isFallback: true,
-        category: 'General',
-        isEmergency: false,
-        urgency: HealthUrgency.green,
-        understanding: 'General issue',
-        followUpQuestions: [],
-        considerations: [],
-        whatYouCanDoNow: [],
-        warningSigns: [],
-        whenToSeekMedicalHelp: 'Consult doctor',
-        disclaimer: 'General disclaimer',
-      );
+    test(
+      'Forces RED urgency and emergency guidance on chest pain red flag',
+      () {
+        final baseResponse = AIResponse(
+          text: 'Sample text',
+          source: AIResponseSource.localFallback,
+          isFallback: true,
+          category: 'General',
+          isEmergency: false,
+          urgency: HealthUrgency.green,
+          understanding: 'General issue',
+          followUpQuestions: [],
+          considerations: [],
+          whatYouCanDoNow: [],
+          warningSigns: [],
+          whenToSeekMedicalHelp: 'Consult doctor',
+          disclaimer: 'General disclaimer',
+        );
 
-      final filtered = HealthSafetyFilter.filter(
-        userQuery: 'I have severe chest pain',
-        response: baseResponse,
-      );
+        final filtered = HealthSafetyFilter.filter(
+          userQuery: 'I have severe chest pain',
+          response: baseResponse,
+        );
 
-      expect(filtered.isEmergency, isTrue);
-      expect(filtered.urgency, equals(HealthUrgency.red));
-      expect(filtered.warningSigns.any((w) => w.contains('EMERGENCY')), isTrue);
-    });
+        expect(filtered.isEmergency, isTrue);
+        expect(filtered.urgency, equals(HealthUrgency.red));
+        expect(
+          filtered.warningSigns.any((w) => w.contains('EMERGENCY')),
+          isTrue,
+        );
+      },
+    );
 
     test('Enforces medication safeguard on medicine query', () {
       final baseResponse = AIResponse(
@@ -95,24 +112,43 @@ void main() {
         response: baseResponse,
       );
 
-      expect(filtered.considerations.any((c) => c.contains('pharmacist') || c.contains('doctor\'s or pharmacist\'s advice')), isTrue);
+      expect(
+        filtered.considerations.any(
+          (c) =>
+              c.contains('pharmacist') ||
+              c.contains('doctor\'s or pharmacist\'s advice'),
+        ),
+        isTrue,
+      );
     });
   });
 
   group('MedGuardAIService Hybrid Integration Tests', () {
     final aiService = MedGuardAIService();
 
-    test('Returns safe fallback response when Gemini fails or is unconfigured', () async {
-      final response = await aiService.getGuidance(userQuery: 'I have stomach pain');
-      expect(response.text.isNotEmpty, isTrue);
-      expect(response.source, equals(AIResponseSource.localFallback));
-      expect(response.isFallback, isTrue);
-      expect(response.sourceBadgeLabel, equals('Using Offline Health Guidance'));
-      expect(response.disclaimer.isNotEmpty, isTrue);
-    });
+    test(
+      'Returns safe fallback response when Gemini fails or is unconfigured',
+      () async {
+        final response = await aiService.getGuidance(
+          consent: true,
+          userQuery: 'I have stomach pain',
+        );
+        expect(response.text.isNotEmpty, isTrue);
+        expect(response.source, equals(AIResponseSource.localFallback));
+        expect(response.isFallback, isTrue);
+        expect(
+          response.sourceBadgeLabel,
+          equals('Using Offline Health Guidance'),
+        );
+        expect(response.disclaimer.isNotEmpty, isTrue);
+      },
+    );
 
     test('Handles emergency symptoms safely', () async {
-      final response = await aiService.getGuidance(userQuery: 'I suddenly have shortness of breath and chest pain');
+      final response = await aiService.getGuidance(
+        consent: true,
+        userQuery: 'I suddenly have shortness of breath and chest pain',
+      );
       expect(response.isEmergency, isTrue);
       expect(response.urgency, equals(HealthUrgency.red));
     });

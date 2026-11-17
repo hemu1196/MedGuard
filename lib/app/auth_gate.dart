@@ -37,7 +37,7 @@ class _AuthGateState extends State<AuthGate> {
     try {
       debugPrint('[AUTHGATE] Checking authentication state...');
       final isAuth = await _authRepository.isAuthenticated();
-      debugPrint('[AUTHGATE] isAuthenticated result: $isAuth');
+      debugPrint('[AUTH_GATE] Operation status changed.');
 
       if (!isAuth) {
         if (mounted) {
@@ -50,10 +50,10 @@ class _AuthGateState extends State<AuthGate> {
       }
 
       final userId = await _authRepository.getCurrentUserId();
-      debugPrint('[AUTHGATE] Current User UID: $userId');
+      debugPrint('[AUTH_GATE] Operation status changed.');
 
       final hasProfile = await _profileRepository.profileExists(userId);
-      debugPrint('[AUTHGATE] profileExists result for $userId: $hasProfile');
+      debugPrint('[AUTH_GATE] Operation status changed.');
 
       if (mounted) {
         setState(() {
@@ -63,7 +63,7 @@ class _AuthGateState extends State<AuthGate> {
         });
       }
     } catch (e) {
-      debugPrint('[AUTHGATE ERROR] Startup verification failed: $e');
+      debugPrint('[AUTH_GATE] Operation status changed.');
       if (mounted) {
         setState(() {
           _errorMessage = e.toString();

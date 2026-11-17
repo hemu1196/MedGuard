@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import '../services/health_preferences.dart';
 import '../core/api/api_client.dart';
 import '../models/emergency_contact.dart';
 
@@ -62,7 +62,7 @@ class EmergencyContactRepository {
       return remoteList;
     }
 
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await HealthPreferences.getInstance();
     final key = '${_contactsKey}_$userId';
     final rawList = prefs.getStringList(key) ?? prefs.getStringList(_contactsKey) ?? [];
     final contacts = rawList.map((str) => EmergencyContact.fromJson(str)).toList();
@@ -123,7 +123,7 @@ class EmergencyContactRepository {
     }
 
     // Local fallback update
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await HealthPreferences.getInstance();
     final key = '${_contactsKey}_$userId';
     final rawList = prefs.getStringList(key) ?? prefs.getStringList(_contactsKey) ?? [];
     final contacts = rawList.map((str) => EmergencyContact.fromJson(str)).toList();
@@ -156,7 +156,7 @@ class EmergencyContactRepository {
       debugPrint('[EMERGENCY CONTACT REPO] deleteEmergencyContact API error: $e');
     }
 
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await HealthPreferences.getInstance();
     final key = '${_contactsKey}_$userId';
     final rawList = prefs.getStringList(key) ?? prefs.getStringList(_contactsKey) ?? [];
     final contacts = rawList.map((str) => EmergencyContact.fromJson(str)).toList();
@@ -171,7 +171,7 @@ class EmergencyContactRepository {
 
   Future<bool> _updateSingleLocalContact(String userId, EmergencyContact contact) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await HealthPreferences.getInstance();
       final key = '${_contactsKey}_$userId';
       final rawList = prefs.getStringList(key) ?? [];
       final contacts = rawList.map((str) => EmergencyContact.fromJson(str)).toList();
@@ -192,7 +192,7 @@ class EmergencyContactRepository {
 
   Future<void> _saveToLocalCache(List<EmergencyContact> contacts, {String? userId}) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await HealthPreferences.getInstance();
       final updatedRaw = contacts.map((c) => c.toJson()).toList();
       await prefs.setStringList(_contactsKey, updatedRaw);
       if (userId != null && userId.isNotEmpty) {

@@ -34,9 +34,10 @@ class _MedicineReminderDialogState extends State<MedicineReminderDialog> {
     setState(() => _isProcessing = true);
 
     try {
-      await _medicineRepository.logMedicationDose(
+      final synced = await _medicineRepository.logMedicationDose(
         medicineId: widget.alertEvent.medicineId,
         scheduledTime: widget.alertEvent.scheduledTime,
+        scheduledDate: widget.alertEvent.occurrenceDate,
         status: 'taken',
       );
       if (mounted) {
@@ -45,7 +46,7 @@ class _MedicineReminderDialogState extends State<MedicineReminderDialog> {
           SnackBar(
             backgroundColor: AppColors.success,
             content: Text(
-              '✅ ${widget.alertEvent.medicineName} marked as TAKEN. Stock updated.',
+              synced ? '${widget.alertEvent.medicineName} marked Taken.' : 'Dose action saved; synchronization pending.',
             ),
           ),
         );
@@ -68,9 +69,10 @@ class _MedicineReminderDialogState extends State<MedicineReminderDialog> {
     setState(() => _isProcessing = true);
 
     try {
-      await _medicineRepository.logMedicationDose(
+      final synced = await _medicineRepository.logMedicationDose(
         medicineId: widget.alertEvent.medicineId,
         scheduledTime: widget.alertEvent.scheduledTime,
+        scheduledDate: widget.alertEvent.occurrenceDate,
         status: 'skipped',
         missedReason: 'User skipped in reminder popup',
       );
@@ -79,7 +81,7 @@ class _MedicineReminderDialogState extends State<MedicineReminderDialog> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             backgroundColor: Colors.orange,
-            content: Text('Dose skipped for ${widget.alertEvent.medicineName}.'),
+            content: Text(synced ? 'Dose skipped for ${widget.alertEvent.medicineName}.' : 'Skip saved; synchronization pending.'),
           ),
         );
       }
@@ -99,7 +101,7 @@ class _MedicineReminderDialogState extends State<MedicineReminderDialog> {
       medicineName: widget.alertEvent.medicineName,
       dosage: widget.alertEvent.dosage,
       timeStr: widget.alertEvent.scheduledTime,
-      snoozeMinutes: minutes,
+      snoozeMinutes: minutes, occurrenceDate: widget.alertEvent.occurrenceDate, oneShot:true,
     );
 
     if (mounted) {

@@ -34,6 +34,7 @@ const healthRecordSchema = new mongoose.Schema({
     type: Date,
     default: Date.now,
   },
+  scan: { status: { type: String, enum: ['clean', 'unscanned'], default: 'unscanned' }, engine: String, scannedAt: Date },
   storageKey: {
     type: String,
     default: null,

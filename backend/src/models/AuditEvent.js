@@ -27,4 +27,8 @@ const auditEventSchema = new mongoose.Schema({
   timestamps: true,
 });
 
+auditEventSchema.index({ createdAt: 1 }, { expireAfterSeconds: 90 * 86400 });
+
+
+
 module.exports = mongoose.model('AuditEvent', auditEventSchema);

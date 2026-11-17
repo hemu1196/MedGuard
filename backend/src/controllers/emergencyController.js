@@ -256,7 +256,7 @@ const triggerSos = async (req, res) => {
       contacts: contactsNotified,
     });
   } catch (error) {
-    console.error('Trigger SOS Error:', error);
+    console.error('Trigger SOS Error:', error.name);
     return res.status(500).json({
       success: false,
       message: 'Failed to process SOS trigger. ' + error.message,

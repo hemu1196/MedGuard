@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import '../services/health_preferences.dart';
 import '../core/api/api_client.dart';
 import '../core/utils/image_helper.dart';
 import '../models/health_record.dart';
@@ -318,7 +318,7 @@ class HealthRecordRepository {
       }
     }
 
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await HealthPreferences.getInstance();
     final rawList = prefs.getStringList(_vaultStorageKey) ?? [];
     final allRecords = rawList.map((str) => HealthRecord.fromJson(str)).toList();
     allRecords.removeWhere((r) => r.id == id);
@@ -349,7 +349,7 @@ class HealthRecordRepository {
 
   Future<List<HealthRecord>> _getLocalCache(String userId) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await HealthPreferences.getInstance();
       final rawList = prefs.getStringList(_vaultStorageKey) ?? [];
       final allRecords = rawList.map((str) => HealthRecord.fromJson(str)).toList();
       final userRecords = allRecords.where((r) => r.userId == userId || userId.isEmpty).toList();
@@ -361,7 +361,7 @@ class HealthRecordRepository {
   }
 
   Future<bool> _updateSingleLocalRecord(HealthRecord record) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await HealthPreferences.getInstance();
     final rawList = prefs.getStringList(_vaultStorageKey) ?? [];
     final allRecords = rawList.map((str) => HealthRecord.fromJson(str)).toList();
 
@@ -378,7 +378,7 @@ class HealthRecordRepository {
 
   Future<void> _saveToLocalCache(List<HealthRecord> records) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await HealthPreferences.getInstance();
       final updatedRawList = records.map((r) => r.toJson()).toList();
       await prefs.setStringList(_vaultStorageKey, updatedRawList);
     } catch (_) {}

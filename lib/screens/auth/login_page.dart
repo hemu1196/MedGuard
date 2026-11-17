@@ -1,5 +1,6 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import '../launch/offline_card_page.dart';
 import 'package:flutter/services.dart';
 import '../../app/routes.dart';
 import '../../app/theme.dart';
@@ -46,13 +47,13 @@ class _LoginPageState extends State<LoginPage> {
     final password = _passwordController.text;
 
     try {
-      debugPrint('[AUTH] Attempting Sign-In for email: $email');
+      debugPrint('[LOGIN_PAGE] Operation status changed.');
       final session = await _authRepository.signIn(email, password);
       final userId = session.userId.isNotEmpty ? session.userId : await _authRepository.getCurrentUserId();
 
-      debugPrint('[AUTH] Sign-In successful. User ID: $userId');
+      debugPrint('[LOGIN_PAGE] Operation status changed.');
       final profileExists = session.profileCompleted || await _profileRepository.profileExists(userId);
-      debugPrint('[PROFILE] Profile exists check for $userId: $profileExists');
+      debugPrint('[LOGIN_PAGE] Operation status changed.');
 
       if (!mounted) return;
 
@@ -70,7 +71,7 @@ class _LoginPageState extends State<LoginPage> {
         );
       }
     } catch (e) {
-      debugPrint('[AUTH ERROR] Login failed: $e');
+      debugPrint('[LOGIN_PAGE] Operation status changed.');
       if (!mounted) return;
       final raw = e is AppException ? e.message : e.toString().replaceAll('Exception: ', '');
       final isConnecting = raw.toLowerCase().contains('connecting to mongodb') ||
@@ -567,13 +568,13 @@ class _LoginPageState extends State<LoginPage> {
 
                         try {
                           debugPrint('[REGISTER] Calling AuthRepository.signUp');
-                          final session = await _authRepository.signUp(
+                          await _authRepository.signUp(
                             name: name,
                             email: email,
                             password: pass,
                           );
 
-                          debugPrint('[REGISTER] SUCCESS UserID=${session.userId}');
+                          debugPrint('[LOGIN_PAGE] Operation status changed.');
 
                           if (dialogContext.mounted) {
                             Navigator.of(dialogContext).pop();
@@ -593,7 +594,7 @@ class _LoginPageState extends State<LoginPage> {
                             (route) => false,
                           );
                         } on AppException catch (e) {
-                          debugPrint('[REGISTER] AppException: ${e.message}');
+                          debugPrint('[LOGIN_PAGE] Operation status changed.');
                           final isExistingAccount = e.message.contains('already exists') || e.message.contains('signing in');
                           setDialogState(() {
                             registerErrorTitle = isExistingAccount ? 'Account Already Exists' : 'Registration Failed';
@@ -601,7 +602,7 @@ class _LoginPageState extends State<LoginPage> {
                             showSignInAction = isExistingAccount;
                           });
                         } on FirebaseAuthException catch (e) {
-                          debugPrint('[REGISTER] FirebaseAuthException: ${e.code} ${e.message}');
+                          debugPrint('[LOGIN_PAGE] Operation status changed.');
                           final appEx = _authRepository.parseAuthException(e);
                           final isExistingAccount = e.code == 'email-already-in-use';
                           setDialogState(() {
@@ -610,8 +611,8 @@ class _LoginPageState extends State<LoginPage> {
                             showSignInAction = isExistingAccount;
                           });
                         } catch (e, stackTrace) {
-                          debugPrint('[REGISTER] Unexpected exception type: ${e.runtimeType}');
-                          debugPrint('[REGISTER] Unexpected exception: $e');
+                          debugPrint('[LOGIN_PAGE] Operation status changed.');
+                          debugPrint('[LOGIN_PAGE] Operation status changed.');
                           debugPrintStack(stackTrace: stackTrace);
                           setDialogState(() {
                             registerErrorTitle = 'Registration Failed';
@@ -823,6 +824,8 @@ class _LoginPageState extends State<LoginPage> {
                     ),
                     const SizedBox(height: 20),
 
+                    OutlinedButton.icon(onPressed:()=>Navigator.pushNamed(context,'/offline-emergency'),icon:const Icon(Icons.offline_bolt),label:const Text('Unlock emergency card')),
+                    TextButton.icon(onPressed:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>const OfflineCardPage())),icon:const Icon(Icons.offline_bolt_outlined),label:const Text('Unlock an encrypted emergency card')),
                     // Login Button
                     SizedBox(
                       height: 50,

@@ -18,6 +18,7 @@ const aiAssistantRoutes = require("./src/routes/aiAssistantRoutes");
 const hospitalRoutes = require("./src/routes/hospitalRoutes");
 
 const app = express();
+if (process.env.RENDER === 'true') app.set('trust proxy', 1);
 
 // Dynamic CORS configuration supporting Flutter Web, Android Emulators, LAN IPs, and local tools
 const allowedOriginPatterns = [
@@ -31,7 +32,7 @@ const allowedOriginPatterns = [
 const configuredOrigins = new Set((process.env.CORS_ORIGINS || '').split(',').map((s) => s.trim()).filter(Boolean));
 const corsOptions = {
   origin: (origin, callback) => {
-    const allowed = !origin || configuredOrigins.has(origin) || allowedOriginPatterns.some((pattern) => pattern.test(origin));
+    const allowed = !origin || configuredOrigins.has(origin) || (process.env.NODE_ENV !== 'production' && allowedOriginPatterns.some((pattern) => pattern.test(origin)));
     callback(null, allowed);
   },
   credentials: true,
@@ -46,9 +47,22 @@ app.use((req, res, next) => {
   next();
 });
 
+// Never cache medical API responses or reveal internal errors in production.
+app.use('/api', (req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store, private');
+  const json = res.json;
+  res.json = function(body) {
+    if (process.env.NODE_ENV === 'production' && res.statusCode >= 500) {
+      body = { success: false, message: 'Service temporarily unavailable. Please retry later.' };
+    }
+    return json.call(this, body);
+  };
+  next();
+});
+
 // Parse incoming JSON and urlencoded requests
-app.use(express.json({ limit: "50mb" }));
-app.use(express.urlencoded({ extended: true, limit: "50mb" }));
+app.use(express.json({ limit: "1mb" }));
+app.use(express.urlencoded({ extended: true, limit: "1mb" }));
 
 // Medical documents are available only through authenticated owner-scoped download routes.
 
@@ -61,6 +75,7 @@ app.get("/", (req, res) => {
     status: "running",
     database: isConnected ? "connected" : "disconnected",
     version: "1.0.0",
+    revision: (process.env.RENDER_GIT_COMMIT || process.env.APP_REVISION || "local").slice(0, 12),
   });
 });
 
@@ -140,17 +155,19 @@ app.use("/api/wellness", wellnessRoutes);
 app.use("/api/ai", aiAssistantRoutes);
 app.use("/api/hospitals", hospitalRoutes);
 
+app.use("/api/launch", require("./src/routes/launchRoutes"));
+
 // Global 404 Handler
 app.use((req, res) => {
   res.status(404).json({
     success: false,
-    message: `Endpoint not found: ${req.method} ${req.url}`,
+    message: "Endpoint not found.",
   });
 });
 
 // Global Error Handler
 app.use((err, req, res, next) => {
-  console.error("Global Error Handler:", err);
+  console.error("[API] Request failed:", err.name || "Error");
   res.status(err.status || 500).json({
     success: false,
     message: err.message || "Internal server error.",
@@ -202,6 +219,7 @@ async function startServer() {
   });
 
   attemptDbConnection();
+  require('./src/services/deletionService').startDeletionWorker();
 }
 
 // Graceful Shutdown Handlers

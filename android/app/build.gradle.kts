@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     kotlin("android")
@@ -7,6 +9,19 @@ plugins {
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
+
+val medguardSigning = Properties()
+val medguardSigningFile = rootProject.file("key.properties")
+if (medguardSigningFile.exists()) medguardSigningFile.inputStream().use { medguardSigning.load(it) }
+if (System.getenv("MEDGUARD_REQUIRE_RELEASE_SIGNING") == "true" && !medguardSigningFile.exists()) {
+    throw GradleException("Production signing is required. Configure android/key.properties with your private upload keystore first.")
+}
+if (medguardSigningFile.exists()) {
+    listOf("storePassword", "keyPassword", "keyAlias", "storeFile").forEach { key ->
+        require(!medguardSigning.getProperty(key).isNullOrBlank() && !medguardSigning.getProperty(key).startsWith("YOUR_")) { "Signing property $key is missing or still a placeholder." }
+    }
+}
+
 
 android {
     namespace = "com.example.med_ai"
@@ -30,10 +45,20 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        if (medguardSigningFile.exists()) {
+            create("production") {
+                keyAlias = medguardSigning.getProperty("keyAlias")
+                keyPassword = medguardSigning.getProperty("keyPassword")
+                storeFile = file(medguardSigning.getProperty("storeFile"))
+                storePassword = medguardSigning.getProperty("storePassword")
+            }
+        }
+    }
     buildTypes {
         release {
             // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName(if (medguardSigningFile.exists()) "production" else "debug")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

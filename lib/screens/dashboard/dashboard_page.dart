@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../app/theme.dart';
+import '../../widgets/dashboard/launch_features_section.dart';
 import '../../controllers/dashboard_controller.dart';
 import '../../widgets/dashboard/ask_ai_banner_card.dart';
 import '../../widgets/dashboard/dark_scenic_hero_header.dart';
@@ -106,6 +107,9 @@ class _DashboardPageState extends State<DashboardPage> {
                 const SizedBox(height: 16),
               ],
 
+              const LaunchFeaturesSection(),
+              const SizedBox(height: 22),
+
               // Health Insights: 3 Arc Metric Cards (BMI, Water, Records)
               HealthInsightsSection(
                 controller: _controller,
@@ -160,6 +164,13 @@ class _DashboardPageState extends State<DashboardPage> {
             DarkScenicHeroHeader(
               controller: _controller,
               onNavigateTab: widget.onNavigateTab,
+            ),
+            const Padding(
+              padding: EdgeInsets.all(24),
+              child: ColoredBox(
+                color: Color(0xFFF4F8FA),
+                child: Padding(padding: EdgeInsets.all(20), child: LaunchFeaturesSection()),
+              ),
             ),
             Container(
               decoration: const BoxDecoration(

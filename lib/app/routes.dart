@@ -16,7 +16,11 @@ class AppRoutes {
   static const String profile = '/profile';
   static const String settings = '/settings';
 
-  // Phase 1 Blueprint Routes
+  static const String caregiverAccess = '/caregiver-access';
+  static const String vaultSharing = '/vault-sharing';
+  static const String privacyCenter = '/privacy-center';
+
+  // Additional health routes
   static const String healthRisk = '/health-risk';
   static const String qrProfile = '/qr-profile';
   static const String familyDashboard = '/family-dashboard';

@@ -634,8 +634,8 @@ class _SettingsPageState extends State<SettingsPage> {
                 _buildSectionHeader('Privacy & About', Icons.info_outline),
                 Card(child: Column(children: [
                   ListTile(leading: const Icon(Icons.qr_code), title: const Text('Emergency Medical ID QR'), onTap: () => Navigator.pushNamed(context, AppRoutes.qrProfile)),
-                  ListTile(leading: const Icon(Icons.family_restroom), title: const Text('Family Caregiver Access'), onTap: () => Navigator.pushNamed(context, '/caregiver-access')),
-                  ListTile(leading: const Icon(Icons.folder_shared), title: const Text('Secure Vault Sharing'), onTap: () => Navigator.pushNamed(context, '/vault-sharing')),
+                  ListTile(leading: const Icon(Icons.family_restroom), title: const Text('Family Caregiver Access'), onTap: () => Navigator.pushNamed(context, AppRoutes.caregiverAccess)),
+                  ListTile(leading: const Icon(Icons.folder_shared), title: const Text('Secure Vault Sharing'), onTap: () => Navigator.pushNamed(context, AppRoutes.vaultSharing)),
                   ListTile(leading: const Icon(Icons.offline_bolt), title: const Text('Offline Emergency Card'), onTap: () => Navigator.pushNamed(context, AppRoutes.offlineEmergency)),
                 ])),
                 Card(
@@ -651,7 +651,7 @@ class _SettingsPageState extends State<SettingsPage> {
                         title: const Text('Privacy Center', style: TextStyle(fontWeight: FontWeight.w600)),
                         subtitle: const Text('Review our medical data protection commitments'),
                         trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14),
-                        onTap: () => Navigator.pushNamed(context, '/privacy-center'),
+                        onTap: () => Navigator.pushNamed(context, AppRoutes.privacyCenter),
                       ),
                       const Divider(height: 1),
                       ListTile(

@@ -63,9 +63,9 @@ class MedGuardApp extends StatelessWidget {
         AppRoutes.profile: (context) =>
             const MainNavigationFrame(initialIndex: 4),
         AppRoutes.settings: (context) => const SettingsPage(),
-        '/privacy-center': (context) => const AccessCenterPage(),
-        '/caregiver-access': (context) => const AccessCenterPage(mode: 'caregiver'),
-        '/vault-sharing': (context) => const AccessCenterPage(mode: 'vault'),
+        AppRoutes.privacyCenter: (context) => const AccessCenterPage(),
+        AppRoutes.caregiverAccess: (context) => const AccessCenterPage(mode: 'caregiver'),
+        AppRoutes.vaultSharing: (context) => const AccessCenterPage(mode: 'vault'),
 
         // Blueprint Feature Routes
         AppRoutes.healthRisk: (context) => const HealthRiskPredictionPage(),
